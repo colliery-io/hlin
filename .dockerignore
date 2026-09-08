@@ -1,0 +1,47 @@
+# What the image build must not carry.
+#
+# Without this, `COPY . .` sends the whole working tree — including `target/`,
+# which is several gigabytes of host-architecture build output that the builder
+# stage cannot use and would rebuild anyway. The first attempt at this image
+# failed with "no space left on device" while writing `target/debug/deps` into a
+# layer, which is the clearest possible statement of the problem.
+
+# Build output, host-architecture and useless in a container.
+target/
+vendor/*/target/
+
+# Built front ends. The image builds its own, from source, at a pinned
+# toolchain; a dist/ copied from a laptop is a binary of unknown provenance.
+examples/*/dist/
+
+# Local runtime state: logs, the development database, and the shell's signing
+# key. The key especially — it is the private half of what platforms verify
+# tokens against, and it has no business in an image.
+demo/state/
+
+# Version control and editor leavings.
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+.DS_Store
+
+# Browser tests and their downloaded browser.
+e2e/node_modules/
+e2e/screenshots/
+e2e/report/
+e2e/results/
+
+# Python bytecode from the angreal tasks.
+__pycache__/
+*.pyc
+
+# Documentation output.
+site/
+docs/api/
+
+# Nothing here is read at build time.
+.metis/
+CHANGELOG.md
+CONTRIBUTING.md
