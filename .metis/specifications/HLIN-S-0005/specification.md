@@ -149,6 +149,37 @@ Rules, all checked at startup rather than at the first sign-in:
 - A shell served over `https` whose cookie is not `Secure` is refused.
 - `SameSite=Strict` is refused. The provider returns the browser by a top-level redirect, which `Strict` treats as cross-site and strips the cookie from, so a person would arrive back at the shell signed in and apparently not, forever.
 
+**Verified against a real provider, 2026-09-08.** Dex 2.41, TLS with a private
+CA, one static client and one static password. The whole round trip: an
+unauthenticated request answered 401 naming the login route; `/auth/login`
+built an authorization URL carrying state, nonce and an S256 PKCE challenge; a
+person signed in at the provider's own form; the callback came back with the
+code and the same state; the shell redeemed it, verified the id token against
+the provider's live key set, and set `hlin_session` — `HttpOnly`,
+`SameSite=Lax`, `Max-Age=43200` from `session_hours = 12`. The next request
+resolved to that person.
+
+Every refusal was exercised too. Replaying the callback is refused, because
+`state` is single use. A cookie nobody issued is 401. Signing out is 204, clears
+the cookie, and — the part a signed cookie could not do — the cookie stops
+working. The session survived a restart of the shell, and the stored row is 64
+hex characters where the cookie is 43 of base64url: the SHA-256, not the value.
+
+**The provider's certificate must be trusted by the host the shell runs on.**
+There is no Hlin setting for a CA bundle: the client uses the platform verifier,
+which reads the system trust store, and `SSL_CERT_FILE` is an OpenSSL convention
+it does not follow. For an internal provider on a private CA — the common case —
+put the CA in the container's trust store:
+
+```
+-v /path/ca.pem:/usr/local/share/ca-certificates/internal.crt:ro
+# then `update-ca-certificates` before `hlin serve`, or bake it into a layer
+```
+
+The same applies to every platform the shell polls, which matters more: a dozen
+internal platforms is the premise, and an internal CA is how they are usually
+served.
+
 **Sessions are rows, not signed cookies** (decided 2026-09-08, under [[HLIN-T-0026]]). The alternative — a self-contained cookie carrying the claims — cannot be withdrawn: signing out clears the browser's copy and nothing else, and there is no answer to "revoke this person now" short of rotating a key and ending everyone's session at once. It would also put the provider's tokens in the browser, on a cookie that then goes to every same-origin platform on every request. What a row costs is one indexed read per request and a table that grows, and a sweeper answers the second. A shell restart signs nobody out, which is the behaviour to want: the alternative logs out an organisation because a shell was redeployed.
 
 The cookie's value is never stored. A session is keyed by its SHA-256, so a dump of the table is a set of useless hashes rather than a set of live sessions; the shell has the value on every request and can hash it, so storing it buys nothing.

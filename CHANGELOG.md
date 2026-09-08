@@ -94,5 +94,7 @@ number here can move, including the ones a platform declares.
   in-memory store is a test double (HLIN-A-0006), and falling back to it lost
   every view anybody composed on the next restart — the success condition
   failing quietly, which is worse than failing to start.
-- `oidc` has not been run against a real provider.
+- `oidc` has no Hlin setting for a CA bundle. A provider on a private CA — the
+  common internal case — needs that CA in the trust store of whatever runs the
+  shell; the same is true of every platform it polls.
 - Nothing is published to crates.io.

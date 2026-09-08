@@ -23,9 +23,10 @@ Two things it will tell you about on the way up, both deliberate:
 - **It refuses the `dev` authenticator.** That strategy makes every request the
   same person, so a release build will not start with it. Use `trusted-header`
   behind a proxy that authenticates, or `oidc`. See `docker/hlin.toml`.
-- **It warns without a database.** Contract memory and layouts live in Postgres.
-  Without one the shell runs, but a platform that ships a breaking change across
-  a restart goes unnoticed — which is the thing the versioning exists to catch.
+- **It refuses to start without a database.** The surfaces people compose live
+  in Postgres. Without one they are lost on the next restart, along with the
+  links anybody shared — the thing Hlin is for, failing quietly, which is worse
+  than failing to start. A debug build still falls back, and says what is lost.
 
 Configured with `trusted-header` and no proxy in front, every request is
 refused and the browser says so. That is the strategy working, not a fault. To
@@ -39,6 +40,23 @@ For a browser, put any header-setting proxy in front — or run the demo below,
 which uses the `dev` authenticator that a debug build allows and a release
 build refuses.
 
+For a real identity provider, use `oidc`. Register `{public_url}/auth/callback`
+as the redirect URI — it is derived rather than configured, so it cannot drift
+from the route that exists:
+
+```toml
+[auth]
+strategy = "oidc"
+issuer = "https://id.example.com"
+client_id = "hlin"
+client_secret_env = "HLIN_OIDC_CLIENT_SECRET"
+public_url = "https://hlin.example.com"
+```
+
+If the provider is on a private CA, that CA has to be in the trust store of
+whatever runs the shell — there is no setting for it, and the same is true of
+every platform the shell polls.
+
 On Kubernetes, there is a chart:
 
 ```sh
@@ -48,10 +66,15 @@ helm install hlin oci://ghcr.io/colliery-io/charts/hlin --version 0.0.1 \
   --set config.databaseUrlSecret.key=url
 ```
 
-It refuses three configurations rather than rendering them, each mirroring
+It brings a Postgres by default, so this produces something that can actually do
+what Hlin is for rather than a degraded version of it. Turn that off and point at
+your own for anything whose loss would matter.
+
+It refuses four configurations rather than rendering them, each mirroring
 something the shell itself refuses, and for the same reason — the failure they
 prevent is silent:
 
+- No database at all, which is now an install that cannot start.
 - `dev` as an authenticator, which a release build will not start with anyway.
 - `trusted-header` without acknowledging what it trusts. A pod IP is reachable
   from the rest of the namespace by default, so an ingress in front is not on
