@@ -27,6 +27,18 @@ Two things it will tell you about on the way up, both deliberate:
   Without one the shell runs, but a platform that ships a breaking change across
   a restart goes unnoticed — which is the thing the versioning exists to catch.
 
+Configured with `trusted-header` and no proxy in front, every request is
+refused and the browser says so. That is the strategy working, not a fault. To
+look around without standing up a proxy, send the header yourself:
+
+```sh
+curl -H "x-forwarded-user: you" http://localhost:8080/api/platforms
+```
+
+For a browser, put any header-setting proxy in front — or run the demo below,
+which uses the `dev` authenticator that a debug build allows and a release
+build refuses.
+
 To work on it instead, everything is an `angreal` task:
 
 ```sh

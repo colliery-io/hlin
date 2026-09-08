@@ -4,6 +4,10 @@
 # somewhere else — the platforms below are examples and the identity settings
 # are the minimum a release build will accept, not a recommendation.
 
+# Every interface, which is what a container needs: the shell defaults to
+# loopback so a developer running it locally is not on the network by accident,
+# and loopback inside a container is the container's own — reachable by nothing.
+bind = "0.0.0.0"
 port = 8080
 issuer = "hlin"
 

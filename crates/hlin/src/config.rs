@@ -18,6 +18,16 @@ use crate::identity::CredentialConfig;
 /// Everything the shell needs to run.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
+    /// Which address the shell listens on.
+    ///
+    /// Loopback by default, because a shell started by a developer should not
+    /// be on the network by accident. A deployment sets this — a container in
+    /// particular, where loopback means the container's own and nothing outside
+    /// it can reach the shell at all. That was the first thing running the
+    /// image found, after it built and started and looked entirely healthy.
+    #[serde(default = "default_bind")]
+    pub bind: String,
+
     /// Where the shell listens.
     #[serde(default = "default_port")]
     pub port: u16,
@@ -55,6 +65,10 @@ pub struct Config {
     /// The platforms this shell knows about.
     #[serde(default)]
     pub platforms: Vec<PlatformConfig>,
+}
+
+fn default_bind() -> String {
+    "127.0.0.1".to_string()
 }
 
 fn default_port() -> u16 {

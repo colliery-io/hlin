@@ -163,10 +163,11 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
     // forever; it costs nothing to start where there is nothing to sweep.
     hlin::auth::sweep(state.store.clone());
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.port)).await?;
+    let listener = tokio::net::TcpListener::bind((config.bind.as_str(), config.port)).await?;
     tracing::info!(
         platforms = config.platforms.len(),
-        "listening on http://127.0.0.1:{}",
+        "listening on http://{}:{}",
+        config.bind,
         config.port
     );
 

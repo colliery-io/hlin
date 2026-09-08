@@ -4,7 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hlin</title>
-    <link data-trunk rel="rust" />
+    <!-- wasm-opt off, which Trunk.toml has always said and never enforced.
+         The bundled one does not understand every feature this toolchain
+         emits. A debug build never invoked it, so the claim held by
+         accident until the first `trunk build --release` went looking for a
+         binary that is not published for every platform. -->
+    <link data-trunk rel="rust" data-wasm-opt="0" />
     <link data-trunk rel="css" href="../../crates/hlin-ui/app.css" />
   </head>
   <body></body>

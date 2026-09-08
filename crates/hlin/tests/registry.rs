@@ -76,6 +76,7 @@ const ONE_PANEL: &str = r#"
 
 fn config(debounce: i32) -> Config {
     Config {
+        bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),

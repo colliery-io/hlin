@@ -214,6 +214,7 @@ fn hlin_token_mints_a_fresh_token_each_time() {
 
 fn config_with(platform: PlatformConfig) -> Config {
     Config {
+        bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),

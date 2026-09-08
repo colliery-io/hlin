@@ -64,6 +64,7 @@ fn manifest(id: &str) -> Manifest {
 
 fn config() -> Config {
     Config {
+        bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
