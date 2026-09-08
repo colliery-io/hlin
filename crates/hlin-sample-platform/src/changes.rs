@@ -23,7 +23,7 @@ use tokio::sync::broadcast;
 
 /// The panels whose data this platform actually mutates, and can therefore
 /// honestly report on.
-pub const PUSHED_PANELS: [&str; 2] = [BATCHES, PIPELINE];
+pub const PUSHED_PANELS: [&str; 3] = [BATCHES, PIPELINE, ACTIVITY];
 
 /// A count that only goes up.
 pub const BATCHES: &str = "batches";
@@ -37,9 +37,20 @@ pub const BATCHES: &str = "batches";
 /// it costs two a minute and arrives sooner.
 pub const PIPELINE: &str = "pipeline";
 
+/// What just happened to the stages, most recent first.
+///
+/// The same events the pipeline panel colours, kept as a list so a person can
+/// ask a stage what it has been doing rather than only what it is. Reported on
+/// for the same reason: it changes at discrete moments and wants seeing at once.
+pub const ACTIVITY: &str = "stage-activity";
+
 /// The stages, in order. The shape of the pipeline never changes; only how the
 /// stages are.
 pub const STAGES: [&str; 5] = ["ingest", "parse", "enrich", "index", "archive"];
+
+/// How many events to keep. Ten per stage is what the panel shows; the buffer
+/// holds enough that every stage has ten even when one is much busier.
+const KEPT: usize = 200;
 
 /// How often the driver considers changing something.
 const TICK_MS: u64 = 250;
@@ -67,8 +78,25 @@ pub struct Changes {
     /// enough to care.
     stages: std::sync::Mutex<Vec<Health>>,
 
+    /// What has happened to the stages, most recent last.
+    events: std::sync::Mutex<std::collections::VecDeque<StageEvent>>,
+
     /// The panel keys whose data has just changed.
     told: broadcast::Sender<String>,
+}
+
+/// One thing that happened to one stage.
+#[derive(Debug, Clone)]
+pub struct StageEvent {
+    /// Which stage, by its name.
+    pub stage: &'static str,
+    /// How it was.
+    pub from: Health,
+    /// How it is now.
+    pub to: Health,
+    /// When, in epoch milliseconds — the same clock a series carries, so
+    /// nothing downstream has to convert between two notions of time.
+    pub at_millis: i64,
 }
 
 /// How one stage is.
@@ -113,6 +141,7 @@ impl Changes {
         Arc::new(Self {
             batches: AtomicU64::new(0),
             stages: std::sync::Mutex::new(vec![Health::Healthy; STAGES.len()]),
+            events: std::sync::Mutex::new(std::collections::VecDeque::with_capacity(KEPT)),
             told,
         })
     }
@@ -160,14 +189,19 @@ impl Changes {
     /// shell fast enough to refetch on notice must not read the old state and
     /// then wait out the relaxed interval before looking again.
     pub fn stage_changed(&self, which: usize) {
-        {
+        let Some(name) = STAGES.get(which) else {
+            return;
+        };
+        let (from, to) = {
             let mut stages = self.stages.lock().expect("the stage lock is not poisoned");
             let Some(stage) = stages.get_mut(which) else {
                 return;
             };
+            let from = *stage;
             *stage = stage.next();
-        }
-        let _ = self.told.send(PIPELINE.to_string());
+            (from, *stage)
+        };
+        self.record(name, from, to);
     }
 
     /// Something that was unhealthy comes back.
@@ -197,9 +231,53 @@ impl Changes {
                 // in and nothing to announce.
                 return;
             }
-            stages[unhealthy[nth % unhealthy.len()]] = Health::Healthy;
+            let which = unhealthy[nth % unhealthy.len()];
+            let from = stages[which];
+            stages[which] = Health::Healthy;
+            drop(stages);
+
+            if let Some(name) = STAGES.get(which) {
+                self.record(name, from, Health::Healthy);
+            }
         }
+    }
+
+    /// Write down what happened, then say so.
+    ///
+    /// One place, so the log and the state can never disagree about what
+    /// changed — and so the announcement is made once, after both are written,
+    /// rather than once per thing that changed.
+    fn record(&self, stage: &'static str, from: Health, to: Health) {
+        {
+            let mut events = self.events.lock().expect("the event lock is not poisoned");
+            if events.len() == KEPT {
+                events.pop_front();
+            }
+            events.push_back(StageEvent {
+                stage,
+                from,
+                to,
+                at_millis: now_millis(),
+            });
+        }
+
+        // Both panels read this change: the graph colours by the state and the
+        // list shows the transition. One write, two things to refetch.
         let _ = self.told.send(PIPELINE.to_string());
+        let _ = self.told.send(ACTIVITY.to_string());
+    }
+
+    /// The most recent events for one stage, newest first.
+    pub fn events_for(&self, stage: &str, most: usize) -> Vec<StageEvent> {
+        self.events
+            .lock()
+            .expect("the event lock is not poisoned")
+            .iter()
+            .rev()
+            .filter(|event| event.stage == stage)
+            .take(most)
+            .cloned()
+            .collect()
     }
 }
 
@@ -253,6 +331,17 @@ fn should_change(tick: u64) -> bool {
     mixed = mixed.wrapping_mul(0xBF58_476D_1CE4_E5B9);
     mixed ^= mixed >> 27;
     mixed.is_multiple_of(RARITY)
+}
+
+/// Epoch milliseconds.
+///
+/// Its own helper because this module deliberately has no date crate: it needs
+/// one instant, and the panels convert it.
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        .unwrap_or_default()
 }
 
 /// Which stage, if any, takes a turn for the worse on this tick.

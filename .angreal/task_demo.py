@@ -500,6 +500,9 @@ COMPOSITION = [
     # so a full-width panel does not give it a wider picture — it gives it the
     # same picture with empty margins either side.
     ("orebank", "throughput-by-cluster", 0, 12, 6, 4),
+    # The drill-down, beside the graph whose colours it explains: click a stage,
+    # see what has just happened to it.
+    ("orebank", "stage-activity", 6, 12, 6, 4),
 ]
 
 

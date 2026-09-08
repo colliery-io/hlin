@@ -171,6 +171,17 @@ pub fn throughput_by_cluster(platform: &str, cluster: Option<&str>) -> Envelope 
     let start = end - LIVE_WINDOW_SECONDS * 1000;
     let step = 250;
 
+    // The chosen cluster's position in the list, which is what sets the level
+    // each one sits at. Derived from the position rather than from a hash of
+    // the name: a hash taken modulo a small number collides, and two clusters
+    // that happened to collide drew the same chart — so "picking a different
+    // cluster changes the answer", which is the whole point of the control,
+    // was true only most of the time.
+    let rank = available
+        .iter()
+        .position(|(value, _)| *value == chosen)
+        .unwrap_or(0);
+
     let series = workers(platform)
         .into_iter()
         .take(2)
@@ -181,7 +192,7 @@ pub fn throughput_by_cluster(platform: &str, cluster: Option<&str>) -> Envelope 
             while at <= end {
                 // Each cluster its own phase and centre, so switching one
                 // visibly changes the shape rather than the label.
-                let centre = 420.0 + (base % 5) as f64 * 90.0;
+                let centre = 420.0 + rank as f64 * 180.0;
                 let value = wave(base, at, 9.0, 140.0, centre);
                 points.push(Point(at, Some((value * 10.0).round() / 10.0)));
                 at += step;
@@ -533,4 +544,77 @@ pub fn batches(completed: u64) -> Envelope {
         as_of: Some(Utc::now()),
         extra: Default::default(),
     })
+}
+
+/// `records.v1`: what has just happened to one stage.
+///
+/// The drill-down half of the pipeline. The graph says how a stage *is*; this
+/// says what it has been doing, which is the question somebody asks the moment
+/// they see a node go red — and the answer no amount of staring at the graph
+/// gives.
+///
+/// The events are the real transitions this platform made, not a story invented
+/// for the panel, so what the list says and what the graph shows cannot
+/// disagree.
+pub fn stage_activity(events: &[crate::changes::StageEvent], stage: &str) -> Envelope {
+    let rows = events
+        .iter()
+        .map(|event| {
+            let mut row = Map::new();
+            row.insert(
+                "at".to_string(),
+                Value::String(
+                    DateTime::from_timestamp_millis(event.at_millis)
+                        .unwrap_or_else(Utc::now)
+                        .to_rfc3339(),
+                ),
+            );
+            row.insert("stage".to_string(), Value::String(stage.to_string()));
+            row.insert(
+                "change".to_string(),
+                Value::String(format!("{} → {}", event.from.word(), event.to.word())),
+            );
+            row.insert(
+                "state".to_string(),
+                Value::String(event.to.word().to_string()),
+            );
+            row
+        })
+        .collect();
+
+    Envelope::Records(Records {
+        columns: vec![
+            column("at", "When", ColumnType::Timestamp, None),
+            column("change", "Change", ColumnType::String, None),
+        ],
+        rows,
+        as_of: Some(Utc::now()),
+        extra: Default::default(),
+    })
+}
+
+/// `options.v1`: the stages a person may drill into.
+pub fn stage_options() -> Envelope {
+    Envelope::Options(Options {
+        as_of: Some(Utc::now()),
+        options: crate::changes::STAGES
+            .iter()
+            .map(|stage| Choice {
+                value: (*stage).to_string(),
+                label: title_of(stage),
+                group: None,
+                extra: Default::default(),
+            })
+            .collect(),
+        extra: Default::default(),
+    })
+}
+
+/// A stage name as a person would write it.
+fn title_of(stage: &str) -> String {
+    let mut letters = stage.chars();
+    match letters.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + letters.as_str(),
+        None => String::new(),
+    }
 }

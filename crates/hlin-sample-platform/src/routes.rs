@@ -62,10 +62,12 @@ pub fn router(config: Config) -> Router {
     // knows its own name here, and a path parameter cannot be part of a
     // segment.
     let options_path = format!("/api/hlin/{}-clusters", config.name);
+    let stages_path = format!("/api/hlin/{}-stages", config.name);
     let state = Arc::new(config);
 
     Router::new()
         .route(&options_path, get(cluster_options))
+        .route(&stages_path, get(stage_options))
         .route("/.well-known/hlin.json", get(manifest))
         .route("/api/health", get(health))
         .route("/api/hlin/records-per-second", get(records_per_second))
@@ -81,6 +83,7 @@ pub fn router(config: Config) -> Router {
         .route("/api/hlin/queue-depth", get(queue_depth))
         .route("/api/hlin/worker-health", get(worker_health))
         .route("/api/hlin/batches", get(batches))
+        .route("/api/hlin/stage-activity", get(stage_activity))
         .route("/api/events", get(events))
         .with_state(state)
 }
@@ -224,6 +227,8 @@ struct Params {
     to: Option<DateTime<Utc>>,
     step: Option<i64>,
     cluster: Option<String>,
+    /// Which stage a person drilled into, from a click on the pipeline list.
+    stage: Option<String>,
 }
 
 impl Params {
@@ -328,6 +333,40 @@ async fn worker_health(State(config): State<Arc<Config>>, headers: HeaderMap) ->
 async fn cluster_options(State(config): State<Arc<Config>>, headers: HeaderMap) -> Response {
     match identify(&config, &headers) {
         Ok(_) => envelope(data::cluster_options(&config.name)),
+        Err(refusal) => refusal.into_response(),
+    }
+}
+
+async fn stage_options(State(config): State<Arc<Config>>, headers: HeaderMap) -> Response {
+    match identify(&config, &headers) {
+        Ok(_) => envelope(data::stage_options()),
+        Err(refusal) => refusal.into_response(),
+    }
+}
+
+/// The last few things that happened to one stage.
+///
+/// Falls back to the first stage rather than refusing when none was chosen,
+/// which is what the parameter vocabulary asks of a platform: a panel somebody
+/// has just put on a surface has selected nothing yet, and showing them the
+/// default is a better answer than showing them an error.
+async fn stage_activity(
+    State(config): State<Arc<Config>>,
+    headers: HeaderMap,
+    Query(params): Query<Params>,
+) -> Response {
+    match identify(&config, &headers) {
+        Ok(_) => {
+            let stage = params
+                .stage
+                .as_deref()
+                .filter(|asked| crate::changes::STAGES.contains(asked))
+                .unwrap_or(crate::changes::STAGES[0]);
+            envelope(data::stage_activity(
+                &config.changes.events_for(stage, 10),
+                stage,
+            ))
+        }
         Err(refusal) => refusal.into_response(),
     }
 }

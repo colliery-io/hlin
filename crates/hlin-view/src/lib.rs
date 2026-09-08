@@ -66,7 +66,8 @@ pub use state::{Cause, PanelState};
 pub mod envelope {
     pub use hlin_manifest::Envelope;
     pub use hlin_manifest::envelope::{
-        Choice, Column, Health, Line, Options, Point, Records, Scalar, Series, Status, StatusItem,
+        Choice, Column, ColumnType, Health, Line, Options, Point, Records, Scalar, Series, Status,
+        StatusItem,
     };
 }
 

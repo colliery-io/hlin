@@ -12,13 +12,14 @@ use serde_json::{Map, Value};
 
 /// The contract version this platform declares when it is behaving.
 ///
+/// 2.1.0 adds `stage-activity`; adding a panel is additive, so it is a minor.
 /// 2.0.0 because `throughput-by-cluster` stopped declaring `time_range`, and
 /// `params` is contract: a consumer that pinned to the panel responding to the
 /// time picker would break. The shell caught this before anybody noticed —
 /// `angreal demo walkthrough` failed with the violation naming the exact
 /// parameter — which is what HLIN-A-0002 exists to do, working against the code
 /// that was demonstrating it.
-pub const NORMAL_VERSION: &str = "2.0.0";
+pub const NORMAL_VERSION: &str = "2.1.0";
 
 /// The panel key dropped by `--breaking`, without a major bump.
 pub const BREAKING_PANEL_KEY: &str = "queue-depth";
@@ -176,6 +177,27 @@ fn all_panels(name: &str) -> Vec<Panel> {
             ),
             250,
         )),
+        // The drill-down. The graph says how a stage *is*; this says what it
+        // has been doing, which is the question somebody asks the moment they
+        // see a node go red — and the one no amount of staring at the graph
+        // answers.
+        //
+        // Its `select` is what makes it a drill-down rather than a second
+        // table: a click on a stage sets the parameter, the shell refetches,
+        // and the list is that stage's. The same parameter the shell's own
+        // control writes to, so a person can drive it either way.
+        drawn_by(
+            reports_its_own(panel(
+                crate::changes::ACTIVITY,
+                "Stage activity",
+                Some("Pick a stage; see what has just happened to it"),
+                "table",
+                "records.v1",
+                "api/hlin/stage-activity",
+                vec![select("stage", "Stage", &format!("api/hlin/{name}-stages"))],
+            )),
+            "aurora.drilldown",
+        ),
         // Two panels that name a component as well as a kind. Both are drawn by
         // Aurora's own components where a shell mounts Aurora, and by the
         // declared kind everywhere else. A platform can do this without knowing

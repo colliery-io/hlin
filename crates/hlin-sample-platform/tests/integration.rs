@@ -243,15 +243,25 @@ fn the_select_narrows_what_comes_back() {
         (total / points.len() as f64).round()
     };
 
-    assert_ne!(
-        level(None),
-        level(Some(&clusters[1].0)),
+    // Compared with a tolerance, because the window ends at *now*: two calls
+    // are two slightly different windows, so the same cluster's level drifts a
+    // little between them. Clusters sit ninety apart by construction, so a few
+    // units of drift cannot be mistaken for a different cluster — and asserting
+    // exact equality made this fail only under load, which is the worst kind of
+    // test to own.
+    let drift = 20.0;
+
+    assert!(
+        (level(None) - level(Some(&clusters[1].0))).abs() > drift,
         "choosing a different cluster should change the data"
     );
 
     // An unknown selection falls back to the platform's own default rather
     // than failing, which is what the parameter vocabulary asks of a platform.
-    assert_eq!(level(Some("no-such-cluster")), level(None));
+    assert!(
+        (level(Some("no-such-cluster")) - level(None)).abs() < drift,
+        "an unknown cluster should give the platform's default back"
+    );
 }
 
 #[test]

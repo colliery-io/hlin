@@ -22,7 +22,9 @@
 //! keeps them consistent with everything around them without asking a general
 //! design system to grow a plotting library.
 
-use hlin_view::envelope::{Envelope, Health, Options, Records, Scalar, Series, Status};
+use hlin_view::envelope::{
+    ColumnType, Envelope, Health, Options, Records, Scalar, Series, Status,
+};
 use hlin_view::pack::Context;
 use hlin_view::{Cause, DesignPack, Intent, Kind};
 use leptos::prelude::*;
@@ -132,6 +134,98 @@ impl AuroraPack {
                         {label.map(|text| view! { <Text size="xs" dimmed=true>{text}</Text> })}
                     </Group>
                     <Meter value=percent color=colour.to_string() />
+                </Stack>
+            }
+            .into_any(),
+        )
+    }
+
+    /// `aurora.drilldown`: a list you pick from, and what it says about the
+    /// thing you picked.
+    ///
+    /// The same round trip [`AuroraPack::faceted`] makes, for records rather
+    /// than a series, and it is the shape most dashboards actually want: a
+    /// person sees something wrong in one panel and immediately wants that
+    /// thing's recent history. Coming in, `context.controls` carries what may
+    /// be chosen and what is; going out, a click sends [`Intent::Select`] for
+    /// the same parameter the shell's own control writes to, so the two can
+    /// never disagree.
+    ///
+    /// Nothing here is Hlin-specific beyond reading that vocabulary. Aurora
+    /// decides a drill-down is a row of chips over a table; the shell has no
+    /// opinion and is not told.
+    fn drilldown(data: &Records, context: Context) -> AnyView {
+        let control = context
+            .controls
+            .iter()
+            .find(|control| !control.choices.is_empty())
+            .cloned();
+
+        // The same table the vocabulary draws, from the same helper: a person
+        // switching this panel between kinds should see the same rows, not
+        // Aurora's second opinion about them.
+        let headings: Vec<String> =
+            data.columns.iter().map(|column| column.label.clone()).collect();
+        let keys: Vec<(String, ColumnType)> = data
+            .columns
+            .iter()
+            .map(|column| (column.key.clone(), column.value_type))
+            .collect();
+        let rows: Vec<Vec<String>> = data
+            .rows
+            .iter()
+            .map(|row| {
+                keys.iter()
+                    .map(|(key, kind)| row.get(key).map(|value| cell(value, *kind)).unwrap_or_default())
+                    .collect()
+            })
+            .collect();
+        let table = grid(headings, rows);
+
+        let Some(control) = control else {
+            // No choices: the table alone, which is the honest thing to draw.
+            // Chips over an empty list would be a picker that picks nothing.
+            return Self::framed(context, table);
+        };
+
+        let chosen = control.value().unwrap_or_default().to_string();
+        let param = control.id.clone();
+        let live = context.emit.is_live();
+
+        let chips = control
+            .choices
+            .iter()
+            .map(|choice| (choice.value.clone(), choice.label.clone()))
+            .map(|(value, label)| {
+                let selected = value == chosen;
+                let emit = context.emit.clone();
+                let param = param.clone();
+                let sent = value.clone();
+
+                view! {
+                    <button
+                        class="cl-hlin-facet"
+                        class:cl-hlin-facet--on=selected
+                        disabled=!live
+                        on:click=move |_| {
+                            emit.send(Intent::Select {
+                                param: param.clone(),
+                                values: vec![sent.clone()],
+                            });
+                        }
+                    >
+                        {label}
+                    </button>
+                }
+            })
+            .collect_view();
+
+        Self::framed(
+            context,
+            view! {
+                <Stack gap="xs">
+                    <Group gap="xs" wrap=true>{chips}</Group>
+                    {table}
                 </Stack>
             }
             .into_any(),
@@ -521,10 +615,10 @@ impl DesignPack for AuroraPack {
             .iter()
             .map(|column| column.label.clone())
             .collect();
-        let keys: Vec<String> = data
+        let keys: Vec<(String, ColumnType)> = data
             .columns
             .iter()
-            .map(|column| column.key.clone())
+            .map(|column| (column.key.clone(), column.value_type))
             .collect();
 
         // A key the row does not carry renders empty; a key no column declared
@@ -534,7 +628,7 @@ impl DesignPack for AuroraPack {
             .iter()
             .map(|row| {
                 keys.iter()
-                    .map(|key| row.get(key).map(plain).unwrap_or_default())
+                    .map(|(key, kind)| row.get(key).map(|value| cell(value, *kind)).unwrap_or_default())
                     .collect()
             })
             .collect();
@@ -676,7 +770,13 @@ impl DesignPack for AuroraPack {
     /// the alternative is drawing an empty `Graph`, and a panel that fell back
     /// to its declared table is more use than a component pretending it worked.
     fn offers(&self) -> &'static [&'static str] {
-        &["aurora.meter", "aurora.graph", "aurora.faceted", "aurora.brush"]
+        &[
+            "aurora.meter",
+            "aurora.graph",
+            "aurora.faceted",
+            "aurora.brush",
+            "aurora.drilldown",
+        ]
     }
 
     fn custom(&self, component: &str, data: &Envelope, context: Context) -> Option<Self::View> {
@@ -685,6 +785,9 @@ impl DesignPack for AuroraPack {
             ("aurora.graph", Envelope::Records(records)) => Some(Self::graph(records, context)),
             ("aurora.faceted", Envelope::Series(series)) => Some(Self::faceted(series, context)),
             ("aurora.brush", Envelope::Series(series)) => Some(Self::brush(series, context)),
+            ("aurora.drilldown", Envelope::Records(records)) => {
+                Some(Self::drilldown(records, context))
+            }
             _ => None,
         }
     }
@@ -788,6 +891,32 @@ fn explain(cause: Cause) -> &'static str {
 }
 
 // -- Numbers, time, tables -------------------------------------------------
+
+/// One cell, formatted for the column it sits in.
+///
+/// The envelope says what a column *is*; how it reads is the pack's to decide,
+/// and a full RFC 3339 instant in a list of recent events is thirty characters
+/// of which four are the ones being compared. A wall clock is what somebody
+/// scanning a log is actually reading.
+///
+/// The date is dropped rather than abbreviated because these are recent events
+/// by construction — a list that needed the date would be a list that wanted a
+/// different column.
+fn cell(value: &serde_json::Value, of: ColumnType) -> String {
+    if of == ColumnType::Timestamp {
+        if let serde_json::Value::String(text) = value {
+            if let Some(clock) = text.split('T').nth(1) {
+                return clock
+                    .split(['.', '+', 'Z'])
+                    .next()
+                    .unwrap_or(clock)
+                    .to_string();
+            }
+        }
+    }
+
+    plain(value)
+}
 
 fn plain(value: &serde_json::Value) -> String {
     match value {
