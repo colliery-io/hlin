@@ -485,16 +485,21 @@ COMPOSITION = [
     ("orebank", "pipeline", 3, 0, 6, 4),
     ("stampmill", "saturation", 9, 0, 3, 4),
     # Then the vocabulary, doing what it does.
-    ("orebank", "live-rate", 0, 4, 3, 3),
-    ("stampmill", "live-throughput", 3, 4, 6, 3),
-    ("orebank", "worker-health", 9, 4, 3, 3),
-    ("stampmill", "queue-depth", 0, 7, 6, 4),
-    ("orebank", "throughput", 6, 7, 6, 4),
+    ("orebank", "live-rate", 0, 4, 3, 4),
+    # Four rows, not three: a chart with axes, a unit and a legend loses its
+    # bottom axis in three, and the bottom axis is where the time is.
+    ("stampmill", "live-throughput", 3, 4, 6, 4),
+    ("orebank", "worker-health", 9, 4, 3, 4),
+    ("stampmill", "queue-depth", 0, 8, 6, 4),
+    ("orebank", "throughput", 6, 8, 6, 4),
     # Last and full width, because it is the one to touch: pick a cluster and
     # watch the answer change while you watch it. It was missing from this list
     # entirely, so the panel that demonstrates a control demonstrated it to
     # nobody.
-    ("orebank", "throughput-by-cluster", 0, 11, 12, 4),
+    # Six wide, like the other charts. A chart keeps its aspect when it scales,
+    # so a full-width panel does not give it a wider picture — it gives it the
+    # same picture with empty margins either side.
+    ("orebank", "throughput-by-cluster", 0, 12, 6, 4),
 ]
 
 

@@ -49,7 +49,35 @@ body {
   color: var(--fg-bright);
 }
 
-.hlin-chart { width: 100%; height: 100px; display: block; }
+/* Sized by its own aspect rather than pinned to a height. A fixed height with
+   a uniformly-scaled viewBox letterboxes; a fixed height with a stretched one is
+   what made every line a ribbon. */
+/* Capped, so a very wide panel does not get an absurdly tall chart. Scaling
+   down stays uniform — the lines stay crisp and the chart simply takes narrower
+   margins. A chart with axes, a unit and a legend wants four grid rows; in
+   three it loses the bottom axis, which is the half a person reads the time
+   off. */
+.hlin-chart { width: 100%; height: auto; max-height: 190px; display: block; }
+
+/* The axes. Faint enough to read past — a gridline that competes with the data
+   is a gridline that makes the chart harder to read, which is the opposite of
+   the job. */
+.hlin-axis__grid { stroke: var(--border-fainter); stroke-width: 1; }
+.hlin-axis__line { stroke: var(--border); stroke-width: 1; }
+
+/* Tabular figures so the three tick labels line up on their decimal point
+   instead of drifting as the numbers change. */
+.hlin-axis__label {
+  fill: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.hlin-axis__unit {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
 .hlin-spark { width: 120px; height: 28px; flex: none; }
 
 .hlin-raw {

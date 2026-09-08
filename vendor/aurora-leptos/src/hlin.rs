@@ -165,7 +165,7 @@ impl AuroraPack {
         // The same chart `timeseries` draws, from the same two helpers, so the
         // filtered view and the unfiltered one are the same picture.
         let unit = data.unit.clone();
-        let drawn = chart(plot(data, 100.0), 100.0);
+        let drawn = chart(plot(data));
         let chart_view = view! {
             <Stack gap="xs">
                 {unit.map(|text| view! { <Text size="xs" dimmed=true>{text}</Text> })}
@@ -262,7 +262,7 @@ impl AuroraPack {
             });
 
         let unit = data.unit.clone();
-        let drawn = chart(plot(data, 100.0), 100.0);
+        let drawn = chart(plot(data));
 
         // Nothing to brush out of a chart with no points, and a surface that
         // moved to an empty range would be a worse answer than not moving.
@@ -439,7 +439,7 @@ impl DesignPack for AuroraPack {
 
     fn timeseries(&self, data: &Series, context: Context) -> Self::View {
         let unit = data.unit.clone();
-        let paths = plot(data, 100.0);
+        let plotted = plot(data);
         let legend: Vec<(String, &'static str)> = data
             .series
             .iter()
@@ -452,7 +452,7 @@ impl DesignPack for AuroraPack {
             view! {
                 <Stack gap="xs">
                     {unit.map(|text| view! { <Text size="xs" dimmed=true>{text}</Text> })}
-                    {chart(paths, 100.0)}
+                    {chart(plotted)}
                     <Group gap="sm" wrap=true>
                         {legend.into_iter().map(|(name, colour)| view! {
                             <Group gap="xs">
@@ -471,7 +471,7 @@ impl DesignPack for AuroraPack {
         let rows: Vec<(String, String, &'static str, String)> = data
             .series
             .iter()
-            .zip(plot(data, 28.0))
+            .zip(spark(data))
             .map(|(line, (path, colour))| {
                 let latest = line
                     .points
@@ -492,7 +492,19 @@ impl DesignPack for AuroraPack {
                         <Group justify="between" gap="sm">
                             <Text size="xs" dimmed=true>{name}</Text>
                             <svg class="hlin-spark" viewBox="0 0 240 28" preserveAspectRatio="none">
-                                <path d=path fill="none" stroke=colour stroke-width="1.5" />
+                                // Stretched to fill, which is what a sparkline
+                                // is for — but the stroke is not, or it comes
+                                // out thin where the line runs flat and thick
+                                // where it runs steep. That is the whole of the
+                                // ribboning the full chart had.
+                                <path
+                                    d=path
+                                    fill="none"
+                                    stroke=colour
+                                    stroke-width="1.5"
+                                    vector-effect="non-scaling-stroke"
+                                    stroke-linejoin="round"
+                                />
                             </svg>
                             <Text size="sm" bright=true mono=true>{latest}</Text>
                         </Group>
@@ -842,14 +854,38 @@ fn grid(headings: Vec<String>, rows: Vec<Vec<String>>) -> AnyView {
 
 // -- Charts ----------------------------------------------------------------
 
-/// Every series as an SVG path and its colour.
+/// The drawing area inside the chart, leaving room for the axes.
+///
+/// Nothing here is a proportion of the panel: the labels are text at a fixed
+/// size, so the space they need is fixed too. A margin expressed as a
+/// percentage would crowd them out on a narrow panel and strand them on a wide
+/// one.
+const CHART_W: f64 = 600.0;
+const CHART_H: f64 = 150.0;
+const PAD_LEFT: f64 = 52.0;
+const PAD_RIGHT: f64 = 10.0;
+const PAD_TOP: f64 = 12.0;
+const PAD_BOTTOM: f64 = 26.0;
+
+/// A series scaled to the drawing area, with the scale it was drawn against.
+struct Plotted {
+    lines: Vec<(String, &'static str)>,
+    low: f64,
+    high: f64,
+    first: i64,
+    last: i64,
+    empty: bool,
+}
+
+/// Every series as an SVG path, and the scale they share.
 ///
 /// Scaled together, because two series drawn to their own scales look
 /// comparable and are not. A gap in the data is a gap in the path rather than a
 /// straight line across it, so a platform that had nothing to report does not
 /// appear to have reported a smooth number.
-fn plot(data: &Series, height: f64) -> Vec<(String, &'static str)> {
-    const WIDTH: f64 = 240.0;
+fn plot(data: &Series) -> Plotted {
+    let width = CHART_W - PAD_LEFT - PAD_RIGHT;
+    let height = CHART_H - PAD_TOP - PAD_BOTTOM;
 
     let values: Vec<f64> = data
         .series
@@ -879,7 +915,8 @@ fn plot(data: &Series, height: f64) -> Vec<(String, &'static str)> {
         });
     let span = ((last - first) as f64).max(1.0);
 
-    data.series
+    let lines: Vec<(String, &'static str)> = data
+        .series
         .iter()
         .enumerate()
         .map(|(index, line)| {
@@ -891,8 +928,8 @@ fn plot(data: &Series, height: f64) -> Vec<(String, &'static str)> {
                     drawing = false;
                     continue;
                 };
-                let x = (point.0 - first) as f64 / span * WIDTH;
-                let y = height - (value - low) / (high - low) * height;
+                let x = PAD_LEFT + (point.0 - first) as f64 / span * width;
+                let y = PAD_TOP + height - (value - low) / (high - low) * height;
 
                 if drawing {
                     path.push_str(&format!(" L{x:.1} {y:.1}"));
@@ -904,23 +941,166 @@ fn plot(data: &Series, height: f64) -> Vec<(String, &'static str)> {
 
             (path.trim().to_string(), series_colour(index))
         })
+        .collect();
+
+    let empty = lines.iter().all(|(path, _)| path.is_empty());
+    Plotted {
+        lines,
+        low,
+        high,
+        first,
+        last,
+        empty,
+    }
+}
+
+/// A number short enough to sit in an axis label.
+///
+/// Axis labels are read at a glance and compared to each other, so they are
+/// rounded to something a person can hold in their head — full precision on a
+/// tick is noise that makes the three of them harder to compare, not easier.
+fn tick_label(value: f64) -> String {
+    let magnitude = value.abs();
+    if magnitude >= 10_000.0 {
+        format!("{:.0}k", value / 1000.0)
+    } else if magnitude >= 1000.0 {
+        format!("{:.1}k", value / 1000.0)
+    } else if magnitude >= 10.0 {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.1}")
+    }
+}
+
+/// A wall-clock time from epoch milliseconds, without pulling in a date crate.
+///
+/// Only ever used for the two ends of the horizontal axis, where what matters
+/// is telling one end from the other and knowing roughly when "now" is.
+fn clock_label(at_millis: i64) -> String {
+    let seconds = at_millis.div_euclid(1000);
+    let day = seconds.rem_euclid(86_400);
+    format!(
+        "{:02}:{:02}:{:02}",
+        day / 3600,
+        (day % 3600) / 60,
+        day % 60
+    )
+}
+
+/// The same shape, small enough to sit in a row.
+///
+/// Its own function rather than the chart's, because a sparkline has no axes to
+/// leave room for: every unit of its box is drawing area, which is the point of
+/// drawing one.
+fn spark(data: &Series) -> Vec<(String, &'static str)> {
+    const WIDTH: f64 = 240.0;
+    const HEIGHT: f64 = 28.0;
+
+    let plotted = plot(data);
+    let inner_w = CHART_W - PAD_LEFT - PAD_RIGHT;
+    let inner_h = CHART_H - PAD_TOP - PAD_BOTTOM;
+
+    // Re-mapped from the chart's drawing area rather than re-scaled from the
+    // data, so a sparkline and the chart beside it can never disagree about
+    // where a value sits.
+    plotted
+        .lines
+        .into_iter()
+        .map(|(path, colour)| {
+            let moved = path
+                .split(' ')
+                .map(|token| {
+                    let Some((command, rest)) = token.split_at_checked(1) else {
+                        return token.to_string();
+                    };
+                    if command != "M" && command != "L" {
+                        return token.to_string();
+                    }
+                    let Ok(x) = rest.parse::<f64>() else {
+                        return token.to_string();
+                    };
+                    format!("{command}{:.1}", (x - PAD_LEFT) / inner_w * WIDTH)
+                })
+                .collect::<Vec<_>>();
+
+            // Only the x tokens carry a command; the y values follow them and
+            // are rescaled in the same pass below.
+            let rescaled = moved
+                .into_iter()
+                .map(|token| match token.parse::<f64>() {
+                    Ok(y) => format!("{:.1}", (y - PAD_TOP) / inner_h * HEIGHT),
+                    Err(_) => token,
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            (rescaled, colour)
+        })
         .collect()
 }
 
 /// The chart element itself.
-fn chart(lines: Vec<(String, &'static str)>, height: f64) -> AnyView {
-    if lines.iter().all(|(path, _)| path.is_empty()) {
+///
+/// Drawn to a fixed viewBox and scaled uniformly. The previous version stretched
+/// a 240-unit box across whatever width the panel had with
+/// `preserveAspectRatio="none"`, which scales x and y by different factors — so
+/// a stroke came out thin where the line ran flat and thick where it ran steep,
+/// and every series read as a ribbon rather than a line. It also put text in
+/// that box, which stretched with it.
+fn chart(plotted: Plotted) -> AnyView {
+    if plotted.empty {
         return view! { <Empty message="no data in this range" /> }.into_any();
     }
 
+    let left = PAD_LEFT;
+    let right = CHART_W - PAD_RIGHT;
+    let top = PAD_TOP;
+    let bottom = CHART_H - PAD_BOTTOM;
+
+    // Three horizontal rules: the low, the middle and the high of what is
+    // actually drawn. Not a rounded scale of its own — a gridline that does not
+    // touch the data invites reading a value off it that is not there.
+    let ticks: Vec<(f64, String)> = [0.0_f64, 0.5, 1.0]
+        .into_iter()
+        .map(|fraction| {
+            let value = plotted.low + (plotted.high - plotted.low) * fraction;
+            let y = bottom - (bottom - top) * fraction;
+            (y, tick_label(value))
+        })
+        .collect();
+
     view! {
-        <svg
-            class="hlin-chart"
-            viewBox=format!("0 0 240 {height}")
-            preserveAspectRatio="none"
-        >
-            {lines.into_iter().map(|(path, colour)| view! {
-                <path d=path fill="none" stroke=colour stroke-width="1.5" />
+        <svg class="hlin-chart" viewBox=format!("0 0 {CHART_W} {CHART_H}") role="img">
+            {ticks.into_iter().map(|(y, label)| view! {
+                <line
+                    x1=left y1=y x2=right y2=y
+                    class="hlin-axis__grid"
+                />
+                <text x=left - 8.0 y=y + 3.5 text-anchor="end" class="hlin-axis__label">
+                    {label}
+                </text>
+            }).collect_view()}
+
+            // The two axes themselves, drawn over the grid so a rule never sits
+            // on top of the frame.
+            <line x1=left y1=top x2=left y2=bottom class="hlin-axis__line" />
+            <line x1=left y1=bottom x2=right y2=bottom class="hlin-axis__line" />
+
+            <text x=left y=bottom + 16.0 text-anchor="start" class="hlin-axis__label">
+                {clock_label(plotted.first)}
+            </text>
+            <text x=right y=bottom + 16.0 text-anchor="end" class="hlin-axis__label">
+                {clock_label(plotted.last)}
+            </text>
+            {plotted.lines.into_iter().map(|(path, colour)| view! {
+                <path
+                    d=path
+                    fill="none"
+                    stroke=colour
+                    stroke-width="1.5"
+                    stroke-linejoin="round"
+                    stroke-linecap="round"
+                />
             }).collect_view()}
         </svg>
     }
