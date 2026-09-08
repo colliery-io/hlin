@@ -1,0 +1,40 @@
+# The configuration the image ships with.
+#
+# Replace it. Mount your own over /etc/hlin/hlin.toml, or point HLIN_CONFIG
+# somewhere else — the platforms below are examples and the identity settings
+# are the minimum a release build will accept, not a recommendation.
+
+port = 8080
+issuer = "hlin"
+
+# Bundled with the image, so there is something to look at without building a
+# front end. A deployment using its own design pack points this at its own.
+frontend = "/home/hlin/frontend"
+
+# Mounted, so a restart keeps the key it signs platform tokens with. Without a
+# volume here every restart is a new issuer and every token it minted before
+# stops verifying.
+key_path = "/home/hlin/state/shell.key"
+
+# Contract memory and the layouts people compose. Without it the shell runs and
+# warns: a breaking change shipped across a restart goes unnoticed, which is the
+# one thing the versioning exists to catch.
+# database_url = "postgres://hlin:hlin@postgres:5432/hlin"
+
+[auth]
+# `dev` is refused in a release build, on purpose: it makes every request the
+# same person. This is the smallest strategy that works, and it means exactly
+# what it says — the shell must not be reachable except through the proxy that
+# sets these headers, because a header is trivially forged by anything that can
+# connect directly.
+strategy = "trusted-header"
+header = "x-forwarded-user"
+groups_header = "x-forwarded-groups"
+acknowledge_proxy_required = true
+
+# One per platform the shell should offer panels from.
+#
+# [[platforms]]
+# id = "orebank"
+# base_url = "https://orebank.internal"
+# auth = { strategy = "hlin-token" }

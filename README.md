@@ -6,6 +6,41 @@ Hlin is named for the Norse goddess who watches over those she is named to prote
 
 ---
 
+## Running it
+
+The image carries the shell and a front end together; the release tarballs carry
+the binary alone, which serves the API and has nothing to look at.
+
+```sh
+docker run --rm -p 8080:8080 \
+  -v hlin-state:/home/hlin/state \
+  -v ./hlin.toml:/etc/hlin/hlin.toml \
+  ghcr.io/colliery-io/hlin:v0.0.1
+```
+
+Two things it will tell you about on the way up, both deliberate:
+
+- **It refuses the `dev` authenticator.** That strategy makes every request the
+  same person, so a release build will not start with it. Use `trusted-header`
+  behind a proxy that authenticates, or `oidc`. See `docker/hlin.toml`.
+- **It warns without a database.** Contract memory and layouts live in Postgres.
+  Without one the shell runs, but a platform that ships a breaking change across
+  a restart goes unnoticed — which is the thing the versioning exists to catch.
+
+To work on it instead, everything is an `angreal` task:
+
+```sh
+angreal demo up        # database, front end, two sample platforms, the shell
+angreal demo compose   # a surface worth looking at, and its URL
+angreal demo down
+```
+
+`angreal tree` lists the rest. `.metis/` holds the decisions this was built
+from; the ADRs are why the code is shaped the way it is and are worth reading
+before changing it.
+
+---
+
 ## The problem
 
 We are building roughly a dozen Rust platforms. Each has a Leptos frontend served from its own root, each ships on its own cadence, and each is developed by a team that should not have to coordinate with the other eleven to release.
