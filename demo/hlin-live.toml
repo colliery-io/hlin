@@ -1,0 +1,67 @@
+# The demo shell, refreshing eight times a second.
+#
+# Same platforms and same frontend as the gallery; only the timings differ. The
+# `live-rate` and `live-throughput` panels move on a scale of seconds, so at
+# this cadence the surface is visibly in motion rather than inferred to be.
+#
+# What it costs, said plainly: every panel on every watched surface is refetched
+# over HTTP eight times a second, per viewer. Fine against two sample platforms
+# on loopback; a load test against anything real. Hlin has no way for a platform
+# to declare how fresh its data is — the manifest has no cadence field — so this
+# is set per shell and applies to every panel equally, including the ones that
+# change once an hour.
+#
+# Two sample platforms, deliberately on different identity strategies, so the
+# demo shows a platform that needed no change beside one that verifies a signed
+# token (decision HLIN-A-0008).
+
+port = 8080
+issuer = "hlin"
+key_path = "demo/state/shell.key"
+frontend = "examples/frontend-gallery/dist"
+
+# Postgres is where contract memory lives, so a breaking change shipped across
+# a restart is still noticed. `angreal db up` provides one.
+database_url = "postgres://hlin:hlin@localhost:55432/hlin"
+
+[auth]
+strategy = "dev"
+sub = "u_dev"
+name = "Development User"
+groups = ["platform-engineering", "oncall"]
+
+[timings]
+poll_seconds = 10
+debounce_observations = 2
+upstream_timeout_seconds = 10
+
+# Eight times a second. The driver ticks at a quarter of this, so the interval
+# is honoured rather than rounded up to the next tenth of a second.
+refresh_ms = 125
+
+# Kept proportional to the refresh rather than left at the ninety seconds that
+# suits a half-minute poll: at this rate that would be seven hundred missed
+# frames spent looking healthy.
+staleness_ms = 2000
+
+# A failing platform is still backed off on a human scale. Retrying a dead
+# platform eight times a second would turn a fast surface into a fast retry
+# storm.
+retry_from_ms = 2000
+retry_ceiling_ms = 30000
+
+# Verifies a signed token: what a platform does once it has adopted the
+# contract.
+[[platforms]]
+id = "orebank"
+base_url = "http://127.0.0.1:8081"
+auth = { strategy = "hlin-token" }
+
+# The same, for the second platform. `forward-session` would be the day-one
+# choice for a platform sharing the shell's session, but the demo runs each on
+# its own port, which is not same-origin, and the shell refuses that rather
+# than sending a cookie across an origin boundary.
+[[platforms]]
+id = "stampmill"
+base_url = "http://127.0.0.1:8082"
+auth = { strategy = "hlin-token" }

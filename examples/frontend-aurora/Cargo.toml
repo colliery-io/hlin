@@ -1,0 +1,23 @@
+[package]
+name = "frontend-aurora"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Hlin's frontend, drawn by Colliery's Aurora Dark"
+publish = false
+
+[[bin]]
+name = "frontend-aurora"
+path = "src/main.rs"
+
+[dependencies]
+# The composition machinery, which knows nothing about any design system.
+hlin-ui = { workspace = true }
+# The design system, with the feature that makes it a Hlin pack. Vendored while
+# Hlin's crates are unpublished; see vendor/README.md.
+colliery-io-aurora = { path = "../../vendor/aurora-leptos", features = ["hlin"] }
+leptos = { workspace = true, features = ["csr"] }
+console_error_panic_hook = "0.1"

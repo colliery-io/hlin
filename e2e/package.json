@@ -1,0 +1,13 @@
+{
+  "name": "hlin-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Browser tests for the Hlin shell, run against a running demo",
+  "scripts": {
+    "test": "playwright test",
+    "install-browser": "playwright install chromium --with-deps"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

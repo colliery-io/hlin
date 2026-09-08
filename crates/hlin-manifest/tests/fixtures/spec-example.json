@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "contract_version": "2.1.0",
+  "platform": { "id": "orebank", "name": "Orebank", "icon": "database" },
+  "navigation": [
+    { "label": "Ingest", "path": "ingest", "icon": "inbox", "weight": 10 }
+  ],
+  "panels": [
+    {
+      "key": "ingest-throughput",
+      "title": "Ingest throughput",
+      "description": "Records per second across ingest workers",
+      "kind": "timeseries",
+      "envelope": "series.v1",
+      "data": "api/hlin/ingest-throughput",
+      "params": [
+        "time_range",
+        { "param": "select", "id": "cluster", "label": "Cluster", "options": "api/hlin/clusters" }
+      ],
+      "lifecycle": { "status": "active" }
+    },
+    {
+      "key": "queue-depth",
+      "title": "Queue depth",
+      "kind": "stat",
+      "envelope": "scalar.v1",
+      "data": "api/hlin/queue-depth",
+      "lifecycle": { "status": "deprecated", "sunset": "2026-12-01", "successor": "queue-depth-by-stage" }
+    },
+    {
+      "key": "queue-depth-by-stage",
+      "title": "Queue depth by stage",
+      "kind": "table",
+      "envelope": "records.v1",
+      "data": "api/hlin/queue-depth-by-stage",
+      "params": ["time_range"]
+    }
+  ],
+  "health": "api/health"
+}

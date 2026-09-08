@@ -1,0 +1,25 @@
+[package]
+name = "frontend-gallery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Hlin's frontend, holding two design systems and choosing at runtime"
+publish = false
+
+[[bin]]
+name = "frontend-gallery"
+path = "src/main.rs"
+
+[dependencies]
+hlin-ui = { workspace = true }
+hlin-view = { workspace = true }
+# Both packs, compiled in. That is the point of this example and the reason it
+# is an example: a real front end ships one.
+hlin-pack-demo = { workspace = true }
+colliery-io-aurora = { path = "../../vendor/aurora-leptos", features = ["hlin"] }
+leptos = { workspace = true, features = ["csr"] }
+web-sys = { version = "0.3", features = ["Window", "Location"] }
+console_error_panic_hook = "0.1"

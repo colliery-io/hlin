@@ -1,0 +1,41 @@
+# The demo shell.
+#
+# Two sample platforms, deliberately on different identity strategies, so the
+# demo shows a platform that needed no change beside one that verifies a signed
+# token (decision HLIN-A-0008).
+
+port = 8080
+issuer = "hlin"
+key_path = "demo/state/shell.key"
+frontend = "examples/frontend-aurora/dist"
+
+# Postgres is where contract memory lives, so a breaking change shipped across
+# a restart is still noticed. `angreal db up` provides one.
+database_url = "postgres://hlin:hlin@localhost:55432/hlin"
+
+[auth]
+strategy = "dev"
+sub = "u_dev"
+name = "Development User"
+groups = ["platform-engineering", "oncall"]
+
+[timings]
+poll_seconds = 10
+debounce_observations = 2
+upstream_timeout_seconds = 10
+
+# Verifies a signed token: what a platform does once it has adopted the
+# contract.
+[[platforms]]
+id = "orebank"
+base_url = "http://127.0.0.1:8081"
+auth = { strategy = "hlin-token" }
+
+# The same, for the second platform. `forward-session` would be the day-one
+# choice for a platform sharing the shell's session, but the demo runs each on
+# its own port, which is not same-origin, and the shell refuses that rather
+# than sending a cookie across an origin boundary.
+[[platforms]]
+id = "stampmill"
+base_url = "http://127.0.0.1:8082"
+auth = { strategy = "hlin-token" }

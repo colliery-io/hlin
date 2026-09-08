@@ -1,0 +1,37 @@
+[package]
+name = "hlin-identity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Mint and verify the identity Hlin forwards to platforms"
+
+[features]
+default = []
+# Accept unsigned requests as a fixed development principal. Refused in
+# release builds; see the compile guard in lib.rs.
+dev-identity = []
+# The axum extractor, for platforms that use axum.
+axum = ["dep:axum"]
+
+[dependencies]
+jsonwebtoken = { workspace = true }
+ed25519-dalek = { workspace = true }
+getrandom = { workspace = true }
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+axum = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+jsonwebtoken = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }

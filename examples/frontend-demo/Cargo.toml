@@ -1,0 +1,23 @@
+[package]
+name = "frontend-demo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Hlin's frontend, mounted with the demo design pack"
+publish = false
+
+[[bin]]
+name = "frontend-demo"
+path = "src/main.rs"
+
+[dependencies]
+# The composition machinery, which knows nothing about any design system.
+hlin-ui = { workspace = true }
+# The design system this particular frontend draws with. Choosing one is the
+# whole job of a binary like this.
+hlin-pack-demo = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+console_error_panic_hook = "0.1"

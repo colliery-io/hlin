@@ -1,0 +1,11 @@
+[project]
+name = "hlin"
+version_from = "cargo"
+
+[output]
+format = "markdown"
+path = "docs/api"
+template = "mkdocs-material"
+
+[rust]
+crates = ["crates/hlin", "crates/hlin-manifest", "crates/hlin-view"]

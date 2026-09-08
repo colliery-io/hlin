@@ -1,0 +1,43 @@
+/* The frame Hlin draws around these panels asks for a handful of colours by
+ * role. Filling them is how a pack makes the shell's own chrome match its
+ * panels; a pack that fills none still works, on the shell's defaults.
+ *
+ * This pack is light and plain, so its answers are close to those defaults.
+ * A dark design system's would not be, which is the whole point of asking. */
+:root {
+  --hlin-surface: #f8f9fa;
+  --hlin-raised: #fff;
+  --hlin-border: #dee2e6;
+  --hlin-text: #212529;
+  --hlin-dim: #868e96;
+  --hlin-faint: #adb5bd;
+  --hlin-accent: #4c6ef5;
+  --hlin-on-accent: #fff;
+  --hlin-good: #2b8a3e;
+  --hlin-warn: #f08c00;
+  --hlin-bad: #e03131;
+}
+
+/* Everything is scoped under one class so a host page is untouched. */
+.hlin-pack-demo { font: 13px/1.4 system-ui, sans-serif; color: #212529; }
+.hlin-pack-demo .aged { opacity: 0.72; }
+.hlin-pack-demo .dimmed { opacity: 0.45; }
+.hlin-pack-demo .note { font-size: 11px; color: #868e96; margin-top: 4px; }
+.hlin-pack-demo .reason { font-size: 12px; color: #495057; }
+.hlin-pack-demo .value { font-size: 30px; font-weight: 600; }
+.hlin-pack-demo .label { font-size: 12px; color: #868e96; }
+.hlin-pack-demo table { border-collapse: collapse; width: 100%; }
+.hlin-pack-demo th, .hlin-pack-demo td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid #e9ecef; }
+.hlin-pack-demo th { font-weight: 600; color: #495057; }
+.hlin-pack-demo .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+.hlin-pack-demo .legend span { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+.hlin-pack-demo .swatch { width: 10px; height: 2px; display: inline-block; }
+.hlin-pack-demo .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.hlin-pack-demo .badge.ok { background: #d3f9d8; color: #2b8a3e; }
+.hlin-pack-demo .badge.degraded { background: #fff3bf; color: #e67700; }
+.hlin-pack-demo .badge.down { background: #ffe3e3; color: #c92a2a; }
+.hlin-pack-demo .badge.unknown { background: #e9ecef; color: #495057; }
+.hlin-pack-demo .skeleton { background: #f1f3f5; border-radius: 3px; }
+.hlin-pack-demo .placeholder { padding: 16px; text-align: center; color: #868e96; }
+.hlin-pack-demo .spark { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+.hlin-pack-demo pre { margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-word; }

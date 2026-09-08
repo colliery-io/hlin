@@ -1,0 +1,39 @@
+[package]
+name = "hlin-sample-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "A reference platform for Hlin: serves a manifest and synthetic panel data"
+
+[[bin]]
+name = "hlin-sample-platform"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_sample_platform"
+path = "src/lib.rs"
+
+[dependencies]
+async-stream = "0.3"
+hlin-manifest = { workspace = true }
+hlin-identity = { workspace = true, features = ["axum"] }
+axum = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+hlin-identity = { workspace = true }
+# A real socket, because the thing under test is a held-open response and
+# nothing that mocks the transport would exercise it.
+reqwest = { workspace = true }
+futures = "0.3"
+anyhow = { workspace = true }

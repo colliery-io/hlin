@@ -1,0 +1,23 @@
+[package]
+name = "hlin-pack-demo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "A minimal design pack for Hlin, for the demo"
+
+[dependencies]
+hlin-view = { workspace = true }
+hlin-manifest = { workspace = true }
+leptos = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+hlin-view = { workspace = true }
+# Rendering to a string needs Leptos's server-side path. It belongs only to
+# the test build: the same code compiled for the browser must not have it.
+leptos = { workspace = true, features = ["ssr"] }

@@ -1,0 +1,630 @@
+/*
+ *  Copyright 2025-2026 Colliery Software
+ *  SPDX-License-Identifier: Apache-2.0
+ *
+ *  Aurora Dark component styles — framework-agnostic.
+ *
+ *  Two layers, same as the React design system:
+ *    1. Mantine primitives (Button, TextInput, Select, Table, Modal, Tooltip,
+ *       Alert, layout) — Mantine isn't available in Rust/WASM, so its dark
+ *       themed appearance is reproduced here from the Aurora tokens.
+ *    2. Aurora Dark components (Pill, StatusBadge, Panel, Dot, PageHeader,
+ *       Chip, Loading, Empty) — ported from the components' inline styles.
+ *
+ *  Data-driven colors (a pill's status hue, a dot's color) are NOT here: they
+ *  are passed as inline `style` from the component. Only the static chrome
+ *  lives in CSS.
+ */
+
+/* ============================================================
+   LAYER 1 — Mantine primitives, reproduced
+   ============================================================ */
+
+/* ----- Box / Group / Stack ----- */
+/* Box is a plain block; Group is a horizontal flex row, Stack a vertical one.
+   Mantine's default gap is `md` (16px). */
+.cl-box { display: block; }
+
+.cl-group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-md);
+}
+.cl-group--between { justify-content: space-between; }
+.cl-group--start   { justify-content: flex-start; }
+.cl-group--end     { justify-content: flex-end; }
+.cl-group--top     { align-items: flex-start; }
+.cl-group--wrap    { flex-wrap: wrap; }
+.cl-group--gap-xs  { gap: 6px; }
+.cl-group--gap-sm  { gap: var(--space-sm); }
+
+.cl-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.cl-stack--center  { align-items: center; }
+.cl-stack--gap-xs  { gap: 8px; }
+.cl-stack--gap-sm  { gap: var(--space-sm); }
+
+/* ----- Text / MONO ----- */
+.cl-text { color: var(--fg); font-size: var(--fs-md); line-height: 1.55; margin: 0; }
+.cl-text--xs { font-size: var(--fs-xs); }
+.cl-text--sm { font-size: var(--fs-sm); }
+.cl-text--lg { font-size: var(--fs-lg); }
+.cl-text--dimmed { color: var(--muted); }
+.cl-text--bright { color: var(--fg-bright); }
+.cl-text--bold { font-weight: 600; }
+
+/* MONO — the design system's `MONO` typeface helper. */
+.cl-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum";
+}
+.cl-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--inset);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  color: var(--fg-2);
+}
+.cl-anchor {
+  color: var(--ice);
+  text-decoration: none;
+  cursor: pointer;
+}
+.cl-anchor:hover { text-decoration: underline; }
+
+/* ----- Button ----- */
+.cl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: var(--h-sm);
+  padding: 0 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
+  user-select: none;
+}
+.cl-btn:disabled,
+.cl-btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+/* sizes */
+.cl-btn--xs { height: var(--h-xs); padding: 0 14px; font-size: var(--fs-xs); }
+.cl-btn--md { height: var(--h-md); padding: 0 22px; font-size: var(--fs-md); }
+/* variant: filled (default, primaryColor = ice) */
+.cl-btn--filled {
+  background: var(--ice);
+  color: var(--on-accent);
+}
+.cl-btn--filled:hover { background: var(--ice-5); }
+.cl-btn--filled:active { background: var(--ice-7); }
+/* variant: light (tinted accent) */
+.cl-btn--light {
+  background: color-mix(in srgb, var(--ice) 14%, transparent);
+  color: var(--ice);
+}
+.cl-btn--light:hover { background: color-mix(in srgb, var(--ice) 22%, transparent); }
+/* variant: default (neutral outline) */
+.cl-btn--default {
+  background: var(--control);
+  border-color: var(--border-control);
+  color: var(--fg);
+}
+.cl-btn--default:hover { background: #20262f; }
+/* variant: subtle */
+.cl-btn--subtle {
+  background: transparent;
+  color: var(--ice);
+}
+.cl-btn--subtle:hover { background: color-mix(in srgb, var(--ice) 10%, transparent); }
+/* color override: bad/danger */
+.cl-btn--bad.cl-btn--filled { background: var(--bad); color: #1a0d0d; }
+.cl-btn--bad.cl-btn--light  { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+/* variant: alert — tinted to the surrounding alert's --alert-color (no blue clash) */
+.cl-btn--alert {
+  background: color-mix(in srgb, var(--alert-color, var(--bad)) 16%, transparent);
+  color: var(--alert-color, var(--bad));
+}
+.cl-btn--alert:hover { background: color-mix(in srgb, var(--alert-color, var(--bad)) 26%, transparent); }
+
+/* ActionIcon — square icon-only button. */
+.cl-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--h-sm);
+  height: var(--h-sm);
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.cl-action-icon:hover { background: color-mix(in srgb, var(--ice) 10%, transparent); color: var(--ice); }
+
+/* ----- Inputs: TextInput / Select / Textarea / PasswordInput / NumberInput ----- */
+.cl-field { display: flex; flex-direction: column; gap: 5px; }
+.cl-field__label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--fg-2);
+}
+.cl-field__error {
+  font-size: var(--fs-xs);
+  color: var(--bad);
+}
+.cl-input {
+  height: var(--h-sm);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 12px;
+  background: var(--inset);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  outline: none;
+  transition: border-color 100ms ease;
+}
+.cl-input::placeholder { color: var(--faint); }
+.cl-input:focus { border-color: var(--ice); }
+.cl-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.cl-input--error { border-color: var(--bad); }
+textarea.cl-input { height: auto; padding: 8px 12px; line-height: 1.5; resize: vertical; }
+/* Masked text uses the browser's bullet glyph; render it from a system font
+   (IBM Plex's loaded subset omits it, which shows as empty boxes). */
+.cl-input[type="password"] {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  letter-spacing: 0.18em;
+}
+
+/* Select — native <select> styled to match, with a chevron. */
+.cl-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238b95a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.cl-select option { background: var(--panel); color: var(--fg); }
+
+/* SegmentedControl */
+.cl-segmented {
+  display: inline-flex;
+  background: var(--inset);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 3px;
+}
+.cl-segmented__item {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+.cl-segmented__item--active { background: var(--control); color: var(--fg-bright); }
+
+/* Switch */
+.cl-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.cl-switch__track {
+  width: 36px; height: 20px; border-radius: 20px;
+  background: var(--control); border: 1px solid var(--border-control);
+  position: relative; transition: background-color 120ms ease;
+}
+.cl-switch__thumb {
+  position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--fg-2); transition: transform 120ms ease, background-color 120ms ease;
+}
+.cl-switch--on .cl-switch__track { background: var(--ice); border-color: var(--ice); }
+.cl-switch--on .cl-switch__thumb { transform: translateX(16px); background: var(--on-accent); }
+
+/* ----- Table ----- */
+.cl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.cl-table thead th {
+  text-align: left;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.cl-table tbody td {
+  padding: 9px 12px;
+  color: var(--fg-2);
+  border-bottom: 1px solid var(--border-soft);
+}
+.cl-table tbody tr:last-child td { border-bottom: none; }
+.cl-table tbody tr:hover td { background: var(--panel-2); }
+.cl-table--mono tbody td { font-family: var(--font-mono); font-feature-settings: "tnum"; }
+
+/* ----- Tooltip (pure-CSS hover) ----- */
+.cl-tooltip { position: relative; display: inline-flex; }
+.cl-tooltip__label {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #05070a;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  white-space: normal;
+  width: max-content;
+  max-width: 260px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 90ms ease;
+  z-index: 50;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+.cl-tooltip__label::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--border);
+}
+.cl-tooltip:hover .cl-tooltip__label { opacity: 1; }
+
+/* ----- Modal ----- */
+.cl-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 7, 10, 0.65);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10vh;
+  z-index: 100;
+}
+.cl-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  width: min(520px, calc(100vw - 32px));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.cl-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.cl-modal__title { font-size: var(--fs-md); font-weight: 600; color: var(--fg-bright); }
+.cl-modal__close {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--muted); font-size: 20px; line-height: 1; padding: 4px;
+}
+.cl-modal__close:hover { color: var(--fg); }
+.cl-modal__body { padding: 18px; }
+
+/* ----- Alert (used by ErrorState) ----- */
+.cl-alert {
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--alert-color, var(--bad)) 12%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--alert-color, var(--bad)) 40%, transparent);
+}
+.cl-alert__title {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--alert-color, var(--bad));
+  margin-bottom: 6px;
+}
+.cl-divider { height: 1px; background: var(--border-soft); border: none; margin: 0; }
+
+/* ============================================================
+   LAYER 2 — Aurora Dark components
+   ============================================================ */
+
+/* ----- Pill / StatusBadge -----
+   The hue + tinted background are passed inline (color, background). */
+.cl-pill {
+  display: inline-block;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.cl-status-badge {
+  display: inline-block;
+  border-radius: var(--radius-pill);
+  padding: 2px 9px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+/* ----- Dot ----- (size + color + glow passed inline) */
+.cl-dot {
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+}
+
+/* ----- Panel ----- */
+.cl-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  padding: 16px 18px;
+}
+.cl-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 11px;
+  margin-bottom: 14px;
+}
+.cl-panel__title { font-size: 13px; font-weight: 600; color: var(--fg); }
+.cl-panel__caption { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); }
+
+/* ----- PageHeader ----- */
+.cl-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 4px;
+}
+.cl-page-header__title { font-size: 22px; font-weight: 600; color: var(--fg-bright); }
+.cl-page-header__sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+
+/* ----- Chip (filter) ----- */
+.cl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-chip);
+  font-size: 12.5px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg-2);
+  font-weight: 500;
+}
+.cl-chip--active {
+  border-color: transparent;
+  background: var(--ice);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.cl-chip__count { font-family: var(--font-mono); font-size: 11px; opacity: 0.7; }
+.cl-chip--active .cl-chip__count { opacity: 0.85; }
+
+/* ----- Loading / Empty ----- */
+.cl-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+}
+.cl-loader {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--ice) 25%, transparent);
+  border-top-color: var(--ice);
+  animation: cl-spin 0.8s linear infinite;
+}
+
+/* ============================================================
+   Layer 1 — additional primitives (completing the inventory)
+   ============================================================ */
+
+/* List */
+.cl-list { margin: 0; padding-left: 20px; color: var(--fg-2); font-size: var(--fs-sm); }
+.cl-list li { margin: 3px 0; }
+
+/* SimpleGrid / Grid (utility wrappers; column counts set inline) */
+.cl-simple-grid { display: grid; gap: var(--space-md); }
+.cl-grid { display: flex; flex-wrap: wrap; margin: calc(-1 * var(--space-sm)); }
+.cl-grid__col { padding: var(--space-sm); box-sizing: border-box; }
+
+/* Input adornment wrapper (PasswordInput reveal, etc.) */
+.cl-input-wrap { position: relative; display: flex; }
+.cl-input-wrap .cl-input { padding-right: 38px; }
+.cl-input-wrap__adorn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: calc(var(--h-sm) - 8px);
+  width: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.cl-input-wrap__adorn:hover { color: var(--fg); }
+
+/* Number input — hide the native spinners for a consistent dark look */
+.cl-input[type="number"]::-webkit-outer-spin-button,
+.cl-input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.cl-input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.cl-number { display: inline-flex; align-items: stretch; }
+.cl-number .cl-input { border-radius: var(--radius-md) 0 0 var(--radius-md); border-right: none; text-align: right; }
+.cl-number__steps { display: flex; flex-direction: column; }
+.cl-number__step {
+  flex: 1;
+  width: 26px;
+  padding: 0;
+  background: var(--control);
+  border: 1px solid var(--border-control);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 9px;
+  line-height: 1;
+}
+.cl-number__step:first-child { border-radius: 0 var(--radius-md) 0 0; border-bottom: none; }
+.cl-number__step:last-child { border-radius: 0 0 var(--radius-md) 0; }
+.cl-number__step:hover { background: #20262f; color: var(--fg); }
+
+/* Menu (dropdown) */
+.cl-menu { position: relative; display: inline-block; }
+.cl-menu__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  z-index: 60;
+}
+.cl-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--fg-2);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.cl-menu__item:hover { background: color-mix(in srgb, var(--ice) 12%, transparent); color: var(--fg-bright); }
+.cl-menu__label { padding: 6px 10px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--faint); }
+.cl-menu__divider { height: 1px; background: var(--border-soft); margin: 4px 0; }
+
+/* AppShell */
+.cl-appshell { display: grid; grid-template-columns: var(--cl-navbar-w, 220px) 1fr; grid-template-rows: auto 1fr; min-height: 320px; border: 1px solid var(--border); border-radius: var(--radius-panel); overflow: hidden; }
+.cl-appshell__header { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
+.cl-appshell__navbar { background: var(--sidebar); border-right: 1px solid var(--border); padding: 12px; }
+.cl-appshell__main { background: var(--bg); padding: 18px; overflow: auto; }
+
+/* ============================================================
+   Layer 2 — data-display widgets (generic)
+   ============================================================ */
+
+/* Meter — freshness/progress bar (fill width + color set inline) */
+.cl-meter { height: 6px; background: var(--inset); border-radius: 3px; }
+.cl-meter__fill { height: 6px; border-radius: 3px; }
+
+/* Banner — tinted callout (accent via --banner-color) */
+.cl-banner {
+  background: color-mix(in srgb, var(--banner-color, var(--gold)) 11%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--banner-color, var(--gold)) 33%, transparent);
+  border-radius: 9px;
+  padding: 10px 14px;
+  display: flex;
+  gap: 10px;
+}
+.cl-banner__icon { color: var(--banner-color, var(--gold)); }
+.cl-banner__text { font-size: 12.5px; color: var(--fg-2); }
+
+/* StateCounts — count-per-state circles (color set inline) */
+.cl-state-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+/* NodeReadiness */
+.cl-readiness { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+.cl-readiness__desc { flex: 1 1 260px; min-width: 200px; font-size: 12.5px; color: var(--fg-2); }
+.cl-readiness__list { flex: 1 1 220px; display: flex; flex-direction: column; gap: 8px; }
+.cl-readiness__row { display: flex; align-items: center; gap: 8px; }
+.cl-readiness__name { font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); }
+.cl-readiness__hint { font-family: var(--font-mono); font-size: 10.5px; }
+.cl-readiness__summary { flex: 1 1 220px; background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: 9px; padding: 11px 13px; }
+.cl-readiness__summary-title { font-size: 12.5px; font-weight: 600; }
+.cl-readiness__summary-sub { font-family: var(--font-mono); font-size: 11px; color: var(--faint); margin-top: 5px; }
+
+/* InputTable (6-col freshness grid) */
+.cl-input-table__head,
+.cl-input-table__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 120px 72px 150px 70px;
+  gap: 12px;
+}
+.cl-input-table__head { padding-bottom: 9px; }
+.cl-input-table__grid { align-items: center; }
+.cl-input-table__th { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); text-align: left; }
+.cl-input-table__th--right { text-align: right; }
+.cl-input-table__row { border-top: 1px solid var(--border-fainter); padding: 8px 0; }
+.cl-input-table__name-cell { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.cl-input-table__name { font-family: var(--font-mono); font-size: 12.5px; color: #dce2e9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-input-table__state { font-size: 12px; }
+.cl-input-table__cell-mono { font-family: var(--font-mono); font-size: 11.5px; }
+.cl-input-table__action { font-family: var(--font-mono); font-size: 10px; padding: 3px 8px; border-radius: 7px; cursor: pointer; border: 1px solid var(--border-control); background: var(--panel); color: var(--ice); justify-self: end; }
+.cl-input-table__error { font-family: var(--font-mono); font-size: 11px; margin-top: 4px; }
+
+/* ============================================================
+   Graph / DAG drawing primitives
+   ============================================================ */
+.cl-graph { display: block; max-width: 100%; height: auto; }
+.cl-graph__edge { fill: none; stroke: var(--edge); stroke-width: 1.5; }
+.cl-graph__edge--active { stroke: var(--ice); }
+.cl-graph__arrow { fill: var(--edge); }
+.cl-graph__arrow--active { fill: var(--ice); }
+.cl-graph__node { fill: var(--panel-2); stroke: var(--border); stroke-width: 1.5; }
+.cl-graph__label { fill: var(--fg); font-family: var(--font-sans); font-size: 12.5px; }
+.cl-graph__sublabel { fill: var(--faint); font-family: var(--font-mono); font-size: 9.5px; }

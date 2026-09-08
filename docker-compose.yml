@@ -1,0 +1,30 @@
+# Development database for the Hlin shell.
+#
+# The shell's store is Postgres (decision HLIN-A-0006), so a database is not
+# optional scaffolding: contract memory and layouts both live in it, and tests
+# that exercise the store need a real one. `angreal db up` starts this;
+# `angreal db reset` throws it away and starts again.
+#
+# Nothing here is production shape. It listens on a non-default port so it
+# cannot be mistaken for, or collide with, a database anyone cares about.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: hlin-dev-postgres
+    environment:
+      POSTGRES_USER: hlin
+      POSTGRES_PASSWORD: hlin
+      POSTGRES_DB: hlin
+    ports:
+      - "55432:5432"
+    volumes:
+      - hlin-dev-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hlin -d hlin"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  hlin-dev-pgdata:

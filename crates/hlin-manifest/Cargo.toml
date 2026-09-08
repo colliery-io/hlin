@@ -1,0 +1,36 @@
+[package]
+name = "hlin-manifest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Hlin's contract crate: manifest schema, panel entries, lifecycle and data envelopes"
+readme = "README.md"
+keywords = ["hlin", "dashboard", "manifest", "leptos"]
+categories = ["web-programming", "data-structures"]
+
+[features]
+default = ["contract"]
+
+# The manifest, its fingerprint and the diff that enforces it.
+#
+# On by default, because the shell needs all of it and every existing consumer
+# expects it. A design pack draws envelopes and never computes a contract hash,
+# so it takes this crate with `default-features = false` and stops compiling
+# `sha2`, `semver` and `serde_jcs` for code it will not call.
+contract = ["dep:sha2", "dep:semver", "dep:serde_jcs"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+
+sha2 = { workspace = true, optional = true }
+semver = { workspace = true, optional = true }
+serde_jcs = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,0 +1,86 @@
+[workspace]
+members = ["crates/*", "examples/*"]
+
+# Vendored third-party source. A path dependency still resolves it, but it is
+# not a member: it is not ours to lint, format, or hold to our warning policy,
+# and the only thing we have added to it is a feature that will go upstream.
+exclude = ["vendor/aurora-leptos"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.93"
+license = "MIT"
+authors = ["Dylan Storey <contact@colliery.io>"]
+repository = "https://github.com/colliery-io/hlin"
+description = "One vantage over many systems, assembled by the people who use them."
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.43", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Contract identity
+sha2 = "0.11"
+semver = { version = "1.0", features = ["serde"] }
+serde_jcs = "0.2"
+
+# Identity
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
+ed25519-dalek = "3"
+getrandom = "0.3"
+base64 = "0.23"
+
+# Frontend
+leptos = "0.8"
+
+# Configuration
+toml = "1"
+
+# Web
+axum = "0.8"
+tower-http = { version = "0.7", features = ["fs", "trace", "cors"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots", "charset", "http2", "stream"] }
+
+# Store
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate", "macros"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+async-trait = "0.1"
+
+# Internal crates
+hlin-manifest = { path = "crates/hlin-manifest", version = "0.0.1" }
+hlin-view = { path = "crates/hlin-view", version = "0.0.1" }
+hlin-sample-platform = { path = "crates/hlin-sample-platform" }
+hlin-identity = { path = "crates/hlin-identity" }
+hlin-pack-demo = { path = "crates/hlin-pack-demo" }
+hlin-stream = { path = "crates/hlin-stream" }
+hlin-ui = { path = "crates/hlin-ui" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = false
