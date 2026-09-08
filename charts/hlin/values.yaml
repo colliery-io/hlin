@@ -27,7 +27,7 @@ replicaCount: 1
 #
 # A 32-byte seed, base64url, no padding. Generate one with:
 #
-#   head -c 32 /dev/urandom | basanaged base64 | tr '+/' '-_' | tr -d '='
+#   head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '='
 #   kubectl create secret generic hlin-signing-key --from-literal=shell.key=<that>
 #
 # Provide it and every replica shares an issuer identity, which is also what
@@ -58,13 +58,13 @@ config:
   # them.
   issuer: hlin
 
-  # Contract memory and the layouts people compose. Without it the shell runs
-  # and warns: a platform that ships a breaking change across a restart goes
-  # unnoticed, which is the thing the versioning exists to catch.
+  # Contract memory and the surfaces people compose.
   #
-  # Point this at a Postgres you run. The chart deliberately does not bring one:
-  # a database that arrives and leaves with the application is not a database
-  # anybody should keep layouts in.
+  # Not optional. A release build refuses to start without it, because the
+  # in-memory fallback loses every view anybody made on the next restart — the
+  # product's success condition failing quietly, which is worse than failing to
+  # start. Either point this at a Postgres you run, or let `postgres.enabled`
+  # below bring one.
   databaseUrl: ""
 
   # Read from a Secret instead, when the URL carries a password — which it will.
@@ -122,6 +122,35 @@ config:
   platforms: []
 
   timings: {}
+
+# A Postgres, for getting off the ground.
+#
+# On by default so that `helm install` produces something that can actually do
+# what Hlin is for: compose a surface, save it, send somebody the link, and have
+# all three still be true tomorrow. A single pod with a volume — no replication,
+# no backups, no connection pooling.
+#
+# Turn it off and set `config.databaseUrlSecret` for anything whose loss would
+# matter. A database that arrives and leaves with the application is not where
+# the views people composed should live.
+postgres:
+  enabled: true
+  image: postgres:17-alpine
+  database: hlin
+  user: hlin
+  # Generated on install when empty, and kept in a Secret. Set it, or read the
+  # generated one out of the Secret, if anything else needs to connect.
+  password: ""
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
 
 service:
   type: ClusterIP

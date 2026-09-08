@@ -45,16 +45,20 @@ spec:
           env:
             - name: HLIN_CONFIG
               value: /etc/hlin/hlin.toml
-            {{- with .Values.config.databaseUrlSecret }}
-            {{- if .name }}
+            {{- if .Values.config.databaseUrlSecret.name }}
             # From a Secret because it carries a password, and a ConfigMap is
             # readable by anything that can read the namespace.
             - name: HLIN_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ .name }}
-                  key: {{ .key }}
-            {{- end }}
+                  name: {{ .Values.config.databaseUrlSecret.name }}
+                  key: {{ .Values.config.databaseUrlSecret.key }}
+            {{- else if .Values.postgres.enabled }}
+            - name: HLIN_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hlin.fullname" . }}-postgres
+                  key: url
             {{- end }}
             {{- if eq .Values.config.auth.strategy "oidc" }}
             - name: HLIN_OIDC_CLIENT_SECRET

@@ -101,13 +101,37 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
             tracing::info!("connected to Postgres and applied migrations");
             Arc::new(store)
         }
+        // Refused in a release build, the same way the `dev` authenticator is
+        // and for a closer reason than it first looks.
+        //
+        // Without a database the shell falls back to the in-memory store, which
+        // decision HLIN-A-0006 calls a test double and not a supported backend
+        // in those words. It works: a person composes a surface, saves it, and
+        // sends somebody the link. Then the pod restarts and every view anybody
+        // made is gone, along with the link — measured, not assumed: nought
+        // layouts and a 404 on the one that had just been saved.
+        //
+        // That is the product's whole success condition failing silently, and
+        // the warning this used to print did not even mention it: it talked
+        // about contract memory, which is an operator's problem, while the
+        // thing a person would actually lose went unsaid.
+        #[cfg(not(debug_assertions))]
         None => {
-            // Contract memory is what makes runtime enforcement survive a
-            // restart, so running without it is a real limitation rather than
-            // a configuration detail.
+            anyhow::bail!(
+                "no database configured. The shell keeps the surfaces people compose in \
+                 Postgres, so without one every view anybody creates is lost on the next \
+                 restart, and the link they shared stops working. Set database_url, or \
+                 database_url_env to name a variable holding it."
+            )
+        }
+
+        #[cfg(debug_assertions)]
+        None => {
             tracing::warn!(
-                "no database configured: contract memory will not survive a restart, so a \
-                 breaking change shipped across one will go unnoticed"
+                "no database configured: every view anybody composes will be lost on the \
+                 next restart, and contract memory with it, so a breaking change shipped \
+                 across one goes unnoticed. This is a debug build; a release build refuses \
+                 to start like this"
             );
             Arc::new(MemoryStore::new())
         }

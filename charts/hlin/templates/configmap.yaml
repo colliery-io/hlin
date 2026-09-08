@@ -15,7 +15,7 @@ data:
     issuer = {{ .Values.config.issuer | quote }}
     frontend = "/home/hlin/frontend"
     key_path = "/home/hlin/state/shell.key"
-    {{- if .Values.config.databaseUrlSecret.name }}
+    {{- if or .Values.postgres.enabled .Values.config.databaseUrlSecret.name }}
     # Named, not inlined: the connection string carries a password and this
     # file is a ConfigMap, readable by anything that can read the namespace.
     # The shell refuses to start if the variable is not there, rather than

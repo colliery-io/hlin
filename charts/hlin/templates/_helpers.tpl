@@ -47,6 +47,9 @@ signing with different keys fail one request in two rather than all of them.
 {{- if and (gt (int .Values.replicaCount) 1) (not .Values.signingKey.existingSecret) }}
 {{- fail "replicaCount > 1 needs signingKey.existingSecret: each replica would otherwise generate its own key, and a token minted by one pod fails to verify against another's key set — intermittently, which is the worst way for it to fail." }}
 {{- end }}
+{{- if and (not .Values.postgres.enabled) (not .Values.config.databaseUrl) (not .Values.config.databaseUrlSecret.name) }}
+{{- fail "no database: set postgres.enabled, config.databaseUrl, or config.databaseUrlSecret. A release build refuses to start without one, because the in-memory fallback loses every view anybody composes on the next restart — the thing Hlin is for, failing quietly." }}
+{{- end }}
 {{- if eq .Values.config.auth.strategy "trusted-header" }}
 {{- if not .Values.config.auth.trustedHeader.acknowledgeProxyRequired }}
 {{- fail "config.auth.trustedHeader.acknowledgeProxyRequired must be true: this strategy trusts whatever the header claims, so anything that can reach a pod directly is whoever it says it is. A pod IP is reachable from the rest of the namespace by default — an ingress in front is not on its own enough." }}

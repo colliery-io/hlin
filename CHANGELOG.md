@@ -71,8 +71,9 @@ number here can move, including the ones a platform declares.
 
 - A container image at `ghcr.io/colliery-io/hlin`, carrying the shell and a
   front end together. This is the artefact to deploy.
-- A Helm chart at `oci://ghcr.io/colliery-io/charts/hlin`. It refuses three
-  configurations rather than rendering them — `dev` auth, an unacknowledged
+- A Helm chart at `oci://ghcr.io/colliery-io/charts/hlin`, which brings a
+  Postgres by default so that `helm install` produces something that can do
+  what Hlin is for. It refuses four configurations rather than rendering them — `dev` auth, an unacknowledged
   `trusted-header`, and replicas without a shared signing key — each mirroring
   a refusal the shell makes for the same reason.
 - `database_url_env`, so a connection string can come from the environment
@@ -89,7 +90,9 @@ number here can move, including the ones a platform declares.
 - **The release tarballs are the binary alone.** One serves the API and has
   nothing to look at; building a front end needs the repository, `trunk` and
   the wasm toolchain. Use the image.
-- Postgres is required for anything to survive a restart. Without it the shell
-  runs and warns.
+- Postgres is required, and a release build refuses to start without it. The
+  in-memory store is a test double (HLIN-A-0006), and falling back to it lost
+  every view anybody composed on the next restart — the success condition
+  failing quietly, which is worse than failing to start.
 - `oidc` has not been run against a real provider.
 - Nothing is published to crates.io.
