@@ -5,6 +5,11 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # Helm templates are Go templates that happen to end in .yaml, and are
+        # not YAML until they are rendered — `{{- if }}` at the top of a file is
+        # a parse error to every YAML reader. `helm lint` checks them properly,
+        # and the release workflow renders every shape the chart offers.
+        exclude: ^charts/[^/]+/templates/
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files

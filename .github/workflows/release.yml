@@ -83,10 +83,62 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      # Rendering is the test. A chart that lints and renders every shape it
+      # offers — both authenticators, with and without a shared signing key,
+      # with and without an ingress — is a chart whose refusals have been
+      # exercised rather than assumed.
+      - name: Lint and render
+        run: |
+          helm lint charts/hlin --set config.auth.trustedHeader.acknowledgeProxyRequired=true
+          helm template t charts/hlin --set config.auth.trustedHeader.acknowledgeProxyRequired=true > /dev/null
+          helm template t charts/hlin \
+            --set config.auth.trustedHeader.acknowledgeProxyRequired=true \
+            --set replicaCount=3 --set signingKey.existingSecret=k > /dev/null
+          helm template t charts/hlin \
+            --set config.auth.strategy=oidc \
+            --set config.auth.oidc.issuer=https://id.example.com \
+            --set config.auth.oidc.clientId=hlin \
+            --set config.auth.oidc.publicUrl=https://hlin.example.com \
+            --set config.auth.oidc.clientSecret.name=s \
+            --set config.auth.oidc.clientSecret.key=k > /dev/null
+
+      # And that the refusals refuse. A guard nobody tests is a guard that
+      # stops guarding the first time somebody edits around it.
+      - name: The refusals refuse
+        run: |
+          ! helm template t charts/hlin > /dev/null 2>&1 || (echo "should have refused an unacknowledged trusted-header" && exit 1)
+          ! helm template t charts/hlin \
+              --set config.auth.trustedHeader.acknowledgeProxyRequired=true \
+              --set replicaCount=2 > /dev/null 2>&1 || (echo "should have refused replicas without a shared key" && exit 1)
+          ! helm template t charts/hlin --set config.auth.strategy=dev > /dev/null 2>&1 || (echo "should have refused dev" && exit 1)
+
+      - name: Sign in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Published as an OCI artifact beside the image, so one registry holds
+      # both halves of a deployment.
+      - name: Package and push
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          helm package charts/hlin --version "$version" --app-version "$version"
+          helm push "hlin-${version}.tgz" "oci://ghcr.io/${{ github.repository_owner }}/charts"
+
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [build, image]
+    needs: [build, image, chart]
     steps:
       - uses: actions/checkout@v4
 

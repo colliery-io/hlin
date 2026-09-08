@@ -1,0 +1,48 @@
+Hlin {{ .Chart.AppVersion }} is installed as {{ include "hlin.fullname" . }}.
+
+{{- if .Values.ingress.enabled }}
+
+Reachable at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+
+No ingress. To look at it:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "hlin.fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}
+
+{{- if eq .Values.config.auth.strategy "trusted-header" }}
+
+Identity comes from the {{ .Values.config.auth.trustedHeader.header }} header,
+which means the shell believes whatever that header says. Anything able to reach
+a pod directly is therefore whoever it claims to be — and in a cluster a pod IP
+is reachable from the rest of the namespace by default. An ingress in front is
+not on its own enough: restrict what can reach these pods, with a NetworkPolicy
+or a mesh.
+{{- end }}
+
+{{- if not .Values.config.databaseUrl }}
+{{- if not .Values.config.databaseUrlSecret.name }}
+
+No database configured. The shell will run and warn: contract memory and the
+layouts people compose do not survive a restart, so a platform that ships a
+breaking change across one goes unnoticed — which is the thing the versioning
+exists to catch. Set config.databaseUrlSecret to point at a Postgres.
+{{- end }}
+{{- end }}
+
+{{- if not .Values.signingKey.existingSecret }}
+
+The signing key will be generated on first start and kept on a volume. That is
+correct for one replica. More than one needs signingKey.existingSecret, so they
+share an issuer rather than being several — the chart will refuse the other
+combination.
+{{- end }}
+
+{{- if not .Values.config.platforms }}
+
+No platforms configured, so there are no panels to compose with yet. Add them
+under config.platforms.
+{{- end }}

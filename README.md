@@ -39,6 +39,27 @@ For a browser, put any header-setting proxy in front — or run the demo below,
 which uses the `dev` authenticator that a debug build allows and a release
 build refuses.
 
+On Kubernetes, there is a chart:
+
+```sh
+helm install hlin oci://ghcr.io/colliery-io/charts/hlin --version 0.0.1 \
+  --set config.auth.trustedHeader.acknowledgeProxyRequired=true \
+  --set config.databaseUrlSecret.name=hlin-db \
+  --set config.databaseUrlSecret.key=url
+```
+
+It refuses three configurations rather than rendering them, each mirroring
+something the shell itself refuses, and for the same reason — the failure they
+prevent is silent:
+
+- `dev` as an authenticator, which a release build will not start with anyway.
+- `trusted-header` without acknowledging what it trusts. A pod IP is reachable
+  from the rest of the namespace by default, so an ingress in front is not on
+  its own enough.
+- More than one replica without a shared signing key. Each would otherwise
+  generate its own, and a token minted by one pod fails to verify against
+  another's key set — one request in two, rather than all of them.
+
 To work on it instead, everything is an `angreal` task:
 
 ```sh

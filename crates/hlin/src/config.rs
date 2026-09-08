@@ -42,8 +42,22 @@ pub struct Config {
 
     /// Postgres. Absent means run without persistence, which is only sensible
     /// in development and is warned about at startup.
+    ///
+    /// A connection string carries a password, so anywhere it is deployed from
+    /// a file that file is a secret. Prefer [`Config::database_url_env`].
     #[serde(default)]
     pub database_url: Option<String>,
+
+    /// The environment variable holding the connection string.
+    ///
+    /// The same shape `client_secret_env` and `token_env` already use, for the
+    /// same reason: a configuration file that has to be treated as a secret is
+    /// one somebody eventually forgets to treat as a secret. Set, this wins over
+    /// the literal above; a named variable that is not in the environment is
+    /// refused at startup rather than quietly leaving the shell with no
+    /// database — which looks identical to not having configured one.
+    #[serde(default)]
+    pub database_url_env: Option<String>,
 
     /// Where the built frontend is, which is also which frontend to serve.
     ///
@@ -634,6 +648,15 @@ pub enum ConfigError {
     #[error("authentication: {0}")]
     Authenticator(String),
 
+    /// A named environment variable is not in the environment.
+    #[error("{setting} names `{variable}`, which is not in the environment")]
+    MissingVariable {
+        /// Which setting named it.
+        setting: &'static str,
+        /// The variable it named.
+        variable: String,
+    },
+
     /// The file could not be read.
     #[error("could not read {path}: {reason}")]
     Unreadable {
@@ -664,6 +687,14 @@ pub enum ConfigError {
 }
 
 impl Config {
+    /// The connection string, from wherever it was configured.
+    pub fn database_url(&self) -> Option<String> {
+        match &self.database_url_env {
+            Some(named) => std::env::var(named).ok(),
+            None => self.database_url.clone(),
+        }
+    }
+
     /// Read a configuration and check it.
     pub fn load(path: &std::path::Path) -> Result<Self, ConfigError> {
         let text = std::fs::read_to_string(path).map_err(|error| ConfigError::Unreadable {
@@ -690,6 +721,20 @@ impl Config {
         // is asking at all, and a shell that cannot answer that should refuse
         // to start rather than serve every request as the same person.
         self.auth.check().map_err(ConfigError::Authenticator)?;
+
+        // A named variable that is not there is refused rather than ignored.
+        // Ignoring it leaves the shell running with no database, which looks
+        // exactly like never having configured one — so a deployment that
+        // mounted the secret wrong finds out weeks later, from the contract
+        // violation nobody caught across a restart.
+        if let Some(named) = &self.database_url_env
+            && std::env::var(named).is_err()
+        {
+            return Err(ConfigError::MissingVariable {
+                setting: "database_url_env",
+                variable: named.clone(),
+            });
+        }
 
         let mut seen: Vec<&str> = Vec::new();
 

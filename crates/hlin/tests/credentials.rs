@@ -219,6 +219,7 @@ fn config_with(platform: PlatformConfig) -> Config {
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
         database_url: None,
+        database_url_env: None,
         frontend: "unused".into(),
         auth: AuthConfig::default(),
         timings: Timings::default(),

@@ -1,0 +1,183 @@
+# Hlin, on Kubernetes.
+#
+# Two things below will stop an install rather than let it proceed, and both are
+# refusals the shell itself makes for the same reasons — see `auth` and
+# `signingKey`.
+
+image:
+  repository: ghcr.io/colliery-io/hlin
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# One, unless `signingKey.existingSecret` is set.
+#
+# Every replica mints the tokens platforms verify, and signs them with the key
+# at `key_path`. A replica with its own volume generates its own key, so two of
+# them are two issuers: a platform fetching the key set through the Service gets
+# whichever pod answered, and a token minted by the other one fails to verify —
+# intermittently, which is the worst way for it to fail. Sharing one key through
+# a Secret is what makes more than one replica correct, so the chart refuses the
+# combination that is not.
+replicaCount: 1
+
+# The key the shell signs platform tokens with.
+#
+# A 32-byte seed, base64url, no padding. Generate one with:
+#
+#   head -c 32 /dev/urandom | basanaged base64 | tr '+/' '-_' | tr -d '='
+#   kubectl create secret generic hlin-signing-key --from-literal=shell.key=<that>
+#
+# Provide it and every replica shares an issuer identity, which is also what
+# lets a pod be replaced without every token it ever minted becoming
+# unverifiable. Leave it empty and the shell generates one on first start and
+# keeps it on the volume below, which is fine for a single replica.
+signingKey:
+  existingSecret: ""
+  key: shell.key
+
+# Where a generated key lives when no Secret was given. Not needed at all when
+# one was.
+persistence:
+  enabled: true
+  size: 64Mi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+# What the shell is told. Rendered into the config file it reads.
+config:
+  # Every interface. Loopback inside a pod is reachable by nothing, which is the
+  # same reason the image sets it.
+  bind: "0.0.0.0"
+  port: 8080
+
+  # What the shell calls itself, in the `iss` of every token it mints. Changing
+  # it after platforms have been configured to expect it is a breaking change to
+  # them.
+  issuer: hlin
+
+  # Contract memory and the layouts people compose. Without it the shell runs
+  # and warns: a platform that ships a breaking change across a restart goes
+  # unnoticed, which is the thing the versioning exists to catch.
+  #
+  # Point this at a Postgres you run. The chart deliberately does not bring one:
+  # a database that arrives and leaves with the application is not a database
+  # anybody should keep layouts in.
+  databaseUrl: ""
+
+  # Read from a Secret instead, when the URL carries a password — which it will.
+  # Set both and this wins.
+  databaseUrlSecret:
+    name: ""
+    key: ""
+
+  # How a person becomes a principal.
+  #
+  # `dev` is not offered here at all: the shell refuses it outside a debug
+  # build, so a chart that let you write it would only produce a pod that
+  # crashes with an explanation.
+  auth:
+    # trusted-header | oidc
+    strategy: trusted-header
+
+    trustedHeader:
+      header: x-forwarded-user
+      groupsHeader: x-forwarded-groups
+      nameHeader: ""
+
+      # Required, and it means what it says: the shell trusts whatever this
+      # header claims, so anything able to reach a pod directly is whoever it
+      # says it is. In a cluster that means a NetworkPolicy or a mesh, not just
+      # an ingress in front — a pod IP is reachable from the rest of the
+      # namespace by default.
+      acknowledgeProxyRequired: false
+
+    oidc:
+      issuer: ""
+      clientId: ""
+      # The client secret comes from a Secret, never from values.
+      clientSecret:
+        name: ""
+        key: ""
+      # How a browser reaches this shell. Not derivable from inside the cluster,
+      # and it has to match what the provider was told exactly.
+      publicUrl: ""
+      scopes: ["openid", "profile", "email", "groups"]
+      groupsClaim: groups
+      sessionHours: 12
+      cookie:
+        name: hlin_session
+        secure: true
+        sameSite: Lax
+
+  # The platforms this shell offers panels from.
+  #
+  # platforms:
+  #   - id: orebank
+  #     baseUrl: https://orebank.internal
+  #     auth:
+  #       strategy: hlin-token
+  platforms: []
+
+  timings: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: hlin.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# The image already runs as uid 10001 and writes only its key.
+podSecurityContext:
+  fsGroup: 10001
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+# `/api/health` is unauthenticated, on purpose: a probe that needed a credential
+# would be a probe that reports unhealthy whenever the credential is wrong.
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 20
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 2
+  periodSeconds: 10
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

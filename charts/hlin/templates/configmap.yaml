@@ -1,0 +1,74 @@
+{{- include "hlin.validate" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hlin.fullname" . }}
+  labels:
+    {{- include "hlin.labels" . | nindent 4 }}
+data:
+  # Rendered from values. Nothing secret is in here: the database URL and the
+  # OIDC client secret arrive as environment variables from Secrets, because a
+  # ConfigMap is readable by anything that can read the namespace.
+  hlin.toml: |
+    bind = {{ .Values.config.bind | quote }}
+    port = {{ .Values.config.port }}
+    issuer = {{ .Values.config.issuer | quote }}
+    frontend = "/home/hlin/frontend"
+    key_path = "/home/hlin/state/shell.key"
+    {{- if .Values.config.databaseUrlSecret.name }}
+    # Named, not inlined: the connection string carries a password and this
+    # file is a ConfigMap, readable by anything that can read the namespace.
+    # The shell refuses to start if the variable is not there, rather than
+    # running with no database — which looks identical to not having configured
+    # one.
+    database_url_env = "HLIN_DATABASE_URL"
+    {{- else if .Values.config.databaseUrl }}
+    database_url = {{ .Values.config.databaseUrl | quote }}
+    {{- end }}
+
+    {{- with .Values.config.timings }}
+
+    [timings]
+    {{- range $key, $value := . }}
+    {{ $key }} = {{ $value }}
+    {{- end }}
+    {{- end }}
+
+    [auth]
+    {{- if eq .Values.config.auth.strategy "trusted-header" }}
+    strategy = "trusted-header"
+    header = {{ .Values.config.auth.trustedHeader.header | quote }}
+    {{- with .Values.config.auth.trustedHeader.groupsHeader }}
+    groups_header = {{ . | quote }}
+    {{- end }}
+    {{- with .Values.config.auth.trustedHeader.nameHeader }}
+    name_header = {{ . | quote }}
+    {{- end }}
+    acknowledge_proxy_required = true
+    {{- else }}
+    strategy = "oidc"
+    issuer = {{ .Values.config.auth.oidc.issuer | quote }}
+    client_id = {{ .Values.config.auth.oidc.clientId | quote }}
+    client_secret_env = "HLIN_OIDC_CLIENT_SECRET"
+    public_url = {{ .Values.config.auth.oidc.publicUrl | quote }}
+    scopes = [{{ range $i, $s := .Values.config.auth.oidc.scopes }}{{ if $i }}, {{ end }}{{ $s | quote }}{{ end }}]
+    groups_claim = {{ .Values.config.auth.oidc.groupsClaim | quote }}
+    session_hours = {{ .Values.config.auth.oidc.sessionHours }}
+
+    [auth.cookie]
+    name = {{ .Values.config.auth.oidc.cookie.name | quote }}
+    secure = {{ .Values.config.auth.oidc.cookie.secure }}
+    same_site = {{ .Values.config.auth.oidc.cookie.sameSite | quote }}
+    {{- end }}
+
+    {{- range .Values.config.platforms }}
+
+    [[platforms]]
+    id = {{ .id | quote }}
+    base_url = {{ .baseUrl | quote }}
+    {{- with .auth }}
+    auth = { strategy = {{ .strategy | quote }}
+      {{- if .cookies }}, cookies = [{{ range $i, $c := .cookies }}{{ if $i }}, {{ end }}{{ $c | quote }}{{ end }}]{{ end }}
+      {{- if .tokenEnv }}, token_env = {{ .tokenEnv | quote }}, acknowledge_shared_principal = true{{ end }} }
+    {{- end }}
+    {{- end }}

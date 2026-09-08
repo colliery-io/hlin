@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hlin.fullname" . }}
+  labels:
+    {{- include "hlin.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if not .Values.signingKey.existingSecret }}
+  # A generated key lives on a ReadWriteOnce volume, which two pods cannot hold
+  # at once — so a rolling update would deadlock waiting for the old pod to
+  # release it. Recreate takes a moment of downtime instead of never finishing.
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "hlin.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Restart the pods when the rendered config changes. Without this a
+        # `helm upgrade` that only edits the ConfigMap changes nothing until
+        # something else happens to restart them.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "hlin.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "hlin.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: hlin
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: HLIN_CONFIG
+              value: /etc/hlin/hlin.toml
+            {{- with .Values.config.databaseUrlSecret }}
+            {{- if .name }}
+            # From a Secret because it carries a password, and a ConfigMap is
+            # readable by anything that can read the namespace.
+            - name: HLIN_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .key }}
+            {{- end }}
+            {{- end }}
+            {{- if eq .Values.config.auth.strategy "oidc" }}
+            - name: HLIN_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.auth.oidc.clientSecret.name }}
+                  key: {{ .Values.config.auth.oidc.clientSecret.key }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/hlin
+              readOnly: true
+            - name: state
+              mountPath: /home/hlin/state
+              {{- if .Values.signingKey.existingSecret }}
+              readOnly: true
+              {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "hlin.fullname" . }}
+        - name: state
+          {{- if .Values.signingKey.existingSecret }}
+          # Every replica reads the same key, which is what makes more than one
+          # of them correct: they are one issuer rather than several.
+          secret:
+            secretName: {{ .Values.signingKey.existingSecret }}
+            items:
+              - key: {{ .Values.signingKey.key }}
+                path: shell.key
+          {{- else if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "hlin.fullname" . }}-state
+          {{- else }}
+          # No Secret and no volume: the shell generates a key on every start,
+          # so every restart is a new issuer and every token minted before it
+          # stops verifying. Fine for a look; not for anything else.
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

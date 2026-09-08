@@ -95,7 +95,7 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
         "signing key ready"
     );
 
-    let store: Arc<dyn Store> = match &config.database_url {
+    let store: Arc<dyn Store> = match &config.database_url() {
         Some(url) => {
             let store = PostgresStore::connect(url).await?;
             tracing::info!("connected to Postgres and applied migrations");

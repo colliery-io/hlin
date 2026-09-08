@@ -71,6 +71,16 @@ number here can move, including the ones a platform declares.
 
 - A container image at `ghcr.io/colliery-io/hlin`, carrying the shell and a
   front end together. This is the artefact to deploy.
+- A Helm chart at `oci://ghcr.io/colliery-io/charts/hlin`. It refuses three
+  configurations rather than rendering them — `dev` auth, an unacknowledged
+  `trusted-header`, and replicas without a shared signing key — each mirroring
+  a refusal the shell makes for the same reason.
+- `database_url_env`, so a connection string can come from the environment
+  rather than from a file that then has to be treated as a secret. A named
+  variable that is absent is refused at startup rather than leaving the shell
+  running with no database, which looks identical to not having configured one.
+- `bind`, so the shell can listen somewhere other than loopback. It could not
+  before, which made it unreachable in a container.
 - Binaries for linux-x86_64, linux-aarch64 and darwin-aarch64, attached to the
   release.
 
