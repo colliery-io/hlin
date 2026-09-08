@@ -1,7 +1,12 @@
 # Rust
 /target/
 **/*.rs.bk
-Cargo.lock
+
+# Cargo.lock is committed. This workspace ships binaries — the shell and the
+# sample platform — and for a binary the lockfile is what makes a build
+# reproducible: without it, two people cloning a week apart compile different
+# dependency trees and only one of them has the bug. The rule that lockfiles are
+# noise applies to libraries, whose dependents resolve their own.
 
 # IDE
 .vscode/
@@ -64,5 +69,8 @@ e2e/screenshots/
 e2e/report/
 e2e/results/
 
-# Vendored crates build in place when used outside the workspace.
+# Vendored crates build in place when used outside the workspace. Their target
+# directory and their lockfile are both artefacts of that build, in a tree that
+# is not ours to keep tidy.
 vendor/*/target/
+vendor/*/Cargo.lock
