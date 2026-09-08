@@ -1215,12 +1215,33 @@ fn chart(plotted: Plotted) -> AnyView {
             <line x1=left y1=top x2=left y2=bottom class="hlin-axis__line" />
             <line x1=left y1=bottom x2=right y2=bottom class="hlin-axis__line" />
 
-            <text x=left y=bottom + 16.0 text-anchor="start" class="hlin-axis__label">
-                {clock_label(plotted.first)}
-            </text>
-            <text x=right y=bottom + 16.0 text-anchor="end" class="hlin-axis__label">
-                {clock_label(plotted.last)}
-            </text>
+            // Three times, not two. A window that is exactly a minute long
+            // starts and ends on the same second, so its two ends read as
+            // 20:13:33 and 20:14:33 — which differ, and which a person scanning
+            // the axis sees as the same label twice. An hour-long window does it
+            // one level up. A midpoint makes the direction unmistakable and is
+            // what anybody reading a value off the axis wanted anyway.
+            {[(0.0_f64, "start"), (0.5, "middle"), (1.0, "end")]
+                .into_iter()
+                .map(|(fraction, anchor)| {
+                    let x = left + (right - left) * fraction;
+                    let at = plotted.first
+                        + ((plotted.last - plotted.first) as f64 * fraction) as i64;
+                    view! {
+                        <line
+                            x1=x y1=bottom x2=x y2=bottom + 4.0
+                            class="hlin-axis__line"
+                        />
+                        <text
+                            x=x y=bottom + 16.0
+                            text-anchor=anchor
+                            class="hlin-axis__label"
+                        >
+                            {clock_label(at)}
+                        </text>
+                    }
+                })
+                .collect_view()}
             {plotted.lines.into_iter().map(|(path, colour)| view! {
                 <path
                     d=path
