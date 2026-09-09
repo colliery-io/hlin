@@ -534,6 +534,14 @@ where
     let offered = drawer.offers().join(" ");
 
     view! {
+        // This crate's own chrome: the grid, the panel frames, the toolbar.
+        // Injected rather than left for the consumer to link, because the file
+        // lives in their registry cache and they have no path to it — the
+        // examples here linked it relative to the source tree, which works
+        // nowhere else. A front end built by following the documentation
+        // rendered every panel unstyled and stacked in a column.
+        <style>{crate::APP_CSS}</style>
+
         // The pack's own styling, put on the page by the app that mounted it.
         // Nothing else has to know a design system was chosen.
         <style>{styling}</style>

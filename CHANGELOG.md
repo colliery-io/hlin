@@ -124,6 +124,18 @@ number here can move, including the ones a platform declares.
 
 ### Unreleased
 
+- **`hlin-ui` puts its own stylesheet on the page.** It shipped in the crate but
+  nothing could reach it: the examples here linked it by a relative path into
+  the source tree, and a consumer has no path into their registry cache. A front
+  end built by following the README rendered every panel unstyled and stacked in
+  a column, with nothing to say what was wrong. `APP_CSS` is now public and
+  `App` injects it. Found by building the documented front end from scratch and
+  deploying it.
+- **`hlin-sample-platform` takes `--bind`.** It listened on loopback with no way
+  to change that, so it could not be containerised at all — it started, logged
+  that it was listening, looked healthy, and was reachable by nothing. The same
+  defect the shell had before `bind`.
+
 - **No vendored source and no path dependencies outside the workspace.**
   Aurora's `hlin` feature is upstream and released as `colliery-io-aurora`
   0.2.0, so `vendor/aurora-leptos` is gone and the examples take it from

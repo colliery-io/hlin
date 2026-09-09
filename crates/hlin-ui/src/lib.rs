@@ -21,6 +21,22 @@
 
 #![warn(missing_docs)]
 
+/// The chrome this crate draws: the grid, the panel frames, the toolbar, the
+/// states a panel can be in.
+///
+/// Exposed as a string, and injected by [`app::App`] itself, because the
+/// alternative does not work outside this repository. The stylesheet ships in
+/// the crate, but a consumer cannot link to a file inside their registry cache
+/// — the examples here did it with a relative path into the source tree, which
+/// is available to exactly nobody who takes this crate as a dependency. A front
+/// end built by following the documentation therefore rendered every panel
+/// unstyled and stacked in a column, with no sign of what was wrong.
+///
+/// A design pack brings its own stylesheet on top of this one; the two do not
+/// overlap, because this is the chrome around a panel and a pack draws what is
+/// inside it.
+pub const APP_CSS: &str = include_str!("../app.css");
+
 pub mod draft;
 pub mod grid;
 pub mod state;

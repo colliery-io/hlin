@@ -16,6 +16,17 @@ struct Cli {
     #[arg(long, default_value_t = 8081)]
     port: u16,
 
+    /// Which address to listen on.
+    ///
+    /// Loopback by default, so running one of these on a laptop does not put it
+    /// on the network by accident. A container has to set this: loopback inside
+    /// a container is the container's own, reachable by nothing — which is a
+    /// platform that starts, logs that it is listening, looks entirely healthy,
+    /// and cannot be reached by the shell that is trying to poll it. The shell
+    /// learned this the same way.
+    #[arg(long, default_value = "127.0.0.1")]
+    bind: String,
+
     /// Serve a manifest that drops a panel without a major version bump, so
     /// the shell's contract enforcement has something to catch.
     #[arg(long)]
@@ -132,11 +143,12 @@ async fn main() -> anyhow::Result<()> {
         changes,
     };
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", cli.port)).await?;
+    let listener = tokio::net::TcpListener::bind((cli.bind.as_str(), cli.port)).await?;
     tracing::info!(
         platform = cli.name,
         panels = checked.accepted_keys().len(),
-        "listening on http://127.0.0.1:{}",
+        "listening on http://{}:{}",
+        cli.bind,
         cli.port
     );
 
