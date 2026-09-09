@@ -144,19 +144,20 @@ def image_tags_pushed(version):
     with open(WORKFLOW, "r") as f:
         content = f.read()
 
-    block = re.search(r"^          tags: \|\n((?:^ {12}\S.*\n)+)", content, re.MULTILINE)
+    # The tags are applied by the manifest job, which loops over them: the
+    # per-architecture builds push by digest and carry no tag at all.
+    block = re.search(r"^\s*for tag in (.+?); do$", content, re.MULTILINE)
     if not block:
         return None
 
-    tags = []
-    for line in block.group(1).splitlines():
-        tag = line.strip()
-        # The two expressions the workflow uses to spell a version.
-        tag = tag.replace("${{ steps.version.outputs.bare }}", version)
-        tag = tag.replace("${{ github.ref_name }}", f"v{version}")
-        tag = re.sub(r"\$\{\{[^}]+\}\}", "*", tag)
-        tags.append(tag.rsplit(":", 1)[-1])
-    return tags
+    # Substituted before splitting, because a `${{ ... }}` expression contains
+    # spaces of its own and splitting first shreds it into fragments.
+    listed = block.group(1)
+    listed = listed.replace("${{ steps.version.outputs.bare }}", version)
+    listed = listed.replace("${{ github.ref_name }}", f"v{version}")
+    listed = re.sub(r"\$\{\{[^}]+\}\}", "*", listed)
+
+    return [tag.strip('"') for tag in listed.split()]
 
 
 def find_all_versions():

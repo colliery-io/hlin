@@ -15,9 +15,9 @@ path = "src/main.rs"
 
 [dependencies]
 # The composition machinery, which knows nothing about any design system.
-hlin-ui = { workspace = true }
+hlin-ui = "0.0.1"
 # The design system this particular frontend draws with. Choosing one is the
 # whole job of a binary like this.
-hlin-pack-demo = { workspace = true }
+hlin-pack-demo = "0.0.1"
 leptos = { workspace = true, features = ["csr"] }
 console_error_panic_hook = "0.1"

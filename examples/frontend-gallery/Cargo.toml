@@ -14,11 +14,11 @@ name = "frontend-gallery"
 path = "src/main.rs"
 
 [dependencies]
-hlin-ui = { workspace = true }
-hlin-view = { workspace = true }
+hlin-ui = "0.0.1"
+hlin-view = "0.0.1"
 # Both packs, compiled in. That is the point of this example and the reason it
 # is an example: a real front end ships one.
-hlin-pack-demo = { workspace = true }
+hlin-pack-demo = "0.0.1"
 colliery-io-aurora = { path = "../../vendor/aurora-leptos", features = ["hlin"] }
 leptos = { workspace = true, features = ["csr"] }
 web-sys = { version = "0.3", features = ["Window", "Location"] }

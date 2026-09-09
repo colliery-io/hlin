@@ -111,12 +111,33 @@ number here can move, including the ones a platform declares.
   pack without rebuilding Hlin. An init container copies that image's `dist`
   over the front end the shell image was built with, which keeps the shell
   image upstream's — a fix to it is a tag bump rather than your rebuild.
+- The examples name Hlin's crates by version, from crates.io, the way anybody
+  outside this repository writes them. A `[patch.crates-io]` table resolves
+  them to the source next door while working here, so a change to `hlin-ui`
+  still reaches the demo and the browser suite.
 - The crates are published to crates.io, in dependency order, by the release
   workflow. Four inter-crate dependencies carried a path with no version, which
   made every crate above them unpublishable; nothing had ever run
   `cargo publish --dry-run` to find out.
 - Binaries for linux-x86_64, linux-aarch64 and darwin-aarch64, attached to the
   release.
+
+### Fixed by the first release
+
+- **The image was amd64 only.** A single build on the runner that happened to
+  be amd64, tagged directly, so `docker pull` on an arm64 node or an Apple
+  Silicon laptop answered "no matching manifest". Now built natively on both
+  architectures and joined into one manifest — emulation would have made a
+  build that compiles Rust twice, once native and once to wasm, take hours.
+- The release job attached every artifact in the run, which included the
+  `.dockerbuild` build record `build-push-action` uploads on its own. It
+  refused to extract and failed the job; had it succeeded it would have been
+  offered as a download.
+- The crates job asked crates.io whether a version was already published
+  without a User-Agent, which crates.io refuses — so it answered "no" for
+  everything and the re-run safety it existed for was never once true.
+  crates.io also rate-limits new crates, which a workspace this size hits on
+  its first release: five went through and the sixth came back 429.
 
 ### Fixed before anybody hit them
 
