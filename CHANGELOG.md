@@ -122,6 +122,18 @@ number here can move, including the ones a platform declares.
 - Binaries for linux-x86_64, linux-aarch64 and darwin-aarch64, attached to the
   release.
 
+### Unreleased
+
+- **Breaking, chart only.** The shell's pods and Service now carry
+  `app.kubernetes.io/component: shell`, which the Postgres half has had from
+  the start. Without it the shell's Service selected on `name` alone and
+  matched the database too: routing survived only because a Service drops a
+  pod with no matching named port, and everything resolving the selector
+  directly did not — `kubectl port-forward svc/hlin` opened a tunnel to
+  Postgres. A Deployment's selector is immutable, so an existing release must
+  be uninstalled rather than upgraded. Found by installing the chart into a
+  real cluster, which nothing had done: `helm template` cannot see it.
+
 ### Fixed by the first release
 
 - **The image was amd64 only.** A single build on the runner that happened to

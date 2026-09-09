@@ -27,6 +27,22 @@ app.kubernetes.io/name: {{ include "hlin.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/*
+The shell's own pods, as distinct from the Postgres this chart may also bring.
+
+Both are part of one release and both carry `name: hlin`, which is what the
+convention asks for — the component is how you say which half you mean, and
+postgres has had one from the start while the shell had none. So the shell's
+Service selected on `name` alone and matched the database as well: routing
+survived only because a Service drops a pod with no matching named port, and
+everything that resolves a selector directly did not. `kubectl port-forward
+svc/hlin` opened a tunnel to Postgres.
+*/}}
+{{- define "hlin.shellSelectorLabels" -}}
+{{ include "hlin.selectorLabels" . }}
+app.kubernetes.io/component: shell
+{{- end }}
+
 {{- define "hlin.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "hlin.fullname" .) .Values.serviceAccount.name }}
