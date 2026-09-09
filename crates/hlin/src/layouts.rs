@@ -24,7 +24,7 @@ use hlin_stream::layout::{
 };
 use uuid::Uuid;
 
-use crate::identity::Caller;
+use crate::identity::{Author, Caller};
 use crate::server::AppState;
 use crate::store::{Layout, NewLayout, PanelInstance, Visibility};
 
@@ -209,6 +209,32 @@ pub async fn home(
     State(state): State<AppState>,
     Caller(principal): Caller,
 ) -> Answer<LayoutDocument> {
+    // Where nobody signs in there is nothing to own, so "your most recent
+    // surface" has no meaning and creating one would be a write — an unbounded
+    // one, a row per visitor, on a shell whose whole premise is that it stores
+    // nothing they do. A visitor lands on what was published instead, which is
+    // what an open instance exists to show (HLIN-A-0012).
+    if state.config.read_only() {
+        let published = state
+            .store
+            .published_layouts()
+            .await
+            .map_err(Refusal::store)?;
+
+        return match published.into_iter().next() {
+            Some(layout) => Ok(Json(document_for(&layout, &principal.sub))),
+            // Not an error in the shell. An operator has stood this up and not
+            // yet published anything, and the message is the one thing that
+            // tells them so rather than leaving them looking for a bug.
+            None => Err(Refusal::not_found(
+                "published surface. This shell is open to anybody, so it shows \
+                 only what has been published; compose and publish one from a \
+                 shell configured with an authenticator, against this same \
+                 database",
+            )),
+        };
+    }
+
     let existing = state
         .store
         .layouts_owned_by(&principal.sub)
@@ -244,7 +270,7 @@ pub struct NewLayoutRequest {
 /// Start a new, empty surface.
 pub async fn create(
     State(state): State<AppState>,
-    Caller(principal): Caller,
+    Author(principal): Author,
     Json(request): Json<NewLayoutRequest>,
 ) -> Result<(StatusCode, Json<LayoutDocument>), Refusal> {
     let owner = principal.sub.clone();
@@ -281,7 +307,7 @@ pub async fn read(
 /// added arrive without identifiers, which are assigned here.
 pub async fn replace(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Author(caller): Author,
     Path(id): Path<String>,
     Json(document): Json<LayoutDocument>,
 ) -> Answer<LayoutDocument> {
@@ -342,7 +368,7 @@ pub async fn replace(
 /// Delete a layout.
 pub async fn remove(
     State(state): State<AppState>,
-    Caller(principal): Caller,
+    Author(principal): Author,
     Path(id): Path<String>,
 ) -> Result<StatusCode, Refusal> {
     let principal = principal.sub.clone();
@@ -376,7 +402,7 @@ pub async fn remove(
 /// from (decision HLIN-A-0007).
 pub async fn fork(
     State(state): State<AppState>,
-    Caller(principal): Caller,
+    Author(principal): Author,
     Path(id): Path<String>,
 ) -> Result<(StatusCode, Json<LayoutDocument>), Refusal> {
     let principal = principal.sub.clone();

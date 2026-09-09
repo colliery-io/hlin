@@ -34,6 +34,18 @@ key_path = "/home/hlin/state/shell.key"
 # ca_bundle = "/etc/hlin-trust/ca.pem"
 
 [auth]
+# For an open deployment — public platforms, public data, anybody may look, and
+# no identity provider to point at — the strategy is `anonymous`:
+#
+#   [auth]
+#   strategy = "anonymous"
+#
+# That is the whole of it. Every visitor gets their own identity from a cookie
+# the shell sets, so nobody moves anybody else's charts, and the shell refuses
+# every write. It therefore shows what has been published and nothing else:
+# compose against the same database from a shell configured with one of the
+# strategies below, and publish.
+#
 # `dev` is refused in a release build, on purpose: it makes every request the
 # same person. This is the smallest strategy that works, and it means exactly
 # what it says — the shell must not be reachable except through the proxy that

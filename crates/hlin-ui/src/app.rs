@@ -87,6 +87,13 @@ where
     let (mode, set_mode) = signal(Mode::Watching);
     let (connected, set_connected) = signal(false);
     let (grace, set_grace) = signal(GRACE);
+
+    // Whether this shell refuses every write. False until `/api/config`
+    // answers, and that way round on purpose: a browser that guessed read-only
+    // and was wrong hides composition from a shell that offers it, which is
+    // silent, while guessing writable and being wrong costs one 403 nobody
+    // reaches because the surface has not loaded yet either.
+    let (read_only, set_read_only) = signal(false);
     let (trouble, set_trouble) = signal(Option::<String>::None);
     let (chosen_range, set_chosen_range) = signal(3600i64);
     let (custom, set_custom) = signal(Option::<TimeRange>::None);
@@ -120,6 +127,7 @@ where
         leptos::task::spawn_local(async move {
             if let Ok(config) = crate::api::config().await {
                 set_grace.set(config.stream_loss_grace_seconds);
+                set_read_only.set(config.read_only);
             }
             // A link to a surface names the layout; a bare visit gets the
             // principal's own. Either way the address bar ends up naming what
@@ -563,21 +571,30 @@ where
                 {move || if connected.get() { "live" } else { "reconnecting" }}
             </span>
 
-            <button
-                class="mode"
-                class:active=composing
-                disabled=move || !editable()
-                title=move || if editable() {
-                    String::new()
-                } else {
-                    "This layout belongs to someone else. Fork it to make changes".to_string()
-                }
-                on:click=move |_| set_mode.update(|mode| {
-                    *mode = if *mode == Mode::Composing { Mode::Watching } else { Mode::Composing };
-                })
-            >
-                {move || if composing() { "Done" } else { "Edit" }}
-            </button>
+            // Absent rather than disabled where the shell writes nothing.
+            // A disabled control says "not for you, not now"; there is no
+            // later here, and no explanation that would make one appear.
+            <Show when=move || !read_only.get()>
+                <button
+                    class="mode"
+                    class:active=composing
+                    disabled=move || !editable()
+                    title=move || if editable() {
+                        String::new()
+                    } else {
+                        "This layout belongs to someone else. Fork it to make changes".to_string()
+                    }
+                    on:click=move |_| set_mode.update(|mode| {
+                        *mode = if *mode == Mode::Composing {
+                            Mode::Watching
+                        } else {
+                            Mode::Composing
+                        };
+                    })
+                >
+                    {move || if composing() { "Done" } else { "Edit" }}
+                </button>
+            </Show>
         </header>
 
         {move || trouble.get().map(|reason| view! {
@@ -658,7 +675,7 @@ where
                 {move || {
                     let panels = draft.with(|draft| draft.panels().to_vec());
                     if panels.is_empty() {
-                        return view! { <Empty composing=composing() /> }.into_any();
+                        return view! { <Empty composing=composing() read_only=read_only.get() /> }.into_any();
                     }
 
                     panels.into_iter().map(|instance| {
@@ -821,11 +838,16 @@ where
 
 /// A surface with nothing on it.
 #[component]
-fn Empty(composing: bool) -> impl IntoView {
+fn Empty(composing: bool, read_only: bool) -> impl IntoView {
     view! {
         <p class="empty">
             {if composing {
                 "Pick a panel on the left to put it here."
+            } else if read_only {
+                // Telling somebody to press a button that is not there is
+                // worse than saying nothing, and this is the one screen where
+                // the difference between the two shells is visible.
+                "Nothing on this surface yet."
             } else {
                 "Nothing on this surface yet. Press Edit to compose one."
             }}

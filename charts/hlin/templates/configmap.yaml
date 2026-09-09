@@ -40,7 +40,14 @@ data:
     {{- end }}
 
     [auth]
-    {{- if eq .Values.config.auth.strategy "trusted-header" }}
+    {{- if eq .Values.config.auth.strategy "anonymous" }}
+    strategy = "anonymous"
+
+    [auth.cookie]
+    name = {{ .Values.config.auth.anonymous.cookie.name | quote }}
+    secure = {{ .Values.config.auth.anonymous.cookie.secure }}
+    same_site = {{ .Values.config.auth.anonymous.cookie.sameSite | quote }}
+    {{- else if eq .Values.config.auth.strategy "trusted-header" }}
     strategy = "trusted-header"
     header = {{ .Values.config.auth.trustedHeader.header | quote }}
     {{- with .Values.config.auth.trustedHeader.groupsHeader }}

@@ -175,6 +175,37 @@ pub enum AuthConfig {
         acknowledge_proxy_required: bool,
     },
 
+    /// Nobody signs in, and every visitor is their own person anyway.
+    ///
+    /// The strategy for an open ecosystem: public platforms, public data,
+    /// anybody may look, and there is no identity provider to point at and no
+    /// reason to acquire one. Usable in a release build, which `dev` is not,
+    /// and the difference is not cosmetic — see [`AuthConfig::check`].
+    ///
+    /// Each visitor gets their own `sub`, from a cookie the shell sets. That is
+    /// the whole substance of the strategy rather than a detail of it: a live
+    /// surface is keyed `{surface_id}:{principal.sub}`, so one shared anonymous
+    /// principal would be one shared surface — one visitor changing a filter
+    /// would move the charts for everyone else looking at the same page, and
+    /// the breakage would only appear with a second viewer.
+    ///
+    /// The cookie is not a session. There is no row, no expiry to sweep and
+    /// nothing to revoke, because it names nothing that is stored: a shell
+    /// using this strategy refuses every write (HLIN-A-0012).
+    Anonymous {
+        /// How the visitor cookie is scoped.
+        #[serde(default = "default_visitor_cookie")]
+        cookie: CookieConfig,
+
+        /// What to call a visitor on screen, where anything.
+        ///
+        /// `None` by default, because inventing "Anonymous" as a display name
+        /// suggests an account exists. Nobody is signed in, and the chrome
+        /// showing no name is the honest rendering of that.
+        #[serde(default)]
+        name: Option<String>,
+    },
+
     /// The shell authenticates people itself, against an OpenID Connect
     /// provider, and issues its own session (HLIN-S-0005).
     ///
@@ -307,6 +338,33 @@ fn default_session_hours() -> u64 {
     12
 }
 
+/// The visitor cookie's defaults.
+///
+/// A different name from the session cookie, and deliberately: they mean
+/// different things, and a deployment that moved between strategies should not
+/// have a stale one of the other kind answering to the same name.
+///
+/// `Secure` is false where the session cookie's is true, and that is the one
+/// place the two differ on substance. This strategy exists to be reachable
+/// without ceremony — a look at an open instance over plain HTTP is the case it
+/// serves — and the cookie protects nothing: it names no account, grants no
+/// write, and its worst loss is a stranger sharing your time range. Set it true
+/// behind TLS anyway.
+fn default_visitor_cookie() -> CookieConfig {
+    CookieConfig {
+        name: "hlin_visitor".to_string(),
+        secure: false,
+        same_site: "Lax".to_string(),
+    }
+}
+
+/// What an anonymous visitor's `sub` begins with.
+///
+/// Prefixed rather than bare so that a subject is legible wherever it surfaces
+/// — a log line, a surface key, the `sub` of a token minted for a platform —
+/// and so it cannot be confused with a subject an identity provider issued.
+pub const VISITOR_PREFIX: &str = "anonymous:";
+
 fn default_principal_header() -> String {
     "x-forwarded-user".to_string()
 }
@@ -316,6 +374,7 @@ impl AuthConfig {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Dev { .. } => "dev",
+            Self::Anonymous { .. } => "anonymous",
             Self::TrustedHeader { .. } => "trusted-header",
             Self::Oidc(_) => "oidc",
         }
@@ -329,11 +388,26 @@ impl AuthConfig {
         match self {
             Self::Dev { .. } if !cfg!(debug_assertions) => Err(
                 "the `dev` authenticator makes every request the same person and must never \
-                 be used outside development; this is a release build. Use `trusted-header` \
-                 behind a proxy that authenticates."
+                 be used outside development; this is a release build. Use `anonymous` if \
+                 there is no identity provider — it gives every visitor their own identity \
+                 and refuses every write — or `trusted-header` behind a proxy that \
+                 authenticates, or `oidc`."
                     .to_string(),
             ),
             Self::Dev { .. } => Ok(()),
+
+            // Allowed in a release build, where `dev` above is not, and the
+            // difference is the whole of HLIN-A-0012. `dev` makes every request
+            // the same person *and* lets that person write, so an unauthenticated
+            // caller creates, edits and deletes whatever they like. This gives
+            // every visitor their own identity and refuses every write, which
+            // leaves nothing to take and nothing to vandalise.
+            Self::Anonymous { cookie, .. } => {
+                if cookie.name.trim().is_empty() {
+                    return Err("anonymous names no cookie to keep a visitor under".to_string());
+                }
+                Ok(())
+            }
 
             Self::TrustedHeader {
                 header,
@@ -788,6 +862,17 @@ impl Config {
         Ok(())
     }
 
+    /// Whether this shell refuses every write.
+    ///
+    /// True under `anonymous` and only there. Not a setting of its own: a shell
+    /// where nobody signs in and anybody may write is `dev`, which a release
+    /// build refuses for exactly that reason, so making this configurable would
+    /// re-offer behind a second flag the thing the first refusal prevents
+    /// (HLIN-A-0012).
+    pub fn read_only(&self) -> bool {
+        matches!(self.auth, AuthConfig::Anonymous { .. })
+    }
+
     /// Who is making this request.
     ///
     /// Takes the headers rather than reading a fixed value out of
@@ -850,6 +935,20 @@ impl Config {
                     .unwrap_or_default();
                 Asking::Known(principal)
             }
+
+            // The cookie is minted by a layer in front of the handlers, which
+            // is why this can stay what it is: a function of the headers. By
+            // the time a request reaches here it carries one, so `Nobody` means
+            // the layer is not installed rather than that a visitor is new.
+            AuthConfig::Anonymous { cookie, name } => match session_cookie(headers, &cookie.name) {
+                Some(value) => {
+                    let mut principal =
+                        hlin_identity::Principal::new(format!("{VISITOR_PREFIX}{value}"));
+                    principal.name = name.clone();
+                    Asking::Known(principal)
+                }
+                None => Asking::Nobody,
+            },
 
             AuthConfig::Oidc(oidc) => match session_cookie(headers, &oidc.cookie.name) {
                 Some(value) => Asking::Session(value),

@@ -21,12 +21,49 @@ docker run --rm -p 8080:8080 \
 Two things it will tell you about on the way up, both deliberate:
 
 - **It refuses the `dev` authenticator.** That strategy makes every request the
-  same person, so a release build will not start with it. Use `trusted-header`
-  behind a proxy that authenticates, or `oidc`. See `docker/hlin.toml`.
+  same person *and* lets that person write, so a release build will not start
+  with it. Use `anonymous` for an open instance, `trusted-header` behind a
+  proxy that authenticates, or `oidc`. See `docker/hlin.toml`.
 - **It refuses to start without a database.** The surfaces people compose live
   in Postgres. Without one they are lost on the next restart, along with the
   links anybody shared — the thing Hlin is for, failing quietly, which is worse
   than failing to start. A debug build still falls back, and says what is lost.
+
+### No identity provider
+
+An open ecosystem has no provider to point at and no reason to acquire one.
+`anonymous` is the strategy for it, and it needs nothing:
+
+```toml
+[auth]
+strategy = "anonymous"
+```
+
+Every visitor gets their own identity from a cookie the shell sets — not one
+shared anonymous principal, because a surface is keyed by its viewer and a
+shared one would have one person's click move everybody else's charts.
+
+**A shell using it refuses every write**, and the front end stops offering Edit
+rather than offering it and failing at Save. That is what makes anonymity safe
+rather than merely convenient: nobody signs in, so nothing can be owned, and a
+visitor able to edit could delete the surfaces everyone else came to see.
+Read-only is not a separate setting — `anonymous` plus writes is `dev`, which
+is refused above for that exact reason.
+
+So an open instance shows what has been *published*. Compose against the same
+database from a shell configured with `trusted-header` or `oidc`, publish, and
+point the open one at it.
+
+Platforms in an open ecosystem often want no credential either:
+
+```toml
+[[platforms]]
+id = "public-thing"
+base_url = "https://data.example.org"
+auth = { strategy = "none" }
+```
+
+### Behind a proxy
 
 Configured with `trusted-header` and no proxy in front, every request is
 refused and the browser says so. That is the strategy working, not a fault. To
@@ -39,6 +76,8 @@ curl -H "x-forwarded-user: you" http://localhost:8080/api/platforms
 For a browser, put any header-setting proxy in front — or run the demo below,
 which uses the `dev` authenticator that a debug build allows and a release
 build refuses.
+
+### An identity provider
 
 For a real identity provider, use `oidc`. Register `{public_url}/auth/callback`
 as the redirect URI — it is derived rather than configured, so it cannot drift
@@ -96,6 +135,7 @@ one the shell itself makes and for the same reason:
 
 - No database at all, which is now an install that cannot start.
 - `dev` as an authenticator, which a release build will not start with anyway.
+  `anonymous` is offered instead, and needs nothing configured.
 - `trusted-header` without acknowledging what it trusts. A pod IP is reachable
   from the rest of the namespace by default, so an ingress in front is not on
   its own enough.

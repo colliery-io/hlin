@@ -337,6 +337,19 @@ pub struct ClientConfig {
 
     /// Who the browser is, as far as this shell is concerned.
     pub principal: PrincipalSummary,
+
+    /// Whether this shell refuses every write.
+    ///
+    /// True where nobody signs in (HLIN-A-0012). Reported so the front end can
+    /// stop offering what cannot succeed: a browser that learned this by trying
+    /// would show an Edit button, let somebody arrange a whole surface, and
+    /// refuse at Save — the worst moment to say it.
+    ///
+    /// Defaulted, so a browser built against a newer shell than it is served by
+    /// assumes it may write and is told otherwise by a 403, which is the safe
+    /// way round: the alternative hides composition from every older shell.
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 /// The viewer, named.
@@ -344,8 +357,20 @@ pub struct ClientConfig {
 pub struct PrincipalSummary {
     /// The identifier platforms are told.
     pub sub: String,
-    /// What to call them on screen.
-    pub name: String,
+
+    /// What to call them on screen, where anybody knows.
+    ///
+    /// Optional, because plenty of principals have no display name and the
+    /// shell has always sent `null` for them: `trusted-header` with no
+    /// `name_header`, an `oidc` provider that returns no `name` claim, and
+    /// every visitor of an open shell. This was a bare `String`, so the whole
+    /// of `/api/config` failed to deserialise for exactly those principals —
+    /// silently, because the browser's only response to a failed fetch is to
+    /// keep its built-in defaults. A person under one of those strategies got
+    /// the fallback staleness grace and a shell whose settings never reached
+    /// them, with nothing on screen to say so.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[cfg(test)]

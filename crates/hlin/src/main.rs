@@ -6,7 +6,12 @@ use hlin::config::Config;
 use hlin::manifest_client::HttpManifestClient;
 use hlin::registry::Registry;
 use hlin::server::{AppState, router};
-use hlin::store::{MemoryStore, PostgresStore, Store};
+use hlin::store::{PostgresStore, Store};
+// Only the debug build falls back to it; a release build refuses to start
+// without a database, so importing it there is an unused import and a warning
+// nobody sees until they build for release.
+#[cfg(debug_assertions)]
+use hlin::store::MemoryStore;
 
 #[derive(Parser)]
 #[command(name = "hlin", version, about = hlin::TAGLINE)]

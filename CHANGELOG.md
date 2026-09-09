@@ -51,12 +51,25 @@ number here can move, including the ones a platform declares.
 
 ### Identity
 
-- Three authenticator strategies: `dev` (refused in release builds),
-  `trusted-header`, and `oidc` with sessions in Postgres.
-- Three credentialer strategies for what the shell sends a platform:
-  `forward-session`, `hlin-token`, and `static-bearer`.
+- Four authenticator strategies: `anonymous`, `trusted-header`, `oidc` with
+  sessions in Postgres, and `dev` (refused in release builds).
+- `anonymous`, so an identity provider is not required to run Hlin
+  (HLIN-A-0012). Nobody signs in; every visitor gets their own identity from a
+  cookie the shell sets, because a surface is keyed by its viewer and one
+  shared anonymous principal would have a single click move everybody else's
+  charts. A shell using it refuses every write, and the front end stops
+  offering Edit rather than failing at Save — that refusal is what makes
+  anonymity safe rather than merely convenient, and it is not a separate
+  setting, because `anonymous` plus writes is `dev`. An open instance shows
+  what has been published; compose against the same database from a shell with
+  an authenticator.
+- Four credentialer strategies for what the shell sends a platform:
+  `forward-session`, `hlin-token`, `static-bearer`, and `none` for a platform
+  that is open and asks for nothing.
 - Authentication is an extractor, so a handler that needs a principal says so
-  in its signature and cannot be written without one.
+  in its signature and cannot be written without one — and a handler that
+  *changes* something asks for a second one, so the read-only refusal cannot be
+  forgotten on a route added later.
 
 ### Freshness
 

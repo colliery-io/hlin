@@ -37,6 +37,21 @@ pub enum CredentialConfig {
     #[default]
     HlinToken,
 
+    /// Nothing at all.
+    ///
+    /// For a platform that is open: public data, no account, nothing to
+    /// present. The other three strategies all say *how* the shell proves who
+    /// is asking, and against a platform that does not ask, every one of them
+    /// is an answer to a question nobody put. `hlin-token` would work — a
+    /// platform ignores a header it does not read — but it signs a token per
+    /// request for nobody, and it makes the configuration claim a relationship
+    /// that does not exist.
+    ///
+    /// Nothing to acknowledge, unlike `static-bearer`: this collapses no
+    /// principals because it carries none. Every viewer reaches the platform
+    /// as nobody, which is what the platform already offers everybody.
+    None,
+
     /// A fixed key, the same for every viewer.
     StaticBearer {
         /// The environment variable holding the key. Never the key itself, so
@@ -57,6 +72,7 @@ impl CredentialConfig {
         match self {
             Self::ForwardSession { .. } => "forward-session",
             Self::HlinToken => "hlin-token",
+            Self::None => "none",
             Self::StaticBearer { .. } => "static-bearer",
         }
     }
@@ -90,6 +106,10 @@ impl CredentialConfig {
             }
 
             Self::HlinToken => Ok(()),
+
+            // Nothing to check. There is no secret to find in the environment,
+            // no origin to compare, and no consequence to acknowledge.
+            Self::None => Ok(()),
 
             Self::StaticBearer {
                 token_env,
@@ -212,6 +232,7 @@ pub fn build(
             issuer,
             audience: platform_id.to_string(),
         }),
+        CredentialConfig::None => Box::new(Nothing),
         CredentialConfig::StaticBearer { token_env, .. } => {
             let token = std::env::var(token_env)
                 .map_err(|_| format!("`{token_env}` is not in the environment"))?;
@@ -275,6 +296,19 @@ impl Credentialer for HlinToken {
 
     fn name(&self) -> &'static str {
         "hlin-token"
+    }
+}
+
+/// Nothing at all, for a platform that asks for nothing.
+struct Nothing;
+
+impl Credentialer for Nothing {
+    fn headers(&self, _viewer: &Viewer) -> Result<Vec<(String, String)>, String> {
+        Ok(Vec::new())
+    }
+
+    fn name(&self) -> &'static str {
+        "none"
     }
 }
 
@@ -371,4 +405,53 @@ fn refuse(app: &crate::server::AppState) -> axum::response::Response {
         axum::Json(serde_json::json!({ "login": login })),
     )
         .into_response()
+}
+
+/// The principal, plus the right to change something.
+///
+/// A separate extractor from [`Caller`] rather than a check inside each
+/// handler, and for the reason [`Caller`] itself exists: a handler that mutates
+/// says so in its signature, and the guard cannot be forgotten because there is
+/// nothing to remember — the only way to get a principal in a mutating handler
+/// is to ask for one that came with the right to mutate.
+///
+/// A shell using `anonymous` refuses every write (HLIN-A-0012). Nobody signed
+/// in, so nothing can be owned; a visitor able to create, edit and delete would
+/// be able to delete the surfaces every other visitor came to see. The
+/// alternative — anonymous callers writing freely — is what `dev` does, and
+/// what a release build refuses `dev` for.
+///
+/// This is authentication, not authorisation: whether *this* person may edit
+/// *that* layout is still the layout's own question, asked further in.
+pub struct Author(pub hlin_identity::Principal);
+
+impl axum::extract::FromRequestParts<crate::server::AppState> for Author {
+    type Rejection = axum::response::Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        app: &crate::server::AppState,
+    ) -> Result<Self, Self::Rejection> {
+        // Who, first. A read-only shell still answers "you are not signed in"
+        // ahead of "and you could not write anyway", because the first is the
+        // more useful thing to be told and the second is true of everyone.
+        let Caller(principal) = Caller::from_request_parts(parts, app).await?;
+
+        if app.config.read_only() {
+            return Err((
+                axum::http::StatusCode::FORBIDDEN,
+                axum::Json(serde_json::json!({
+                    "error": "read_only",
+                    "detail": "This shell is open to anybody and keeps nothing: nobody signs \
+                               in, so nothing can be owned, and a visitor able to edit could \
+                               delete the surfaces everyone else came to see. Surfaces are \
+                               composed against the same database by a shell configured with \
+                               an authenticator.",
+                })),
+            )
+                .into_response());
+        }
+
+        Ok(Author(principal))
+    }
 }

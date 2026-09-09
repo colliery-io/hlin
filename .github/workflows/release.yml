@@ -117,6 +117,8 @@ jobs:
             --set config.auth.trustedHeader.acknowledgeProxyRequired=true \
             --set config.caBundle.existingSecret=corp-ca \
             --set config.caBundle.key=corp.crt > /dev/null
+          # Needs nothing else set, which is the claim: no provider, no proxy.
+          helm template t charts/hlin --set config.auth.strategy=anonymous > /dev/null
 
       # And that the refusals refuse. A guard nobody tests is a guard that
       # stops guarding the first time somebody edits around it.

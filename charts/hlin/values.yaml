@@ -101,8 +101,29 @@ config:
   # build, so a chart that let you write it would only produce a pod that
   # crashes with an explanation.
   auth:
-    # trusted-header | oidc
+    # anonymous | trusted-header | oidc
     strategy: trusted-header
+
+    # `anonymous` has nothing to configure and that is the point of it: no
+    # provider, no client registration, no proxy. Every visitor gets their own
+    # identity from a cookie the shell sets, and the shell refuses every write.
+    #
+    # Read-only is not a setting here or anywhere. Anonymous plus writes is
+    # `dev` — an unauthenticated caller creating, editing and deleting whatever
+    # they like — which a release build refuses for that reason.
+    #
+    # So an install with this strategy shows what has been published and
+    # nothing else. Compose against the same database from a shell configured
+    # with `trusted-header` or `oidc`, and publish.
+    anonymous:
+      cookie:
+        name: hlin_visitor
+        # Set true behind TLS. False by default because this strategy exists to
+        # be reachable without ceremony, and the cookie protects nothing: it
+        # names no account, grants no write, and its worst loss is a stranger
+        # sharing your time range.
+        secure: false
+        sameSite: Lax
 
     trustedHeader:
       header: x-forwarded-user

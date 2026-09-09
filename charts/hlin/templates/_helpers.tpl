@@ -57,7 +57,12 @@ signing with different keys fail one request in two rather than all of them.
 {{- if gt $trust 1 }}
 {{- fail "config.caBundle: set at most one of pem, existingConfigMap, existingSecret. Only one can be mounted, so the others would be silently ignored — and a trust anchor that is silently ignored fails against every platform at once, looking like an outage." }}
 {{- end }}
-{{- if eq .Values.config.auth.strategy "trusted-header" }}
+{{- if eq .Values.config.auth.strategy "anonymous" }}
+{{- /* Nothing to demand. No provider, no proxy, no secret — and no
+       acknowledgement, because there is nothing to accept: the shell refuses
+       every write, so an open install cannot be vandalised by the anonymity
+       that makes it reachable. */}}
+{{- else if eq .Values.config.auth.strategy "trusted-header" }}
 {{- if not .Values.config.auth.trustedHeader.acknowledgeProxyRequired }}
 {{- fail "config.auth.trustedHeader.acknowledgeProxyRequired must be true: this strategy trusts whatever the header claims, so anything that can reach a pod directly is whoever it says it is. A pod IP is reachable from the rest of the namespace by default — an ingress in front is not on its own enough." }}
 {{- end }}
@@ -69,7 +74,7 @@ signing with different keys fail one request in two rather than all of them.
 {{- fail "config.auth.oidc.clientSecret.name is required: the client secret comes from a Secret, never from values." }}
 {{- end }}
 {{- else }}
-{{- fail (printf "config.auth.strategy must be trusted-header or oidc, and is %q. `dev` is not offered: the shell refuses it outside a debug build, so a chart that rendered it would only produce a pod that crashes with an explanation." .Values.config.auth.strategy) }}
+{{- fail (printf "config.auth.strategy must be anonymous, trusted-header or oidc, and is %q. `dev` is not offered: the shell refuses it outside a debug build, so a chart that rendered it would only produce a pod that crashes with an explanation." .Values.config.auth.strategy) }}
 {{- end }}
 {{- end }}
 

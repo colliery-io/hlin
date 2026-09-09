@@ -40,6 +40,7 @@ pub mod server;
 pub mod store;
 pub mod stream;
 pub mod surfaces;
+pub mod visitor;
 
 /// What Hlin is, in one line. Shown by the binary and by the shell's own
 /// about page.

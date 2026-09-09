@@ -82,6 +82,15 @@ pub fn router(state: AppState) -> Router {
         // everyone is by a proxy has nothing to offer on `/auth/login`, and a
         // route that exists and cannot work is worse than one that does not.
         .merge(crate::auth::routes(&state.config.auth))
+        // A visitor cookie, where nobody signs in. Outside `anonymous` the
+        // layer returns immediately, so it costs a match on every request and
+        // nothing else; it is added unconditionally because a router that
+        // changes shape with configuration is a router two deployments cannot
+        // be reasoned about together.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::visitor::assign,
+        ))
         .with_state(state)
 }
 
@@ -99,6 +108,11 @@ async fn client_config(
         "stream_loss_grace_seconds": state.config.timings.stream_loss_grace().num_seconds(),
         "refresh_ms": state.config.timings.refresh_ms,
         "principal": { "sub": principal.sub, "name": principal.name },
+        // So the front end can stop offering what cannot succeed. A browser
+        // that learned this by trying would show an Edit button, let somebody
+        // arrange a surface, and refuse at Save — which is the worst possible
+        // moment to say it.
+        "read_only": state.config.read_only(),
     }))
 }
 
