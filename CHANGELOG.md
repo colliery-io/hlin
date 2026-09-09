@@ -124,6 +124,12 @@ number here can move, including the ones a platform declares.
 
 ### Unreleased
 
+- **No vendored source and no path dependencies outside the workspace.**
+  Aurora's `hlin` feature is upstream and released as `colliery-io-aurora`
+  0.2.0, so `vendor/aurora-leptos` is gone and the examples take it from
+  crates.io. The feature is additive and off by default: Aurora's own default
+  build compiles no Hlin dependency and does not know Hlin exists.
+
 - **Breaking, chart only.** The shell's pods and Service now carry
   `app.kubernetes.io/component: shell`, which the Postgres half has had from
   the start. Without it the shell's Service selected on `name` alone and

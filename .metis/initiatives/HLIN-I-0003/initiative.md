@@ -287,3 +287,33 @@ piece of work in the initiative: a published design system cannot depend on
 unpublished crates, so `hlin-manifest` and `hlin-view` have to be released, and
 the pack interface becomes a public API with the versioning obligations that
 brings.
+
+## Resolved — 2026-09-09
+
+The vendoring is undone, which this initiative said had to happen before
+release and it did not: 0.0.1 shipped with `vendor/aurora-leptos` still in the
+tree, because Aurora could not carry a `hlin` feature until `hlin-view` was on
+crates.io.
+
+It is now. The feature went upstream (`colliery-io/aurora-dark` 58621e7),
+`colliery-io-aurora` 0.2.0 carries it, and `vendor/` is deleted — the examples
+take Aurora from the registry like anything else. Hlin has no path dependency
+outside its own workspace and no git dependency at all.
+
+Two things upstream got that the vendored copy did not, both found by packaging
+the crate rather than by reading it:
+
+- `include` did not carry `src/**/*.css`. The module embeds a stylesheet beside
+  itself with `include_str!`, and `src/**/*.rs` does not match it — so the crate
+  would have published cleanly and then failed to build for everyone who turned
+  the feature on. Proven both ways, then by extracting the packaged tarball and
+  building it standalone with the feature.
+- The two `web-sys` features the module needs are named on the feature rather
+  than on the dependency, so "nothing about the default build changes" is
+  actually true.
+
+The vendored copy had also drifted: five files reformatted by this repository's
+own `cargo fmt --all`, which reaches a path dependency even when the crate is
+excluded from the workspace. `vendor/README.md` called that a mistake and was
+right. It is moot now, but the lesson is not: the workspace-level rustfmt
+`ignore` key is nightly-only and silently does nothing.

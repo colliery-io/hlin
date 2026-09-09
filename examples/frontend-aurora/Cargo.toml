@@ -17,9 +17,8 @@ path = "src/main.rs"
 # The composition machinery, which knows nothing about any design system.
 # Named from crates.io, the way anybody outside this repository would write it.
 hlin-ui = "0.0.1"
-# The design system, with the feature that makes it a Hlin pack. Vendored
-# because that feature is not upstream yet — it could not be until `hlin-view`
-# was published, which it now is; see vendor/README.md.
-colliery-io-aurora = { path = "../../vendor/aurora-leptos", features = ["hlin"] }
+# The design system, with the feature that makes it a Hlin pack — from
+# crates.io, like everything else here.
+colliery-io-aurora = { version = "0.2", features = ["hlin"] }
 leptos = { workspace = true, features = ["csr"] }
 console_error_panic_hook = "0.1"

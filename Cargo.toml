@@ -1,10 +1,6 @@
 [workspace]
 members = ["crates/*", "examples/*"]
 
-# Vendored third-party source. A path dependency still resolves it, but it is
-# not a member: it is not ours to lint, format, or hold to our warning policy,
-# and the only thing we have added to it is a feature that will go upstream.
-exclude = ["vendor/aurora-leptos"]
 resolver = "2"
 
 [workspace.package]

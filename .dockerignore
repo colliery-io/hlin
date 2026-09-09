@@ -8,7 +8,6 @@
 
 # Build output, host-architecture and useless in a container.
 target/
-vendor/*/target/
 
 # Built front ends. The image builds its own, from source, at a pinned
 # toolchain; a dist/ copied from a laptop is a binary of unknown provenance.

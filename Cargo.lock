@@ -473,7 +473,9 @@ checksum = "2550f75b8cfac212855f6b1885455df8eaee8fe8e246b647d69146142e016084"
 
 [[package]]
 name = "colliery-io-aurora"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca81e23e315dd4e6005d6fe55eee6ca8196d6ffee502f974426cfc8f5adc4c4c"
 dependencies = [
  "hlin-view",
  "js-sys",

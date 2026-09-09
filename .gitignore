@@ -72,5 +72,3 @@ e2e/results/
 # Vendored crates build in place when used outside the workspace. Their target
 # directory and their lockfile are both artefacts of that build, in a tree that
 # is not ours to keep tidy.
-vendor/*/target/
-vendor/*/Cargo.lock

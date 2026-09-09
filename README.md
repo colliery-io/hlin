@@ -403,7 +403,8 @@ The demo pack exists so this repository can demonstrate itself while depending
 on nothing published. It is deliberately plain and is not a design system.
 
 `examples/frontend-aurora` is the same front end drawn by Colliery's Aurora
-Dark, which is a real one:
+Dark, which is a real one — taken from crates.io like any other dependency,
+with its own `hlin` feature turned on:
 
 ```bash
 angreal ui build --which frontend-aurora
@@ -413,7 +414,12 @@ angreal ui build --which frontend-aurora
 The two binaries differ by one identifier. Choosing a design system is a
 dependency and a line; everything else is `hlin-ui`, which has no idea what is
 drawing its panels. Nothing in `crates/` mentions Aurora, and Aurora's own
-default build does not mention Hlin.
+default build does not mention Hlin — the feature that makes it a pack is
+additive and off unless asked for:
+
+```toml
+colliery-io-aurora = { version = "0.2", features = ["hlin"] }
+```
 
 `examples/frontend-gallery` holds both and reads the pack from the address, so
 you can see the same surface drawn two ways without a rebuild:
