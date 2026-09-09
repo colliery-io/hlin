@@ -11,7 +11,7 @@ archived: false
 
 tags:
   - "#initiative"
-  - "#phase/ready"
+  - "#phase/completed"
 
 exit_criteria_met: false
 estimated_complexity: M
@@ -78,3 +78,46 @@ building Hlin from source.
   ImagePullBackOff; `angreal version verify` now fails on it, proven by
   reintroducing it.
 - Awaiting review. Not transitioned to completed.
+
+## Released — 2026-09-09
+
+`v0.0.1` is out, the repository is public, and every artifact is anonymously
+pullable. Verified as an outsider, not asserted:
+
+| Artifact | Where | Checked |
+|---|---|---|
+| 8 crates | crates.io | all at `0.0.1` |
+| image | `ghcr.io/colliery-io/hlin:0.0.1` | linux/amd64 **and** linux/arm64, pulled natively on an arm64 Mac |
+| chart | `oci://ghcr.io/colliery-io/charts/hlin` | `helm template` from the registry resolves the image tag that exists |
+| binaries | GitHub release | three tarballs, and nothing spurious |
+
+The full trial, run end to end with published artifacts only: the released
+image, an anonymous shell, a platform reached with `strategy = "none"`, and a
+front end from somebody else's pack image — `serving the frontend from
+/home/hlin/frontend`, drawing `frontend-aurora` from an image that ships
+`frontend-gallery`.
+
+And an outsider's project — no workspace, no patch — depending on `hlin-ui`,
+`hlin-view` and `hlin-pack-demo` from crates.io compiles to wasm.
+
+### What releasing found
+
+Four faults, none of which any amount of rendering or dry-running had shown,
+because a release had never been run:
+
+1. **The image was amd64 only.** One build on whichever runner it landed on,
+   tagged directly. `docker pull` on an arm64 node or an Apple Silicon laptop
+   answered "no matching manifest" — most of the machines somebody would try
+   this on. Now built natively on both and joined into one manifest.
+2. **The release attached every artifact in the run**, including the
+   `.dockerbuild` build record `build-push-action` uploads on its own. It
+   refused to extract and failed the job twice; had it succeeded it would have
+   been offered as a download.
+3. **The crates job asked crates.io without a User-Agent**, which crates.io
+   refuses — so its "already published?" check answered no for everything and
+   the re-run safety it existed for was never once true. Also, crates.io
+   rate-limits new crates: five went through and the sixth came back 429.
+4. **Digests as filenames.** `sha256:...` contains a colon, which an artifact
+   path may not.
+
+Each is now fixed and the pipeline has run green end to end.
