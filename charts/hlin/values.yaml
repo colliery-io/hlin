@@ -155,6 +155,27 @@ config:
         secure: true
         sameSite: Lax
 
+  # Draw the panels with your own design pack.
+  #
+  # A design pack is a Leptos crate implementing `DesignPack` from `hlin-view`.
+  # A front end is a small binary that picks one and mounts `hlin-ui`; building
+  # it produces a `dist` directory. Put that directory in an image — a few
+  # megabytes on `busybox`, no Rust toolchain in it — and name the image here:
+  #
+  #   FROM busybox
+  #   COPY dist /dist
+  #
+  # An init container copies `/dist` out of it, over the front end this image
+  # was built with. The shell image stays ours, so a fix to the shell is a tag
+  # bump rather than your rebuild.
+  #
+  # Left empty, the image serves the pack it shipped with.
+  frontendImage: ""
+  frontendImagePullPolicy: IfNotPresent
+
+  # Where the built bundle sits inside that image.
+  frontendImagePath: /dist
+
   # The platforms this shell offers panels from.
   #
   # platforms:

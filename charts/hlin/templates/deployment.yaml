@@ -42,6 +42,35 @@ spec:
       serviceAccountName: {{ include "hlin.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.config.frontendImage }}
+      # Somebody else's design pack, drawn over the one this image shipped
+      # with. Copying rather than mounting the image directly, because the
+      # shell serves files off a path and an emptyDir is the only thing both
+      # containers can agree on without either of them being privileged.
+      initContainers:
+        - name: frontend
+          image: {{ .Values.config.frontendImage | quote }}
+          imagePullPolicy: {{ .Values.config.frontendImagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command:
+            - sh
+            - -c
+            # Refusing an empty copy rather than starting on a blank page: an
+            # image with nothing at this path would otherwise produce a shell
+            # serving no front end at all, which looks like the shell being
+            # broken and is not.
+            - |
+              set -e
+              cp -R {{ .Values.config.frontendImagePath }}/. /frontend/
+              test -f /frontend/index.html || {
+                echo "no index.html under {{ .Values.config.frontendImagePath }} in {{ .Values.config.frontendImage }}" >&2
+                exit 1
+              }
+          volumeMounts:
+            - name: frontend
+              mountPath: /frontend
+      {{- end }}
       containers:
         - name: hlin
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -94,6 +123,13 @@ spec:
               mountPath: /etc/hlin-trust
               readOnly: true
             {{- end }}
+            {{- if .Values.config.frontendImage }}
+            # Over the top of the bundled one, which is what makes this a
+            # replacement rather than a second front end nothing serves.
+            - name: frontend
+              mountPath: /home/hlin/frontend
+              readOnly: true
+            {{- end }}
             - name: state
               mountPath: /home/hlin/state
               {{- if .Values.signingKey.existingSecret }}
@@ -123,6 +159,10 @@ spec:
               - key: {{ .Values.config.caBundle.key }}
                 path: {{ .Values.config.caBundle.key }}
           {{- end }}
+        {{- end }}
+        {{- if .Values.config.frontendImage }}
+        - name: frontend
+          emptyDir: {}
         {{- end }}
         - name: state
           {{- if .Values.signingKey.existingSecret }}

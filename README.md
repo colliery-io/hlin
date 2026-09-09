@@ -146,6 +146,54 @@ one the shell itself makes and for the same reason:
   ignored in silence — and a trust anchor that is silently ignored fails
   against every platform at once.
 
+### Bringing your own design pack
+
+Panels are drawn by whichever design pack the front end was built with, and the
+image ships one. To draw them with yours, write a pack — anything implementing
+`DesignPack` from [`hlin-view`](https://crates.io/crates/hlin-view) — and a
+front end that mounts it:
+
+```rust
+use hlin_ui::app::App;
+use leptos::prelude::*;
+use your_pack::YourPack;
+
+fn main() {
+    leptos::mount::mount_to_body(|| view! { <App pack=YourPack /> });
+}
+```
+
+`trunk build --release` produces a `dist`. Put it in an image — a few megabytes
+on `busybox`, no Rust toolchain in it — and name that image:
+
+```dockerfile
+FROM busybox
+COPY dist /dist
+```
+
+```sh
+helm install hlin oci://ghcr.io/colliery-io/charts/hlin \
+  --set config.auth.strategy=anonymous \
+  --set config.frontendImage=ghcr.io/you/your-pack:1.0
+```
+
+An init container copies it over the front end the shell image was built with,
+so the shell stays upstream's: a fix to it is a tag bump rather than your
+rebuild. If you would rather have one image, `FROM ghcr.io/colliery-io/hlin`
+and `COPY dist /home/hlin/frontend` does the same thing.
+
+Then point it at your platform — anything serving a manifest at
+`/.well-known/hlin.json`:
+
+```yaml
+config:
+  platforms:
+    - id: your-platform
+      baseUrl: https://your-platform.internal
+      auth:
+        strategy: hlin-token     # or `none`, for a platform that asks for nothing
+```
+
 To work on it instead, everything is an `angreal` task:
 
 ```sh

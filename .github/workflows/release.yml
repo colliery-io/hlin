@@ -72,12 +72,23 @@ jobs:
       # starts, serves the API and has nothing to look at is not a thing
       # somebody can deploy, and building a front end needs the repository,
       # trunk and the wasm toolchain.
+      # Both spellings of the version, because two things name this image and
+      # they do not agree on the `v`. A git tag is `v0.0.1`; the chart's
+      # appVersion is `0.0.1`, because the chart job strips the prefix — and
+      # `image.tag` defaults to appVersion. Pushing only `${{ github.ref_name }}`
+      # meant a first `helm install` resolved a tag that was never pushed, and
+      # got an ImagePullBackOff.
+      - name: The version, both ways
+        id: version
+        run: echo "bare=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.bare }}
             ghcr.io/${{ github.repository }}:${{ github.ref_name }}
             ghcr.io/${{ github.repository }}:latest
           cache-from: type=gha
@@ -119,6 +130,10 @@ jobs:
             --set config.caBundle.key=corp.crt > /dev/null
           # Needs nothing else set, which is the claim: no provider, no proxy.
           helm template t charts/hlin --set config.auth.strategy=anonymous > /dev/null
+          # Somebody else's design pack, over the one the image was built with.
+          helm template t charts/hlin \
+            --set config.auth.strategy=anonymous \
+            --set config.frontendImage=ghcr.io/example/pack:1.0 > /dev/null
 
       # And that the refusals refuse. A guard nobody tests is a guard that
       # stops guarding the first time somebody edits around it.
@@ -148,6 +163,55 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           helm package charts/hlin --version "$version" --app-version "$version"
           helm push "hlin-${version}.tgz" "oci://ghcr.io/${{ github.repository_owner }}/charts"
+
+  crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    # Deliberately not a dependency of `release`. A crates.io token that is
+    # missing or expired should not swallow the binaries, the image and the
+    # chart along with it — this failing on its own is legible; everything
+    # failing because of it is not.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish, in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
+            echo "::error::CARGO_REGISTRY_TOKEN is not set. Add it under Settings → Secrets."
+            exit 1
+          fi
+
+          version="${GITHUB_REF_NAME#v}"
+
+          # The order is the dependency graph, and it is encoded rather than
+          # remembered because publishing is irreversible per version: a crate
+          # pushed before something it depends on cannot be withdrawn and
+          # retried, only yanked and bumped.
+          #
+          #   hlin-manifest, hlin-identity   nothing internal
+          #   hlin-view, hlin-stream         on manifest
+          #   hlin-ui, hlin-pack-demo        on view and stream
+          #   hlin-sample-platform, hlin     on everything
+          for crate in hlin-manifest hlin-identity hlin-view hlin-stream \
+                       hlin-ui hlin-pack-demo hlin-sample-platform hlin; do
+
+            # Already there? Then this is a re-run of a tag, and a re-run
+            # should finish what a half-finished one started rather than
+            # failing on the first crate that succeeded last time.
+            if curl -sSf "https://crates.io/api/v1/crates/${crate}/${version}" > /dev/null 2>&1; then
+              echo "  ${crate} ${version} is already published"
+              continue
+            fi
+
+            echo "  publishing ${crate} ${version}"
+            cargo publish -p "${crate}"
+          done
 
   release:
     name: Create Release

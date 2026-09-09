@@ -107,8 +107,28 @@ number here can move, including the ones a platform declares.
   fails later against every platform at once and looks like an outage.
   `config.caBundle` in the chart mounts one from a value, a ConfigMap or a
   Secret.
+- `config.frontendImage`, so a deployment draws its panels with its own design
+  pack without rebuilding Hlin. An init container copies that image's `dist`
+  over the front end the shell image was built with, which keeps the shell
+  image upstream's — a fix to it is a tag bump rather than your rebuild.
+- The crates are published to crates.io, in dependency order, by the release
+  workflow. Four inter-crate dependencies carried a path with no version, which
+  made every crate above them unpublishable; nothing had ever run
+  `cargo publish --dry-run` to find out.
 - Binaries for linux-x86_64, linux-aarch64 and darwin-aarch64, attached to the
   release.
+
+### Fixed before anybody hit them
+
+- The chart asked for an image tag the workflow never pushed. The chart job
+  strips the `v` from the git tag and the image job did not, while `image.tag`
+  defaults to the chart's appVersion — so the first `helm install` anybody ran
+  would have been an ImagePullBackOff. `angreal version verify` now checks that
+  the tag the chart resolves is one the workflow pushes, and also tracks
+  `Chart.yaml`, which no version command had ever touched.
+- A default install's notes claimed no database was configured while the chart
+  was busy provisioning one, and said the shell would "run and warn" when a
+  release build refuses.
 
 ### Known limitations
 

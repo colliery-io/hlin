@@ -1,6 +1,7 @@
 import angreal
 import subprocess
 import os
+import sys
 import re
 import json
 
@@ -33,6 +34,21 @@ def write_version(new_version):
 
     with open(WORKSPACE_CARGO, "w") as f:
         f.write(content)
+
+    # The chart carries two: its own version and the application's. They are
+    # allowed to move independently in principle, but nothing here has ever
+    # released one without the other, and a chart left behind names an image
+    # tag that was never pushed.
+    if os.path.isfile(CHART):
+        with open(CHART, "r") as f:
+            chart = f.read()
+        chart = re.sub(r'^version:.*$', f'version: {new_version}', chart, count=1, flags=re.MULTILINE)
+        chart = re.sub(
+            r'^appVersion:.*$', f'appVersion: "{new_version}"', chart, count=1, flags=re.MULTILINE
+        )
+        with open(CHART, "w") as f:
+            f.write(chart)
+        print("  Updated charts/hlin/Chart.yaml")
 
     # Update tauri.conf.json and package.json if they exist
     for root, dirs, files in os.walk(cwd):
@@ -92,6 +108,57 @@ def bump(version, part):
         raise ValueError(f"Unknown version part: {part}")
 
 
+CHART = os.path.join(cwd, "charts", "hlin", "Chart.yaml")
+WORKFLOW = os.path.join(cwd, ".github", "workflows", "release.yml")
+
+
+def chart_versions():
+    """The chart's own version and the application version it names.
+
+    Both are version declarations and neither was tracked, so `version bump`
+    left the chart behind and `version verify` said everything was in sync.
+    """
+    if not os.path.isfile(CHART):
+        return {}
+
+    with open(CHART, "r") as f:
+        content = f.read()
+
+    found = {}
+    for key, label in (("version", "version"), ("appVersion", "appVersion")):
+        match = re.search(rf'^{key}:\s*"?([^"\s]+)"?\s*$', content, re.MULTILINE)
+        if match:
+            found[f"charts/hlin/Chart.yaml ({label})"] = match.group(1)
+    return found
+
+
+def image_tags_pushed(version):
+    """The image tags the release workflow pushes, for a tag `v{version}`.
+
+    Read out of the workflow rather than assumed, because the failure this
+    guards against is precisely the two files disagreeing.
+    """
+    if not os.path.isfile(WORKFLOW):
+        return None
+
+    with open(WORKFLOW, "r") as f:
+        content = f.read()
+
+    block = re.search(r"^          tags: \|\n((?:^ {12}\S.*\n)+)", content, re.MULTILINE)
+    if not block:
+        return None
+
+    tags = []
+    for line in block.group(1).splitlines():
+        tag = line.strip()
+        # The two expressions the workflow uses to spell a version.
+        tag = tag.replace("${{ steps.version.outputs.bare }}", version)
+        tag = tag.replace("${{ github.ref_name }}", f"v{version}")
+        tag = re.sub(r"\$\{\{[^}]+\}\}", "*", tag)
+        tags.append(tag.rsplit(":", 1)[-1])
+    return tags
+
+
 def find_all_versions():
     """Find all version declarations across the project."""
     versions = {}
@@ -127,6 +194,8 @@ def find_all_versions():
                     rel = os.path.relpath(cargo_path, cwd)
                     versions[rel] = match.group(1)
 
+    versions.update(chart_versions())
+
     return versions
 
 
@@ -150,10 +219,46 @@ def verify_versions():
             all_match = False
         print(f"  {status:8s}  {version:10s}  {source}")
 
-    if all_match:
+    # The one relationship that is not a string comparison.
+    #
+    # `image.tag` defaults to the chart's appVersion, so the tag a `helm
+    # install` resolves is whatever the chart says. The release workflow pushes
+    # the tags it pushes. Those two lived in different files, in different
+    # languages, and disagreed about the leading `v` — so the first install
+    # anybody attempted would have been an ImagePullBackOff, and nothing here
+    # would have said so.
+    # Tracked apart from `all_match`, because the two failures want opposite
+    # advice: a version that is out of step is fixed by bumping, and a workflow
+    # that pushes the wrong tag shape is not fixed by bumping anything.
+    drifted = False
+
+    pushed = image_tags_pushed(workspace_version)
+    wanted = versions.get("charts/hlin/Chart.yaml (appVersion)")
+
+    if pushed is not None and wanted is not None:
+        if wanted in pushed:
+            print(f"  {'ok':8s}  {wanted:10s}  the image tag the chart resolves is pushed")
+        else:
+            drifted = True
+            print(f"  {'MISSING':8s}  {wanted:10s}  chart resolves this image tag; "
+                  f"the workflow pushes {', '.join(pushed)}")
+
+    if all_match and not drifted:
         print(f"\nAll versions in sync: {workspace_version}")
     else:
-        print(f"\nExpected: {workspace_version} -- run 'angreal version bump' to fix")
+        if not all_match:
+            print(f"\nExpected: {workspace_version} -- run 'angreal version bump' to fix")
+        if drifted:
+            print(
+                "\nThe chart and the release workflow disagree about the image tag. "
+                "`image.tag` defaults to the chart's appVersion, so a `helm install` "
+                "resolves a tag nothing pushed and fails to pull. Fix the tag list in "
+                "the image job of .github/workflows/release.yml."
+            )
+        # Flushed before the exit, or the reason never reaches the terminal:
+        # the runner drops buffered output when a task exits non-zero, so a
+        # failing check printed its exit code and nothing else.
+        sys.stdout.flush()
         raise SystemExit(1)
 
 

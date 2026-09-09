@@ -23,14 +23,22 @@ not on its own enough: restrict what can reach these pods, with a NetworkPolicy
 or a mesh.
 {{- end }}
 
-{{- if not .Values.config.databaseUrl }}
-{{- if not .Values.config.databaseUrlSecret.name }}
+{{- if .Values.postgres.enabled }}
 
-No database configured. The shell will run and warn: contract memory and the
-layouts people compose do not survive a restart, so a platform that ships a
-breaking change across one goes unnoticed — which is the thing the versioning
-exists to catch. Set config.databaseUrlSecret to point at a Postgres.
-{{- end }}
+This release brought its own Postgres: a single pod with a volume, no
+replication, no backups, no pooling. It is what makes a first install able to
+do the thing Hlin is for — compose a surface, save it, send somebody the link
+— rather than a degraded version of it. For anything whose loss would matter,
+set postgres.enabled=false and point config.databaseUrlSecret at a database
+you run.
+
+  Its password is generated on install and kept in the Secret
+  {{ include "hlin.fullname" . }}-postgres.
+{{- else if .Values.config.databaseUrlSecret.name }}
+
+The database comes from the Secret {{ .Values.config.databaseUrlSecret.name }},
+read into the environment rather than written into a ConfigMap — a connection
+string carries a password.
 {{- end }}
 
 {{- if not .Values.signingKey.existingSecret }}
@@ -43,6 +51,21 @@ combination.
 
 {{- if not .Values.config.platforms }}
 
-No platforms configured, so there are no panels to compose with yet. Add them
-under config.platforms.
+No platforms configured, so there are no panels to compose with yet. A platform
+serves a manifest at /.well-known/hlin.json saying what it offers; add yours
+under config.platforms:
+
+  config:
+    platforms:
+      - id: your-platform
+        baseUrl: https://your-platform.internal
+        auth:
+          strategy: hlin-token     # or `none`, for a platform that asks for nothing
+{{- end }}
+
+{{- if not .Values.config.frontendImage }}
+
+Panels are drawn by the design pack this image was built with. To draw them
+with your own, build a frontend against hlin-ui and put its `dist` in an image,
+then set config.frontendImage — the shell will serve yours instead.
 {{- end }}

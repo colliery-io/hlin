@@ -6,7 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "The Hlin frontend"
+description = "The Hlin frontend: the surface people compose, watch and share"
+readme = "README.md"
 
 [lib]
 name = "hlin_ui"
