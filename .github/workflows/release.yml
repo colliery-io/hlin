@@ -109,6 +109,14 @@ jobs:
             --set config.auth.oidc.publicUrl=https://hlin.example.com \
             --set config.auth.oidc.clientSecret.name=s \
             --set config.auth.oidc.clientSecret.key=k > /dev/null
+          printf -- '-----BEGIN CERTIFICATE-----\nnot-a-real-one\n-----END CERTIFICATE-----\n' > /tmp/ca.pem
+          helm template t charts/hlin \
+            --set config.auth.trustedHeader.acknowledgeProxyRequired=true \
+            --set-file config.caBundle.pem=/tmp/ca.pem > /dev/null
+          helm template t charts/hlin \
+            --set config.auth.trustedHeader.acknowledgeProxyRequired=true \
+            --set config.caBundle.existingSecret=corp-ca \
+            --set config.caBundle.key=corp.crt > /dev/null
 
       # And that the refusals refuse. A guard nobody tests is a guard that
       # stops guarding the first time somebody edits around it.
@@ -119,6 +127,10 @@ jobs:
               --set config.auth.trustedHeader.acknowledgeProxyRequired=true \
               --set replicaCount=2 > /dev/null 2>&1 || (echo "should have refused replicas without a shared key" && exit 1)
           ! helm template t charts/hlin --set config.auth.strategy=dev > /dev/null 2>&1 || (echo "should have refused dev" && exit 1)
+          ! helm template t charts/hlin \
+              --set config.auth.trustedHeader.acknowledgeProxyRequired=true \
+              --set config.caBundle.existingSecret=a \
+              --set config.caBundle.existingConfigMap=b > /dev/null 2>&1 || (echo "should have refused two trust sources" && exit 1)
 
       - name: Sign in to the registry
         uses: docker/login-action@v3

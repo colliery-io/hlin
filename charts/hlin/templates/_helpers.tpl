@@ -50,6 +50,13 @@ signing with different keys fail one request in two rather than all of them.
 {{- if and (not .Values.postgres.enabled) (not .Values.config.databaseUrl) (not .Values.config.databaseUrlSecret.name) }}
 {{- fail "no database: set postgres.enabled, config.databaseUrl, or config.databaseUrlSecret. A release build refuses to start without one, because the in-memory fallback loses every view anybody composes on the next restart — the thing Hlin is for, failing quietly." }}
 {{- end }}
+{{- $trust := 0 }}
+{{- if .Values.config.caBundle.pem }}{{ $trust = add1 $trust }}{{ end }}
+{{- if .Values.config.caBundle.existingConfigMap }}{{ $trust = add1 $trust }}{{ end }}
+{{- if .Values.config.caBundle.existingSecret }}{{ $trust = add1 $trust }}{{ end }}
+{{- if gt $trust 1 }}
+{{- fail "config.caBundle: set at most one of pem, existingConfigMap, existingSecret. Only one can be mounted, so the others would be silently ignored — and a trust anchor that is silently ignored fails against every platform at once, looking like an outage." }}
+{{- end }}
 {{- if eq .Values.config.auth.strategy "trusted-header" }}
 {{- if not .Values.config.auth.trustedHeader.acknowledgeProxyRequired }}
 {{- fail "config.auth.trustedHeader.acknowledgeProxyRequired must be true: this strategy trusts whatever the header claims, so anything that can reach a pod directly is whoever it says it is. A pod IP is reachable from the rest of the namespace by default — an ingress in front is not on its own enough." }}
@@ -64,4 +71,27 @@ signing with different keys fail one request in two rather than all of them.
 {{- else }}
 {{- fail (printf "config.auth.strategy must be trusted-header or oidc, and is %q. `dev` is not offered: the shell refuses it outside a debug build, so a chart that rendered it would only produce a pod that crashes with an explanation." .Values.config.auth.strategy) }}
 {{- end }}
+{{- end }}
+
+{{/*
+Where the trust bundle comes from, if anywhere. Empty when none is configured,
+which is what every template below tests.
+*/}}
+{{- define "hlin.trustMounted" -}}
+{{- if or .Values.config.caBundle.pem .Values.config.caBundle.existingConfigMap .Values.config.caBundle.existingSecret }}yes{{ end }}
+{{- end }}
+
+{{- define "hlin.trustSource" -}}
+{{- if .Values.config.caBundle.pem }}config.caBundle.pem
+{{- else if .Values.config.caBundle.existingConfigMap }}ConfigMap {{ .Values.config.caBundle.existingConfigMap }}
+{{- else }}Secret {{ .Values.config.caBundle.existingSecret }}{{ end }}
+{{- end }}
+
+{{/*
+The filename under /etc/hlin-trust. An inline PEM is written under a name the
+chart chooses; a borrowed one keeps its own key, so the mount and the setting
+agree without the operator having to make them agree.
+*/}}
+{{- define "hlin.trustFile" -}}
+{{- if .Values.config.caBundle.pem }}ca.pem{{ else }}{{ .Values.config.caBundle.key }}{{ end }}
 {{- end }}

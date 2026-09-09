@@ -1,0 +1,14 @@
+{{- if .Values.config.caBundle.pem }}
+# The trust anchors given inline. Not a Secret: a certificate authority's
+# certificate is public by construction — it is the thing every client is meant
+# to have. What is secret is the key that signed it, which is not here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hlin.fullname" . }}-ca
+  labels:
+    {{- include "hlin.labels" . | nindent 4 }}
+data:
+  ca.pem: |
+    {{- .Values.config.caBundle.pem | nindent 4 }}
+{{- end }}

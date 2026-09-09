@@ -85,10 +85,11 @@ impl Surfaces {
             surface,
             state.registry.clone(),
             viewer,
-            reqwest::Client::builder()
-                .timeout(state.config.timings.upstream_timeout())
-                .build()
-                .map_err(|error| error.to_string())?,
+            // The shell's own, not one per surface. Building a client here gave
+            // every surface its own connection pool to platforms they mostly
+            // share — and, once there was a trust setting, would have been a
+            // fourth place to remember to apply it.
+            state.client.clone(),
             state.stream_client.clone(),
             state.streams.clone(),
             state.config.timings.tick(),

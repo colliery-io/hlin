@@ -25,6 +25,11 @@ data:
     {{- else if .Values.config.databaseUrl }}
     database_url = {{ .Values.config.databaseUrl | quote }}
     {{- end }}
+    {{- if include "hlin.trustMounted" . }}
+    # Mounted from {{ include "hlin.trustSource" . }}. Merged with the node's
+    # trust store, not a replacement for it.
+    ca_bundle = "/etc/hlin-trust/{{ include "hlin.trustFile" . }}"
+    {{- end }}
 
     {{- with .Values.config.timings }}
 

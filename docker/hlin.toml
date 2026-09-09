@@ -25,6 +25,14 @@ key_path = "/home/hlin/state/shell.key"
 # one thing the versioning exists to catch.
 # database_url = "postgres://hlin:hlin@postgres:5432/hlin"
 
+# Certificate authorities to trust on top of the image's own bundle — merged
+# with it, never replacing it. Mount the PEM and point this at it. Needed more
+# often than it looks: the shell reaches every platform over TLS, and internal
+# platforms are usually served from an internal CA. The shell refuses to start
+# on a bundle it cannot read, rather than starting with no extra trust and
+# failing later against every platform at once.
+# ca_bundle = "/etc/hlin-trust/ca.pem"
+
 [auth]
 # `dev` is refused in a release build, on purpose: it makes every request the
 # same person. This is the smallest strategy that works, and it means exactly

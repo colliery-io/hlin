@@ -73,6 +73,28 @@ config:
     name: ""
     key: ""
 
+  # Certificate authorities to trust on top of the node's own store.
+  #
+  # The shell reaches every platform it fronts over TLS, and an internal
+  # platform is usually served from an internal CA — which is the premise, so
+  # this is needed more often than it looks. Merged with the node's store
+  # rather than replacing it: a deployment with platforms on an internal CA and
+  # an identity provider on a public one needs both.
+  #
+  # Give the PEM inline, or name a ConfigMap or a Secret that already holds one
+  # — cert-manager writes its CA into a Secret, so that case is common. Set at
+  # most one; the chart refuses two. `key` names the entry in the ConfigMap or
+  # Secret, and is ignored for `pem`.
+  #
+  # The shell refuses to start on a bundle it cannot read or that holds no
+  # certificates, rather than trusting nothing extra and failing later against
+  # every platform at once, which looks like an outage.
+  caBundle:
+    pem: ""
+    existingConfigMap: ""
+    existingSecret: ""
+    key: ca.pem
+
   # How a person becomes a principal.
   #
   # `dev` is not offered here at all: the shell refuses it outside a debug

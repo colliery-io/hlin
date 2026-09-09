@@ -73,15 +73,27 @@ number here can move, including the ones a platform declares.
   front end together. This is the artefact to deploy.
 - A Helm chart at `oci://ghcr.io/colliery-io/charts/hlin`, which brings a
   Postgres by default so that `helm install` produces something that can do
-  what Hlin is for. It refuses four configurations rather than rendering them — `dev` auth, an unacknowledged
-  `trusted-header`, and replicas without a shared signing key — each mirroring
-  a refusal the shell makes for the same reason.
+  what Hlin is for. It refuses rather than renders what would fail quietly:
+  `dev` auth, an unacknowledged `trusted-header`, replicas without a shared
+  signing key, no database at all, `oidc` without a public URL or a client
+  secret, and two trust bundles where only one can be mounted. Each mirrors a
+  refusal the shell makes, for the reason the shell makes it.
 - `database_url_env`, so a connection string can come from the environment
   rather than from a file that then has to be treated as a secret. A named
   variable that is absent is refused at startup rather than leaving the shell
   running with no database, which looks identical to not having configured one.
 - `bind`, so the shell can listen somewhere other than loopback. It could not
   before, which made it unreachable in a container.
+- `ca_bundle`, naming certificate authorities to trust on top of the host's
+  own. Merged with the host store rather than replacing it, so a deployment
+  with platforms on an internal CA and an identity provider on a public one
+  needs no choice between them. It reaches every outbound connection — every
+  platform, every stream, and the identity provider — because the clients are
+  now built in one place rather than four. A bundle that cannot be read, or
+  that holds no certificates, is refused at startup: trusting nothing extra
+  fails later against every platform at once and looks like an outage.
+  `config.caBundle` in the chart mounts one from a value, a ConfigMap or a
+  Secret.
 - Binaries for linux-x86_64, linux-aarch64 and darwin-aarch64, attached to the
   release.
 
@@ -94,7 +106,4 @@ number here can move, including the ones a platform declares.
   in-memory store is a test double (HLIN-A-0006), and falling back to it lost
   every view anybody composed on the next restart — the success condition
   failing quietly, which is worse than failing to start.
-- `oidc` has no Hlin setting for a CA bundle. A provider on a private CA — the
-  common internal case — needs that CA in the trust store of whatever runs the
-  shell; the same is true of every platform it polls.
 - Nothing is published to crates.io.

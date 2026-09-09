@@ -23,6 +23,12 @@ spec:
         # `helm upgrade` that only edits the ConfigMap changes nothing until
         # something else happens to restart them.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.config.caBundle.pem }}
+        # And when the bundle changes, for the same reason: a rotated CA that
+        # only lands on the next unrelated restart is a rotation that appears
+        # to have worked and has not.
+        checksum/ca: {{ include (print $.Template.BasePath "/ca-bundle.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -81,6 +87,13 @@ spec:
             - name: config
               mountPath: /etc/hlin
               readOnly: true
+            {{- if include "hlin.trustMounted" . }}
+            # Beside /etc/hlin rather than under it: a second volume cannot be
+            # mounted inside the first one's tree.
+            - name: trust
+              mountPath: /etc/hlin-trust
+              readOnly: true
+            {{- end }}
             - name: state
               mountPath: /home/hlin/state
               {{- if .Values.signingKey.existingSecret }}
@@ -90,6 +103,27 @@ spec:
         - name: config
           configMap:
             name: {{ include "hlin.fullname" . }}
+        {{- if include "hlin.trustMounted" . }}
+        - name: trust
+          {{- if .Values.config.caBundle.pem }}
+          configMap:
+            name: {{ include "hlin.fullname" . }}-ca
+          {{- else if .Values.config.caBundle.existingConfigMap }}
+          configMap:
+            name: {{ .Values.config.caBundle.existingConfigMap }}
+            items:
+              - key: {{ .Values.config.caBundle.key }}
+                path: {{ .Values.config.caBundle.key }}
+          {{- else }}
+          # A Secret because that is where cert-manager leaves a CA, not
+          # because the certificate needs protecting.
+          secret:
+            secretName: {{ .Values.config.caBundle.existingSecret }}
+            items:
+              - key: {{ .Values.config.caBundle.key }}
+                path: {{ .Values.config.caBundle.key }}
+          {{- end }}
+        {{- end }}
         - name: state
           {{- if .Values.signingKey.existingSecret }}
           # Every replica reads the same key, which is what makes more than one

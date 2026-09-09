@@ -40,6 +40,21 @@ pub struct Config {
     #[serde(default = "default_key_path")]
     pub key_path: PathBuf,
 
+    /// Certificate authorities to trust in addition to the host's own.
+    ///
+    /// Merged with the platform trust store rather than replacing it: a
+    /// deployment with platforms on an internal CA and an identity provider on
+    /// a public one needs both, and a setting that made you choose would be one
+    /// nobody could configure correctly.
+    ///
+    /// Needed more often than it looks. The shell reaches every platform it
+    /// fronts over TLS, and a dozen internal platforms is the premise — an
+    /// internal CA is how those are usually served. Without this the only way
+    /// to trust one was to put it in the trust store of whatever runs the
+    /// shell, which is not something a configuration file can do.
+    #[serde(default)]
+    pub ca_bundle: Option<PathBuf>,
+
     /// Postgres. Absent means run without persistence, which is only sensible
     /// in development and is warned about at startup.
     ///
@@ -648,6 +663,10 @@ pub enum ConfigError {
     #[error("authentication: {0}")]
     Authenticator(String),
 
+    /// The configured trust anchors cannot be used.
+    #[error("{0}")]
+    Trust(String),
+
     /// A named environment variable is not in the environment.
     #[error("{setting} names `{variable}`, which is not in the environment")]
     MissingVariable {
@@ -735,6 +754,12 @@ impl Config {
                 variable: named.clone(),
             });
         }
+
+        // Read now, where an operator is watching. A bundle that cannot be
+        // read leaves the shell trusting only the host's own store, so it would
+        // start and then fail against every platform on the internal CA at
+        // once — which looks exactly like those platforms being down.
+        crate::clients::extra_anchors(self.ca_bundle.as_deref()).map_err(ConfigError::Trust)?;
 
         let mut seen: Vec<&str> = Vec::new();
 
@@ -932,6 +957,50 @@ mod tests {
         assert_eq!(tick(30_000), Duration::from_millis(100), "capped when slow");
         assert_eq!(tick(1), Duration::from_millis(5), "floored when fast");
         assert_eq!(tick(0), Duration::from_millis(5), "and when nonsensical");
+    }
+}
+
+#[cfg(test)]
+mod trust_tests {
+    use super::*;
+
+    fn config() -> Config {
+        Config {
+            bind: "127.0.0.1".to_string(),
+            port: 8080,
+            issuer: "hlin".to_string(),
+            key_path: "/tmp/unused.key".into(),
+            ca_bundle: None,
+            database_url: None,
+            database_url_env: None,
+            frontend: "unused".into(),
+            auth: AuthConfig::default(),
+            timings: Timings::default(),
+            platforms: Vec::new(),
+        }
+    }
+
+    /// The setting is optional, and a shell that never had it still starts.
+    #[test]
+    fn no_bundle_is_no_objection() {
+        assert!(config().check().is_ok());
+    }
+
+    /// An operator learns about a typo when they deploy, not when a viewer
+    /// opens a panel. A bundle that could not be read is a shell trusting
+    /// nothing extra, which then fails against every platform at once and
+    /// looks like an outage rather than like a misconfiguration.
+    #[test]
+    fn a_bundle_that_cannot_be_read_refuses_to_start() {
+        let refused = Config {
+            ca_bundle: Some("/tmp/hlin-no-such-bundle.pem".into()),
+            ..config()
+        }
+        .check()
+        .expect_err("this must not start");
+
+        let said = refused.to_string();
+        assert!(said.contains("hlin-no-such-bundle.pem"), "{said}");
     }
 }
 

@@ -53,9 +53,30 @@ client_secret_env = "HLIN_OIDC_CLIENT_SECRET"
 public_url = "https://hlin.example.com"
 ```
 
-If the provider is on a private CA, that CA has to be in the trust store of
-whatever runs the shell — there is no setting for it, and the same is true of
-every platform the shell polls.
+### An internal certificate authority
+
+The shell reaches everything over TLS — every platform it fronts, every event
+stream it subscribes to, and the identity provider — and internal services are
+usually served from an internal CA. Name its bundle and every one of those
+connections trusts it:
+
+```toml
+ca_bundle = "/etc/hlin-trust/ca.pem"
+```
+
+It is merged with the host's own trust store rather than replacing it, so
+platforms on an internal CA and a provider on a public one need no choice
+between them. A bundle that cannot be read, or that contains no certificates,
+stops the shell at startup: trusting nothing extra would fail later against
+every platform at once and look like an outage rather than a typo.
+
+In the chart, `config.caBundle` takes the PEM inline, or the name of a
+ConfigMap or Secret that already holds one — cert-manager writes its CA into a
+Secret, so that case is common:
+
+```sh
+--set config.caBundle.existingSecret=corp-ca --set config.caBundle.key=ca.crt
+```
 
 On Kubernetes, there is a chart:
 
@@ -70,9 +91,8 @@ It brings a Postgres by default, so this produces something that can actually do
 what Hlin is for rather than a degraded version of it. Turn that off and point at
 your own for anything whose loss would matter.
 
-It refuses four configurations rather than rendering them, each mirroring
-something the shell itself refuses, and for the same reason — the failure they
-prevent is silent:
+It refuses rather than renders what would fail quietly, each refusal mirroring
+one the shell itself makes and for the same reason:
 
 - No database at all, which is now an install that cannot start.
 - `dev` as an authenticator, which a release build will not start with anyway.
@@ -82,6 +102,9 @@ prevent is silent:
 - More than one replica without a shared signing key. Each would otherwise
   generate its own, and a token minted by one pod fails to verify against
   another's key set — one request in two, rather than all of them.
+- Two trust bundles at once. Only one can be mounted, so the others would be
+  ignored in silence — and a trust anchor that is silently ignored fails
+  against every platform at once.
 
 To work on it instead, everything is an `angreal` task:
 

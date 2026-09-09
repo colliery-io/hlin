@@ -7,8 +7,6 @@
 //!
 //! A trait, so the registry's tests never touch a network.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use hlin_manifest::Manifest;
 
@@ -46,14 +44,13 @@ pub struct HttpManifestClient {
 }
 
 impl HttpManifestClient {
-    /// A client that gives up after `timeout`.
-    pub fn new(timeout: Duration) -> Result<Self, String> {
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .user_agent(concat!("hlin/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|error| error.to_string())?;
-        Ok(Self { client })
+    /// Fetch manifests with a client somebody else built.
+    ///
+    /// Taken rather than built, so the trust anchors and timeouts a deployment
+    /// configured reach this too. Building one here made it the one outbound
+    /// path a setting could be applied to everywhere else and still miss.
+    pub fn with_client(client: reqwest::Client) -> Self {
+        Self { client }
     }
 }
 

@@ -95,6 +95,18 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
         "signing key ready"
     );
 
+    // Both clients, once. A configured trust bundle reaches every outbound
+    // connection this way rather than three of the four places that used to
+    // build their own.
+    let clients =
+        hlin::clients::Clients::build(&config).map_err(|reason| anyhow::anyhow!("{reason}"))?;
+    if let Some(bundle) = &config.ca_bundle {
+        tracing::info!(
+            bundle = %bundle.display(),
+            "trusting additional certificate authorities, alongside the host's own"
+        );
+    }
+
     let store: Arc<dyn Store> = match &config.database_url() {
         Some(url) => {
             let store = PostgresStore::connect(url).await?;
@@ -137,10 +149,7 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
         }
     };
 
-    let client = Arc::new(
-        HttpManifestClient::new(config.timings.upstream_timeout())
-            .map_err(|reason| anyhow::anyhow!("could not build the manifest client: {reason}"))?,
-    );
+    let client = Arc::new(HttpManifestClient::with_client(clients.fetching.clone()));
     let registry = Arc::new(
         Registry::new(&config, issuer.clone(), store.clone(), client)
             .map_err(|reason| anyhow::anyhow!("{reason}"))?,
@@ -171,14 +180,8 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
         issuer,
         surfaces: Arc::new(hlin::surfaces::Surfaces::new()),
         store,
-        client: reqwest::Client::builder()
-            .timeout(config.timings.upstream_timeout())
-            .build()
-            .unwrap_or_default(),
-        stream_client: reqwest::Client::builder()
-            .connect_timeout(config.timings.upstream_timeout())
-            .build()
-            .unwrap_or_default(),
+        client: clients.fetching.clone(),
+        stream_client: clients.streaming.clone(),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 

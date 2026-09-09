@@ -218,6 +218,7 @@ fn config_with(platform: PlatformConfig) -> Config {
         port: 8080,
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
+        ca_bundle: None,
         database_url: None,
         database_url_env: None,
         frontend: "unused".into(),
