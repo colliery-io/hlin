@@ -61,11 +61,7 @@ pub fn freshness_pct(last_event_at: Option<f64>) -> f64 {
 /// defaults to the ok/green token.
 #[component]
 pub fn Meter(value: f64, #[prop(optional, into)] color: String) -> impl IntoView {
-    let color = if color.is_empty() {
-        token::OK.to_string()
-    } else {
-        color
-    };
+    let color = if color.is_empty() { token::OK.to_string() } else { color };
     let pct = value.clamp(0.0, 100.0);
     view! {
         <div class="cl-meter">
@@ -82,16 +78,8 @@ pub fn Banner(
     #[prop(optional, into)] icon: String,
     children: Children,
 ) -> impl IntoView {
-    let color = if color.is_empty() {
-        token::GOLD.to_string()
-    } else {
-        color
-    };
-    let icon = if icon.is_empty() {
-        "⚠".to_string()
-    } else {
-        icon
-    };
+    let color = if color.is_empty() { token::GOLD.to_string() } else { color };
+    let icon = if icon.is_empty() { "⚠".to_string() } else { icon };
     view! {
         <div class="cl-banner" style=format!("--banner-color:{color};")>
             <span class="cl-banner__icon">{icon}</span>
@@ -189,19 +177,12 @@ pub struct Input {
 /// all inputs are fresh. Built on [`Banner`].
 #[component]
 pub fn StaleInputsBanner(inputs: Vec<Input>) -> impl IntoView {
-    let stale: Vec<&Input> = inputs
-        .iter()
-        .filter(|i| is_stale(i.last_event_at))
-        .collect();
+    let stale: Vec<&Input> = inputs.iter().filter(|i| is_stale(i.last_event_at)).collect();
     if stale.is_empty() {
         return view! {}.into_any();
     }
     let n = stale.len();
-    let names = stale
-        .iter()
-        .map(|i| i.name.clone())
-        .collect::<Vec<_>>()
-        .join(", ");
+    let names = stale.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(", ");
     let oldest_name = stale[0].name.clone();
     let ago = format_ago(stale[0].last_event_at);
     let s = if n == 1 { "" } else { "s" };
@@ -252,11 +233,7 @@ pub fn NodeReadiness(
         })
         .collect_view();
 
-    let summary_color = if ready == total {
-        token::OK
-    } else {
-        token::GOLD
-    };
+    let summary_color = if ready == total { token::OK } else { token::GOLD };
     let summary = if require_all && ready < total {
         format!("Waiting on {} of {} inputs", total - ready, total)
     } else {

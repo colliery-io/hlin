@@ -29,12 +29,7 @@ pub struct GraphNode {
 
 impl GraphNode {
     pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            label: label.into(),
-            color: token::ICE.into(),
-            sublabel: None,
-        }
+        Self { id: id.into(), label: label.into(), color: token::ICE.into(), sublabel: None }
     }
     pub fn color(mut self, c: impl Into<String>) -> Self {
         self.color = c.into();
@@ -56,11 +51,7 @@ pub struct GraphEdge {
 
 impl GraphEdge {
     pub fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
-        Self {
-            from: from.into(),
-            to: to.into(),
-            active: false,
-        }
+        Self { from: from.into(), to: to.into(), active: false }
     }
     pub fn active(mut self, a: bool) -> Self {
         self.active = a;
@@ -85,11 +76,8 @@ pub fn layout_dag(
     node_h: f64,
 ) -> (Vec<NodePos>, f64, f64) {
     let n = nodes.len();
-    let idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, nd)| (nd.id.as_str(), i))
-        .collect();
+    let idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, nd)| (nd.id.as_str(), i)).collect();
     let e: Vec<(usize, usize)> = edges
         .iter()
         .filter_map(|ed| Some((*idx.get(ed.from.as_str())?, *idx.get(ed.to.as_str())?)))
@@ -130,20 +118,12 @@ pub fn layout_dag(
         let along = m + along_span / 2.0 + (o - (cnt - 1.0) / 2.0) * along_gap;
         let across = m + half_across + l * layer_gap;
         let (x, y) = if lr { (across, along) } else { (along, across) };
-        pos.push(NodePos {
-            id: nodes[i].id.clone(),
-            x,
-            y,
-        });
+        pos.push(NodePos { id: nodes[i].id.clone(), x, y });
     }
 
     let across_dim = 2.0 * m + 2.0 * half_across + (num_layers as f64 - 1.0) * layer_gap;
     let along_dim = along_span + 2.0 * m;
-    let (w, h) = if lr {
-        (across_dim, along_dim)
-    } else {
-        (along_dim, across_dim)
-    };
+    let (w, h) = if lr { (across_dim, along_dim) } else { (along_dim, across_dim) };
     (pos, w, h)
 }
 
@@ -160,7 +140,8 @@ pub fn Graph(
 ) -> impl IntoView {
     let lr = direction.eq_ignore_ascii_case("LR");
     let (pos, w, h) = layout_dag(&nodes, &edges, lr, node_w, node_h);
-    let map: HashMap<String, (f64, f64)> = pos.into_iter().map(|p| (p.id, (p.x, p.y))).collect();
+    let map: HashMap<String, (f64, f64)> =
+        pos.into_iter().map(|p| (p.id, (p.x, p.y))).collect();
 
     // Edges: a curved stroke + a fixed-orientation arrowhead at the target face.
     let edge_views = edges
@@ -183,26 +164,14 @@ pub fn Graph(
                 let k = ((ex - sx) * 0.4).max(18.0);
                 (
                     format!("M{sx},{sy} C{},{sy} {},{ey} {ex},{ey}", sx + k, ex - k),
-                    format!(
-                        "M{},{} L{ex},{ey} L{},{} Z",
-                        ex - 8.0,
-                        ey - 4.5,
-                        ex - 8.0,
-                        ey + 4.5
-                    ),
+                    format!("M{},{} L{ex},{ey} L{},{} Z", ex - 8.0, ey - 4.5, ex - 8.0, ey + 4.5),
                 )
             } else {
                 let (sx, sy, ex, ey) = (fx, fy + node_h / 2.0, tx, ty - node_h / 2.0);
                 let k = ((ey - sy) * 0.4).max(18.0);
                 (
                     format!("M{sx},{sy} C{sx},{} {ex},{} {ex},{ey}", sy + k, ey - k),
-                    format!(
-                        "M{},{} L{ex},{ey} L{},{} Z",
-                        ex - 4.5,
-                        ey - 8.0,
-                        ex + 4.5,
-                        ey - 8.0
-                    ),
+                    format!("M{},{} L{ex},{ey} L{},{} Z", ex - 4.5, ey - 8.0, ex + 4.5, ey - 8.0),
                 )
             };
             Some(view! {

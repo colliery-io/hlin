@@ -1,0 +1,8 @@
+# Vendored third-party source. Not ours to format.
+#
+# `cargo fmt --all` reaches a path dependency even though this crate is excluded
+# from the workspace, and it reformatted five files here that had nothing to do
+# with the feature we added — against a config upstream does not use and an
+# edition it is not on. The workspace-level `ignore` key is nightly-only, so it
+# silently did nothing; this is the stable way to say the same thing.
+disable_all_formatting = true

@@ -12,9 +12,7 @@
 //!                      "--bin", "aurora-css", "--", "style"]
 //! ```
 fn main() {
-    let dir = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "style".to_string());
+    let dir = std::env::args().nth(1).unwrap_or_else(|| "style".to_string());
     let path = aurora_leptos::write_css(std::path::Path::new(&dir)).expect("write aurora.css");
     eprintln!("aurora-css: wrote {}", path.display());
 }

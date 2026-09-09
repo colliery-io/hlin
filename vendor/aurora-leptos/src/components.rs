@@ -336,10 +336,7 @@ pub fn Empty(#[prop(into)] message: String) -> impl IntoView {
 }
 
 #[component]
-pub fn ErrorState(
-    error: ApiError,
-    #[prop(optional)] on_retry: Option<Callback<()>>,
-) -> impl IntoView {
+pub fn ErrorState(error: ApiError, #[prop(optional)] on_retry: Option<Callback<()>>) -> impl IntoView {
     let c = classify(&error);
     let style = format!("--alert-color:var({});", c.color_var);
     let code = c.code.clone();
@@ -383,11 +380,7 @@ pub fn Code(children: Children) -> impl IntoView {
 /// Accent text link (Mantine `Anchor`).
 #[component]
 pub fn Anchor(#[prop(optional, into)] href: String, children: Children) -> impl IntoView {
-    let href = if href.is_empty() {
-        "#".to_string()
-    } else {
-        href
-    };
+    let href = if href.is_empty() { "#".to_string() } else { href };
     view! { <a class="cl-anchor" href=href>{children()}</a> }
 }
 
@@ -445,7 +438,10 @@ pub fn Alert(
 
 /// Toggle (Mantine `Switch`), controlled by a bool signal.
 #[component]
-pub fn Switch(checked: RwSignal<bool>, #[prop(optional, into)] label: String) -> impl IntoView {
+pub fn Switch(
+    checked: RwSignal<bool>,
+    #[prop(optional, into)] label: String,
+) -> impl IntoView {
     let has_label = !label.is_empty();
     view! {
         <span
@@ -514,11 +510,7 @@ pub fn NumberInput(
     let has_label = !label.is_empty();
     let fmt = move || {
         let v = value.get();
-        if v.fract() == 0.0 {
-            format!("{}", v as i64)
-        } else {
-            format!("{v}")
-        }
+        if v.fract() == 0.0 { format!("{}", v as i64) } else { format!("{v}") }
     };
     view! {
         <div class="cl-field">
@@ -706,10 +698,6 @@ pub fn CopyButton(#[prop(into)] value: String) -> impl IntoView {
 /// children inside. Set `mono` for tabular monospace cells.
 #[component]
 pub fn Table(#[prop(optional)] mono: bool, children: Children) -> impl IntoView {
-    let class = if mono {
-        "cl-table cl-table--mono"
-    } else {
-        "cl-table"
-    };
+    let class = if mono { "cl-table cl-table--mono" } else { "cl-table" };
     view! { <table class=class>{children()}</table> }
 }

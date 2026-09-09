@@ -52,11 +52,7 @@ pub struct Classified {
 #[derive(Clone, PartialEq)]
 pub enum ApiError {
     /// Carries an HTTP status + optional server code/message.
-    Http {
-        status: u16,
-        message: String,
-        code: Option<String>,
-    },
+    Http { status: u16, message: String, code: Option<String> },
     /// Transport failure (server unreachable).
     Network,
     Unknown(String),
@@ -64,11 +60,7 @@ pub enum ApiError {
 
 pub fn classify(err: &ApiError) -> Classified {
     match err {
-        ApiError::Http {
-            status,
-            message,
-            code,
-        } => {
+        ApiError::Http { status, message, code } => {
             let (kind_title, color_var, retryable) = match status {
                 401 | 403 => ("Not authorized", "--bad", false),
                 404 => ("Not found", "--bad", false),
