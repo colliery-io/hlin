@@ -204,13 +204,34 @@ jobs:
             # Already there? Then this is a re-run of a tag, and a re-run
             # should finish what a half-finished one started rather than
             # failing on the first crate that succeeded last time.
-            if curl -sSf "https://crates.io/api/v1/crates/${crate}/${version}" > /dev/null 2>&1; then
+            #
+            # The User-Agent is not optional: crates.io refuses a request
+            # without one, so this check answered "not published" for
+            # everything, including crates that were — which turned the
+            # re-run safety it exists for into a job that always died on the
+            # first already-published crate.
+            if curl -sSf -A "hlin-release (${GITHUB_REPOSITORY})" \
+                 "https://crates.io/api/v1/crates/${crate}/${version}" > /dev/null 2>&1; then
               echo "  ${crate} ${version} is already published"
               continue
             fi
 
+            # crates.io rate-limits *new* crates: a burst, then a wait. The
+            # first release of a workspace this size hits it — five went
+            # through and the sixth was refused — so a run that gives up on
+            # the first 429 leaves a half-published release behind.
             echo "  publishing ${crate} ${version}"
-            cargo publish -p "${crate}"
+            for attempt in 1 2 3 4 5 6; do
+              if cargo publish -p "${crate}"; then
+                break
+              fi
+              if [ "${attempt}" = "6" ]; then
+                echo "::error::${crate} ${version} would not publish after ${attempt} attempts"
+                exit 1
+              fi
+              echo "  refused; waiting before attempt $((attempt + 1))"
+              sleep 120
+            done
           done
 
   release:
