@@ -101,10 +101,14 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
+      # The bare digest as the filename, without its `sha256:` prefix: an
+      # artifact path may not contain a colon, and the manifest job puts the
+      # prefix back when it reassembles the references.
       - name: Keep the digest
         run: |
+          digest="${{ steps.build.outputs.digest }}"
           mkdir -p /tmp/digests
-          touch "/tmp/digests/${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
 
       - uses: actions/upload-artifact@v4
         with:
