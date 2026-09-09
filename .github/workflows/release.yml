@@ -241,9 +241,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      # Only the tarballs. Unscoped, this takes every artifact in the run —
+      # which includes the `.dockerbuild` build record `build-push-action`
+      # uploads on its own. That one refused to extract and failed the job
+      # after the binaries had already downloaded fine, and had it succeeded
+      # it would have been attached to the release as though it were one.
+      - name: Download the release binaries
         uses: actions/download-artifact@v4
         with:
+          pattern: hlin-*.tar.gz
           path: artifacts
           merge-multiple: true
 
@@ -251,4 +257,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/*
+          files: artifacts/hlin-*.tar.gz
