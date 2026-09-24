@@ -4,14 +4,14 @@ level: initiative
 title: "A person signs in and changes things on two platforms"
 short_code: "HLIN-I-0010"
 created_at: 2026-09-24T17:02:57.785059+00:00
-updated_at: 2026-09-24T20:14:57.748949+00:00
+updated_at: 2026-09-24T23:21:50.424292+00:00
 parent: HLIN-V-0001
 blocked_by: [HLIN-I-0011]
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/active"
 
 
 exit_criteria_met: false

@@ -224,6 +224,7 @@ async fn callback(State(app): State<AppState>, Query(returned): Query<Returned>)
         id: fingerprint(&value),
         subject: claims.subject,
         name: claims.name,
+        email: claims.email,
         groups: claims.groups,
         created_at: Utc::now(),
         expires_at: Utc::now() + oidc.session_life(),

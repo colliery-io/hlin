@@ -909,6 +909,7 @@ async fn signed_in(store: &Arc<dyn Store>, subject: &str) -> String {
             id: hlin::auth::fingerprint(&value),
             subject: subject.to_string(),
             name: None,
+            email: Some(format!("{subject}@example.com")),
             groups: vec![],
             created_at: chrono::Utc::now(),
             expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
@@ -976,6 +977,7 @@ async fn a_session_that_is_over_is_nobody() {
             id: hlin::auth::fingerprint(&value),
             subject: "ada".to_string(),
             name: None,
+            email: None,
             groups: vec![],
             created_at: chrono::Utc::now() - chrono::Duration::hours(13),
             expires_at: chrono::Utc::now() - chrono::Duration::hours(1),
@@ -1069,6 +1071,32 @@ async fn the_sign_in_routes_exist_only_where_the_shell_signs_people_in() {
     );
 }
 
+#[tokio::test]
+async fn a_sessions_email_is_part_of_who_the_holder_is() {
+    // Platforms decide on it (HLIN-I-0010, decision 7), so the principal a
+    // session names has to carry it: the token is minted from that principal.
+    let (app, store, _) = shell_with(oidc_config()).await;
+    let ada = signed_in(&store, "ada").await;
+
+    let answered = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/config")
+                .header("cookie", &ada)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(answered.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(answered.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let config: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(config["principal"]["email"], "ada@example.com");
+}
+
 #[test]
 fn oidc_refuses_a_configuration_that_would_fail_quietly() {
     // Each of these fails at the first sign-in otherwise, which is both later
@@ -1095,6 +1123,15 @@ fn oidc_refuses_a_configuration_that_would_fail_quietly() {
     // somebody is. Over plain HTTP, anything on the path chooses those keys.
     assert!(refused(|oidc| oidc.issuer = "http://login.example.com".to_string()).contains("https"),);
 
+    // Starting with the right characters is not being loopback.
+    assert!(
+        refused(|oidc| oidc.issuer = "http://localhost.example.com".to_string()).contains("https")
+    );
+    assert!(
+        refused(|oidc| oidc.issuer = "http://127.0.0.1.example.com/dex".to_string())
+            .contains("https")
+    );
+
     // A cookie is the whole of a session.
     assert!(refused(|oidc| oidc.cookie.secure = false).contains("Secure"));
 
@@ -1107,6 +1144,27 @@ fn oidc_refuses_a_configuration_that_would_fail_quietly() {
 
     // No `openid`, no id token, nothing to learn anybody's identity from.
     assert!(refused(|oidc| oidc.scopes = vec!["profile".to_string()]).contains("openid"));
+
+    // A local provider over plain http is the demo's Dex. A debug build allows
+    // it, as it allows `dev`; a release build refuses it and says why.
+    for local in [
+        "http://127.0.0.1:5556/dex",
+        "http://localhost:5556/dex",
+        "http://[::1]:5556/dex",
+    ] {
+        let mut config = oidc_config();
+        let AuthConfig::Oidc(ref mut oidc) = config.auth else {
+            unreachable!("this fixture is oidc")
+        };
+        oidc.issuer = local.to_string();
+        oidc.public_url = "http://localhost:8080".to_string();
+        let checked = config.auth.check();
+        if cfg!(debug_assertions) {
+            assert!(checked.is_ok(), "{local}: {checked:?}");
+        } else {
+            assert!(checked.expect_err(local).contains("release build"));
+        }
+    }
 
     // A secret in the file would make the file a secret.
     assert!(

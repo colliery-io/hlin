@@ -40,6 +40,14 @@ pub struct Claims {
     /// Their display name, where the provider offered one.
     pub name: Option<String>,
 
+    /// Their email address, where the provider offered one.
+    ///
+    /// Carried to platforms in the token, for rules that turn on it, such as
+    /// which domain may post. Unverified here: the shell reports what the
+    /// provider said, and a platform that needs `email_verified` asks for it
+    /// by policy with its provider, not of Hlin.
+    pub email: Option<String>,
+
     /// The groups claim, which platforms may use for their own decisions.
     pub groups: Vec<String>,
 }
@@ -282,6 +290,11 @@ impl Provider {
             .and_then(Value::as_str)
             .map(str::to_string);
 
+        let email = claims
+            .get("email")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
         // Providers disagree about whether groups are an array or one
         // comma-separated string, and a shell that understands only one of
         // those silently gives everybody no groups at all against the other.
@@ -303,6 +316,7 @@ impl Provider {
         Ok(Claims {
             subject,
             name,
+            email,
             groups,
         })
     }

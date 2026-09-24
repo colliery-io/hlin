@@ -270,6 +270,9 @@ pub struct Session {
     /// Their display name, where the provider offered one.
     pub name: Option<String>,
 
+    /// Their email address, where the provider offered one.
+    pub email: Option<String>,
+
     /// The groups claim, as read at sign-in.
     pub groups: Vec<String>,
 

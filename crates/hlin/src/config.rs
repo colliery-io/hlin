@@ -445,10 +445,27 @@ impl OidcConfig {
             // The issuer is where the shell fetches the keys it will trust to
             // say who someone is. Over plain HTTP, anything on the path chooses
             // those keys.
-            return Err(format!(
-                "the oidc issuer must be https, and `{}` is not",
-                self.issuer
-            ));
+            //
+            // Except where there is no path: a provider on this machine, in a
+            // build that already allows `dev`. That is the demo's Dex, and a
+            // certificate warning on the first screen of a demo is worse than
+            // an exception with the same boundary as the one `dev` has.
+            let local = is_loopback_http(&self.issuer);
+            if !(local && cfg!(debug_assertions)) {
+                return Err(if local {
+                    format!(
+                        "the oidc issuer `{}` is plain http on this machine, which a debug \
+                         build allows for a local provider and a release build does not; \
+                         serve it over https",
+                        self.issuer
+                    )
+                } else {
+                    format!(
+                        "the oidc issuer must be https, and `{}` is not",
+                        self.issuer
+                    )
+                });
+            }
         }
 
         if self.client_id.trim().is_empty() {
@@ -506,6 +523,22 @@ impl OidcConfig {
             other => Err(format!("`{other}` is not a SameSite value")),
         }
     }
+}
+
+/// Whether an address is plain http to this machine and nowhere else.
+///
+/// The host is compared exactly, so `http://localhost.example.com` and
+/// `http://127.0.0.1.evil` are not loopback, whatever they start with.
+fn is_loopback_http(address: &str) -> bool {
+    let Some(rest) = address.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = match authority.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next().unwrap_or(""),
+        None => authority.split(':').next().unwrap_or(""),
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 fn default_dev_sub() -> String {

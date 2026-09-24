@@ -366,6 +366,7 @@ impl axum::extract::FromRequestParts<crate::server::AppState> for Caller {
                     Ok(Some(session)) => {
                         let mut principal = hlin_identity::Principal::new(session.subject);
                         principal.name = session.name;
+                        principal.email = session.email;
                         principal.groups = session.groups;
                         Ok(Caller(principal))
                     }

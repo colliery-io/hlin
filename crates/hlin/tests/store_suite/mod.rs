@@ -393,6 +393,7 @@ fn session(id: &str, subject: &str, lasting: chrono::Duration) -> Session {
         id: id.to_string(),
         subject: subject.to_string(),
         name: Some(format!("{subject} of somewhere")),
+        email: Some(format!("{subject}@example.com")),
         groups: vec!["platform-engineering".to_string()],
         created_at: Utc::now(),
         expires_at: Utc::now() + lasting,
@@ -424,6 +425,7 @@ async fn a_session_round_trips(store: &dyn Store) {
         .expect("a session that has not expired is readable");
 
     assert_eq!(read.subject, "ada");
+    assert_eq!(read.email.as_deref(), Some("ada@example.com"));
     assert_eq!(read.groups, vec!["platform-engineering".to_string()]);
     assert!(
         store

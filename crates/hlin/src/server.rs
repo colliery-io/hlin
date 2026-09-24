@@ -107,7 +107,7 @@ async fn client_config(
         "protocol_version": crate::stream::PROTOCOL_VERSION,
         "stream_loss_grace_seconds": state.config.timings.stream_loss_grace().num_seconds(),
         "refresh_ms": state.config.timings.refresh_ms,
-        "principal": { "sub": principal.sub, "name": principal.name },
+        "principal": { "sub": principal.sub, "name": principal.name, "email": principal.email },
         // So the front end can stop offering what cannot succeed. A browser
         // that learned this by trying would show an Edit button, let somebody
         // arrange a surface, and refuse at Save — which is the worst possible

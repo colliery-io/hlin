@@ -479,12 +479,13 @@ impl Store for PostgresStore {
 
     async fn create_session(&self, session: Session) -> Result<()> {
         sqlx::query(
-            "INSERT INTO sessions (id, subject, name, groups, created_at, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO sessions (id, subject, name, email, groups, created_at, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(&session.id)
         .bind(&session.subject)
         .bind(&session.name)
+        .bind(&session.email)
         .bind(serde_json::to_value(&session.groups).unwrap_or_default())
         .bind(session.created_at)
         .bind(session.expires_at)
@@ -498,7 +499,7 @@ impl Store for PostgresStore {
         // Expiry is in the query as well as on the type: a sweeper that has not
         // run yet must never be the reason an expired session still works.
         let row = sqlx::query(
-            "SELECT id, subject, name, groups, created_at, expires_at
+            "SELECT id, subject, name, email, groups, created_at, expires_at
              FROM sessions WHERE id = $1 AND expires_at > now()",
         )
         .bind(id)
@@ -518,6 +519,7 @@ impl Store for PostgresStore {
             id: row.get("id"),
             subject: row.get("subject"),
             name: row.get("name"),
+            email: row.get("email"),
             groups,
             created_at: row.get("created_at"),
             expires_at: row.get("expires_at"),
