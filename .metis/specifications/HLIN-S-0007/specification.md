@@ -1,0 +1,544 @@
+---
+id: module-bridge
+level: specification
+title: "Module Bridge"
+short_code: "HLIN-S-0007"
+created_at: 2026-09-24T23:21:07.381422+00:00
+updated_at: 2026-09-24T23:21:07.381422+00:00
+parent: HLIN-I-0011
+blocked_by: []
+archived: false
+
+tags:
+  - "#specification"
+  - "#phase/discovery"
+
+
+exit_criteria_met: false
+initiative_id: NULL
+---
+
+# Module Bridge
+
+## Overview
+
+A platform ships its own UI as a module, and the shell runs every module in a
+sandboxed frame ([[HLIN-A-0014]]). This specification is the contract between
+the two: how a frame is made, what it may load, every message that crosses
+between a module and the shell's page, how a module's requests reach its
+platform ([[HLIN-A-0013]]), and what the shell shows when a module misbehaves.
+
+It is a public API in the same sense as the manifest. A dozen platforms will
+build against it on their own schedules, through the SDK or by hand, and the
+shell must be able to tell a module that speaks it from one that does not.
+
+The property everything here protects is the one the decision rests on: **a
+module holds nothing and reaches nothing.** It has no credential, no cookie,
+no network, and no view of the shell's page. Everything it gets, it asks for
+over the bridge, and the shell's page decides who is asking from which frame
+sent the message, which a module cannot forge.
+
+## System Context
+
+### Actors
+- **Module**: a platform's UI, running in a sandboxed frame with an opaque
+  origin. Usually a Leptos application built with the SDK.
+- **Shell page**: the shell's own frontend (`hlin-ui`). Creates frames, owns
+  the parent end of the bridge, draws the frame and state around each panel.
+- **Shell**: serves module assets (`/m/`), carries module requests (`/p/`),
+  relays platform events.
+- **Platform**: serves its manifest, its module's assets, and the endpoints
+  its module calls. Authorizes every request from the identity the shell
+  binds to it.
+
+### Boundaries
+Inside: frame creation and sandbox policy, asset serving and the module's CSP,
+the message envelope and every message, the request proxy, timeouts and
+heartbeat, the mapping of failures onto panel states, fallback, and
+versioning. Outside: the manifest fields themselves (amended in
+[[HLIN-S-0001]]), the token's claims (amended in [[HLIN-S-0004]]), the SDK's
+API, and anything a module does inside its own frame.
+
+## Requirements
+
+### Functional Requirements
+
+| ID | Requirement | Rationale |
+|----|-------------|-----------|
+| REQ-1.1 | Every module runs in an `iframe` sandboxed with `allow-scripts allow-forms` and never `allow-same-origin`, `allow-top-navigation*`, `allow-popups` or `allow-modals` | An opaque origin is what keeps a module away from the shell's page, cookies and storage |
+| REQ-1.2 | Module assets are served only from the shell's origin under `/m/{platform}/`, fetched from the platform's declared asset prefix | A platform never serves code directly into the page, and the shell controls the headers it arrives with |
+| REQ-1.3 | Every module document is served with the module CSP in this specification, and the shell page's own CSP confines frames to `/m/` | The module cannot reach the network; the frame cannot be navigated anywhere the shell did not serve |
+| REQ-2.1 | The shell page accepts a message only when `event.source` is a frame it created and has not torn down, and attributes it to that frame's platform, panel and instance | Identity rests on something a module cannot forge |
+| REQ-2.2 | Nothing the shell page sends a module is secret beyond what that module's platform could tell it anyway | Messages to an opaque origin must use target origin `*` |
+| REQ-2.3 | Unknown message types and unknown fields are ignored in both directions | Additive evolution without coordinated releases |
+| REQ-3.1 | A module's `fetch` is carried to `/p/{platform}/{path}` for the platform owning the frame, never one the message names | A module can reach only its own platform |
+| REQ-3.2 | The request proxy refuses any path outside the platform's declared prefixes, and any method outside the rules below | The shell calls only what a platform declared |
+| REQ-3.3 | The request proxy accepts only same-origin requests from the shell page | A module, or anything else, cannot call it directly |
+| REQ-3.4 | Writes require `Author`, carry an `Idempotency-Key`, carry a request-bound token, and are never retried by the shell | [[HLIN-A-0013]] |
+| REQ-3.5 | Platform answers are passed back to the module unchanged, within limits. Refusals the shell makes itself are marked as the shell's | The module shows its platform's words; the shell never shows them as its own |
+| REQ-4.1 | Every mounted panel is in exactly one of `loading`, `ready`, `stale`, `unavailable (cause)` at all times, whatever the module does | Rendering stays total |
+| REQ-4.2 | A panel declaring both a module and data falls back to shell-drawn data when its module is unavailable for a reason other than `unknown` or `deprecated` | The fallback is the reason to declare both |
+| REQ-5.1 | The bridge has a major and a minor version. A module declares its major in the manifest and repeats it in `ready`; a mismatch is `unavailable (malformed)` | The shell must be able to tell a module that speaks the bridge from one that does not |
+
+### Non-Functional Requirements
+
+| ID | Requirement | Rationale |
+|----|-------------|-----------|
+| NFR-1.1 | A cached module mounts and says `ready` within 1 second on a desktop browser; a surface of six modules from three platforms is interactive within 3 seconds cold. *Proposed default, confirm in design* | Weight is the first risk in the new bet; it needs a number to be watched against |
+| NFR-1.2 | A module built with the SDK needs no bridge code of its own | Twelve teams implement this; the SDK is how they get it right |
+| NFR-1.3 | Containment is proven by browser tests, not argued | Every isolation property here fails silently if it fails |
+
+## Frames
+
+The shell page creates one frame per mounted panel instance, and one per open
+page:
+
+```html
+<iframe
+  src="/m/checklist/ui/items/index.html#i=7f3c…"
+  sandbox="allow-scripts allow-forms"
+  allow=""
+  referrerpolicy="no-referrer"
+  title="To do — Checklist"
+  loading="lazy">
+</iframe>
+```
+
+- `allow=""` grants no permissions-policy features: no camera, microphone,
+  geolocation, clipboard or fullscreen.
+- `title` is the panel's title and platform, for assistive technology.
+- The fragment carries the instance id, so a module can log which instance it
+  is before `init` arrives. It is not a secret and nothing relies on it.
+- `allow-forms` lets a module use native form validation and submit events.
+  Native submission goes nowhere, because the module CSP's `form-action` is
+  `'none'`.
+
+The shell page keeps a registry from each frame's `contentWindow` to its
+platform, panel key, instance id and mount time. A frame leaving the surface
+is removed from the registry before it is removed from the document, so a
+message already in flight from it is dropped.
+
+**Mounting.** A frame is mounted when its panel comes within 200 px of the
+viewport, and stays mounted while its panel is on the surface. Frames beyond
+the budget (below) are not mounted until a person asks.
+
+**The drag shield.** While a panel is dragged or resized, the shell lays a
+transparent element over every frame, so pointer events stay with the grid.
+
+**Pages.** A navigation entry that declares a module opens it at full width in
+the same kind of frame, with `init.page` set.
+
+## Assets
+
+`GET /m/{platform}/{path}` serves the platform's module assets from the shell's
+origin.
+
+1. `{path}` must fall under the platform's declared `assets` prefix, by
+   segment: `/ui/` matches `/ui/items/app.wasm`, not `/uix/`. Anything else,
+   any `..`, any encoded separator, is 404.
+2. The shell fetches the asset from the platform **as itself**, with no viewer
+   identity, as it fetches a manifest ([[HLIN-S-0004]] REQ-3.1). Code is the
+   same for every viewer; a module that must differ per person asks its
+   platform over the bridge.
+3. Sizes are bounded: the entry document at 256 KiB, any other asset at
+   16 MiB. *Proposed default, confirm in design.*
+4. `Content-Type` is taken from the platform, except that `.wasm` is always
+   served as `application/wasm` and `.html` as `text/html`, since streaming
+   compilation and the CSP both depend on them.
+5. **Caching.** The entry document is revalidated on every mount. Other assets
+   are cached immutably when the platform marks them so (`Cache-Control:
+   immutable`, as hashed build output such as Trunk's is), and revalidated
+   otherwise. *Proposed default, confirm in design.*
+
+### The module CSP
+
+Every response under `/m/` carries:
+
+```
+Content-Security-Policy:
+  default-src 'none';
+  script-src {shell}/m/{platform}/ 'wasm-unsafe-eval';
+  style-src {shell}/m/{platform}/ 'unsafe-inline';
+  img-src {shell}/m/{platform}/ data: blob:;
+  font-src {shell}/m/{platform}/;
+  connect-src {shell}/m/{platform}/;
+  form-action 'none';
+  base-uri 'none';
+  frame-ancestors {shell}
+```
+
+`connect-src` allows the module to fetch its own assets (a `.wasm` file is
+fetched), and nothing else. `'unsafe-inline'` for styles is there because
+Leptos and most component kits inject style elements. Scripts stay confined.
+
+Sources are written with the shell's explicit origin rather than `'self'`,
+because what `'self'` means inside an opaque origin varies across browsers.
+The containment tests assert the result in each browser the shell supports.
+
+### The shell page's CSP
+
+The shell page carries `frame-src {shell}/m/`. A frame's own navigations are
+checked against the embedder's policy, so a module that navigates its frame
+anywhere other than module assets is blocked. Without this, a frame navigated
+to a hostile page would still be the same `contentWindow`, and would inherit
+the bridge.
+
+## Messages
+
+### Envelope
+
+Every message in both directions is a JSON-compatible object:
+
+```json
+{ "bridge": [1, 0], "id": "m-17", "type": "fetch", "data": { } }
+```
+
+| Field | Meaning |
+|---|---|
+| `bridge` | `[major, minor]` the sender speaks |
+| `id` | Unique per sender for the life of the frame |
+| `re` | Present on a reply: the `id` it answers |
+| `type` | One of the types below |
+| `data` | The type's fields |
+
+Request and response bodies travel as `ArrayBuffer`s, transferred rather than
+copied. Everything else is plain data. A message that does not have this shape
+is dropped without reply.
+
+### Shell to module
+
+**`init`**, once, after the frame loads:
+
+```json
+{ "bridge": [1, 0], "id": "s-1", "type": "init", "data": {
+  "platform": "checklist", "panel": "items", "instance": "7f3c…",
+  "page": false,
+  "context": {
+    "time_range": { "from_millis": 1790200000000, "to_millis": 1790286400000 },
+    "params": { "list": ["team"] },
+    "generation": 4
+  },
+  "theme": { "scheme": "dark", "tokens": { "--hl-bg": "#0f1115", "--hl-accent": "#7aa2f7" } },
+  "viewer": { "name": "Alice" },
+  "read_only": false,
+  "limits": { "request_bytes": 1048576, "response_bytes": 4194304 }
+} }
+```
+
+`params` carries only parameters the panel declares ([[HLIN-T-0028]]).
+`viewer` is for display. It carries a name and nothing a platform would
+authorize on: the platform learns who is asking from the token on every
+request, not from its module. `read_only` says writes will be refused, so a
+module can stop offering them ([[HLIN-A-0012]]).
+
+**`context`**, whenever the time range or a parameter changes, with the same
+fields as `init.context`. A module refetches what depends on it.
+
+**`theme`**, whenever the scheme or tokens change, with the same fields as
+`init.theme`.
+
+**`changed`**, when the module's platform reports that something changed, or
+when another module of the same platform says it wrote something:
+
+```json
+{ "bridge": [1, 0], "id": "s-40", "type": "changed", "data": {
+  "panel": "items", "selections": { "list": ["team"] }, "from": "platform" } }
+```
+
+`from` is `platform` (its event stream, [[HLIN-A-0011]]) or `module`. A
+module refetches if it cares.
+
+**`visibility`**: `{ "visible": false }` when the panel scrolls out of view or
+the tab is hidden, so a module can stop timers and animation.
+
+**`response`**, answering a `fetch`:
+
+```json
+{ "bridge": [1, 0], "id": "s-41", "re": "m-17", "type": "response", "data": {
+  "status": 403,
+  "headers": { "content-type": "application/json" },
+  "body": "<ArrayBuffer>",
+  "refusal": null } }
+```
+
+`refusal` is `null` when the platform answered. When the shell refused the
+request itself, it names why (see *Refusals*), and `status` and `body` are the
+shell's.
+
+**`heartbeat`**: `{ "n": 12 }`, every 5 seconds while the frame is visible and
+every 30 seconds while it is not. *Proposed default, confirm in design.*
+
+### Module to shell
+
+**`ready`**, once, when the module can draw:
+
+```json
+{ "bridge": [1, 0], "id": "m-1", "type": "ready", "data": { "kit": "aurora@0.2.1" } }
+```
+
+`kit` is optional, and names the shared kit the module was built against.
+The shell logs it on the operator channel and does nothing else with it (see
+*Open questions*).
+
+**`fetch`**, a request to the module's own platform:
+
+```json
+{ "bridge": [1, 0], "id": "m-17", "type": "fetch", "data": {
+  "method": "POST", "path": "/api/lists/team/items",
+  "query": "", "headers": { "content-type": "application/json" },
+  "body": "<ArrayBuffer>", "idempotency_key": "01J8Z…" } }
+```
+
+`path` is relative to the platform's base. `headers` may carry only
+`content-type`, `accept`, `if-match` and `if-none-match`; anything else is
+dropped. `idempotency_key` is required on writes. The SDK mints one per
+attempt and reuses it when a person retries.
+
+**`set-param`**: `{ "id": "list", "values": ["team"] }`, for a parameter the
+panel declares. Same effect as the chrome's control and `Intent::Select`
+([[HLIN-I-0005]]): stored with the layout, sent to every module and panel that
+declares it.
+
+**`set-range`**: `{ "from_millis": …, "to_millis": … }`, the surface's time
+range, as `Intent::Range`.
+
+**`navigate`**: `{ "to": { "platform": "checklist", "page": "lists" } }`, open
+a page or panel in the shell. It may name another platform: navigation is the
+shell's, and opening a page grants nothing. An unknown target is ignored and
+logged.
+
+**`changed`**: `{ "panel": "items", "selections": { "list": ["team"] } }`, after
+a write. The shell relays it as `changed` with `from: "module"` to that
+platform's other mounted modules on every surface it serves. The shell never
+infers it from a write.
+
+**`notice`**: `{ "level": "warning", "text": "Sync paused" }`. Shown in the
+panel's frame, attributed to the platform, as plain text of at most 140
+characters. `level` is `info`, `warning` or `error`. This is a deliberate,
+bounded exception to [[HLIN-S-0003]]'s rule that the shell never shows a
+platform's words: it is confined to that platform's own panel and labelled as
+theirs. *Proposed default, confirm in design.*
+
+**`heartbeat`**: `{ "n": 12 }`, echoing the shell's. The SDK answers
+automatically.
+
+### Rates
+
+A frame may have at most 8 `fetch` requests in flight and send at most 50
+messages per second. A `fetch` past the limit is answered with the refusal
+`too_many`; other messages past it are dropped. *Proposed default, confirm in
+design.*
+
+## The request proxy
+
+The shell page sends a module's `fetch` to:
+
+```
+{METHOD} /p/{platform}/{path}?{query}
+X-Hlin-Instance: 7f3c…
+Idempotency-Key: 01J8Z…          (writes)
+```
+
+with the session cookie, as any request from the shell page. The shell:
+
+1. **Checks the caller.** `Sec-Fetch-Site: same-origin` and an `Origin` equal
+   to the shell's own are required. Anything else is 403 `not_from_shell`.
+   The session cookie's `SameSite` setting is not relied on, because it is
+   configurable.
+2. **Checks the person.** No session is 401 `not_signed_in`.
+3. **Checks the path.** Percent-decoded once, then refused if it contains `..`,
+   an empty segment, a backslash, a scheme or a host. It must fall, by segment,
+   under one of the platform's declared route prefixes for its method.
+4. **Checks the method.** `GET` and `HEAD` are reads and need a read prefix.
+   `POST`, `PUT`, `PATCH` and `DELETE` are writes and need a write prefix.
+   Anything else is 405 `method`.
+5. **Checks writes.** A write needs `Author`, so a read-only shell answers 403
+   `read_only`. A platform whose credential strategy collapses every viewer
+   into one caller answers 409 `no_identity`. A write without
+   `Idempotency-Key` is 400 `no_idempotency_key`.
+6. **Mints identity.** The token [[HLIN-S-0004]] specifies. On a write it is
+   bound to the request: `htm` is the method and `htu` the path without its
+   query, relative to the platform's base, with a 30-second lifetime.
+7. **Calls the platform** at `{base}{path}?{query}` with the body, the allowed
+   headers, the token and `Idempotency-Key`. The upstream timeout applies.
+   Bodies are bounded: 1 MiB up, 4 MiB down. *Proposed default, confirm in
+   design.*
+8. **Answers.** The platform's status and body pass back unchanged, with only
+   `content-type`, `etag`, `last-modified` and `cache-control` from its
+   headers. A 401 from a platform also goes to the operator channel: the
+   shell's token was refused, which is a configuration fault, not the
+   viewer's.
+
+The shell retries nothing here. A module may retry a read; the SDK retries a
+write only when a person asks, with the same key.
+
+### Refusals
+
+The shell's own refusals carry `X-Hlin-Refusal: {code}` and a short reason
+the shell wrote, and arrive at the module with `refusal` set:
+
+| Code | Status | When |
+|---|---|---|
+| `not_from_shell` | 403 | Step 1 |
+| `not_signed_in` | 401 | Step 2 |
+| `outside_prefix` | 404 | Step 3 |
+| `method` | 405 | Step 4 |
+| `read_only` | 403 | Step 5 |
+| `no_identity` | 409 | Step 5 |
+| `no_idempotency_key` | 400 | Step 5 |
+| `too_large` | 413 | Either body over its limit |
+| `unreachable` | 502 | Connection refused or reset |
+| `timeout` | 504 | Upstream timeout |
+| `too_many` | 429 | The frame's rate limit, refused in the page without a request |
+
+Everything else is the platform's answer, and the module shows it as its own.
+
+## Panel states
+
+The shell page derives a module panel's state from the bridge. It never
+derives it from what a module draws.
+
+| What happened | State |
+|---|---|
+| Frame created, no `ready` yet | `loading` |
+| `ready` received, bridge major matches | `ready` |
+| One heartbeat not echoed within 5 seconds | `stale`: the frame stays, dimmed |
+| Three heartbeats in a row not echoed | `unavailable (unreachable)` |
+| No `ready` within 10 seconds of the frame loading. *Proposed default, confirm in design* | `unavailable (unreachable)` |
+| Entry document or asset unreachable, 5xx, or timed out | `unavailable (unreachable)` |
+| Entry or asset over its limit, a 4xx from the asset prefix, or not HTML | `unavailable (malformed)` |
+| Manifest declares a bridge major the shell does not speak, or `ready` names a different major | `unavailable (malformed)` |
+| Panel or platform no longer in the registry | `unavailable (unknown)`; the frame is torn down |
+| Past the panel's sunset | `unavailable (deprecated)`; never mounted |
+| Beyond the surface's frame budget | `loading`, with a control to mount it |
+
+`stale` recovers to `ready` on the next echoed heartbeat. `unreachable`
+recovers only by remounting, which the shell does on the next platform
+`changed` event or when a person asks, not in a loop.
+
+`forbidden` is not derived here. A platform that refuses a viewer refuses
+their module's requests, and the module shows it. `forbidden` still applies
+to a panel's shell-drawn data.
+
+### Fallback
+
+A panel that declares both `ui` and `data` falls back to shell-drawn data when
+its module is `unavailable (unreachable)` or `unavailable (malformed)`. The
+frame is torn down, the data is fetched and drawn through the existing path
+([[HLIN-S-0003]]), and the panel's frame says it is drawn by Hlin because the
+module is unavailable. The panel's state is then the data path's state.
+`unknown` and `deprecated` do not fall back, because they are about the panel,
+not the module.
+
+### Budget
+
+At most 12 frames are mounted per surface. Past that, panels show `loading`
+with a control to mount them, and mounting one unmounts nothing. *Proposed
+default, confirm in design.*
+
+## Versioning
+
+- The bridge is `[major, minor]`, starting at `[1, 0]`.
+- A **minor** change is additive: new message types, new optional fields. Both
+  sides ignore what they do not recognise (REQ-2.3), so any minor of a major
+  works with any other.
+- The shell sends its own minor in every message. A module must not depend on
+  a message newer than that minor.
+- A **major** change is anything else. A manifest names the major its module
+  speaks (`ui.bridge`). The shell supports a set of majors and deprecates one
+  with a window and a named successor, as it does panels. A module declaring
+  an unsupported major is `unavailable (malformed)` without being mounted.
+- The bridge major is contract in the manifest ([[HLIN-S-0001]]), so changing
+  it without a major contract version is a violation the shell flags.
+
+## Manifest fields this relies on
+
+Specified in the [[HLIN-S-0001]] amendment; summarised here:
+
+```json
+{
+  "assets": "/ui/",
+  "routes": { "read": ["/api/"], "write": ["/api/"] },
+  "navigation": [ { "label": "Lists", "path": "lists", "ui": { "entry": "/ui/lists/index.html", "bridge": 1 } } ],
+  "panels": [ {
+    "key": "items", "title": "To do",
+    "ui": { "entry": "/ui/items/index.html", "bridge": 1 },
+    "kind": "table", "envelope": "records.v1", "data": "/panels/items",
+    "params": [ { "param": "select", "id": "list", "options": "/options/lists" } ]
+  } ]
+}
+```
+
+One `assets` prefix and one set of `routes` per platform. *Proposed default,
+confirm in design.*
+
+## Worked example
+
+Alice opens a surface with the checklist's `items` panel.
+
+1. **Mount.** The panel is in view. The shell page creates the frame at
+   `/m/checklist/ui/items/index.html`. The shell fetches the entry from the
+   checklist as itself, serves it with the module CSP, and the module's
+   `.wasm` loads from its own asset path. The panel is `loading`.
+2. **Handshake.** The page sends `init`. The module answers `ready` with major
+   1. The panel is `ready`.
+3. **A read.** The module sends `fetch GET /api/lists/team/items`. The page
+   calls `/p/checklist/api/lists/team/items`; the shell checks the caller, the
+   prefix and the method, mints a token for Alice addressed to `checklist`,
+   and passes the platform's 200 back. The module draws the list.
+4. **A write.** Alice ticks an item. The module sends `fetch POST
+   /api/lists/team/items/i1/toggle` with an idempotency key. The shell checks
+   `Author`, mints a token bound to `POST` and that path, and calls the
+   platform. It answers 200. The module redraws and sends `changed`.
+5. **Everyone else.** The shell relays `changed` to the checklist's other
+   mounted modules, including Bob's. Bob's module refetches. The checklist
+   also announces the change on its event stream, which reaches any shell
+   this one does not know about.
+6. **A refusal.** Bob edits Alice's item. The platform answers 403 with its
+   own message. The shell passes it back with `refusal: null`, and Bob's
+   module shows the checklist's words.
+7. **A hang.** The module wedges in a loop. One heartbeat goes unanswered and
+   the panel is `stale`; after three it is `unavailable (unreachable)`, the
+   frame is torn down, and because the panel declares `data`, the shell draws
+   the list as a table.
+
+## Decision Log
+
+| ADR | Title | Status | Summary |
+|-----|-------|--------|---------|
+| [[HLIN-A-0014]] | Platforms ship UI modules, sandboxed per frame | decided | The frame, the bridge, and the shell owning the page, the person and the wire |
+| [[HLIN-A-0013]] | Requests under declared prefixes, identity bound to each | decided | The request proxy, bound tokens, no retries, the platform's own words |
+| [[HLIN-A-0011]] | Platforms offer event streams | decided | Relayed to modules as `changed` |
+| [[HLIN-A-0012]] | `anonymous` is read-only | decided | `read_only` in `init`; writes refused |
+| [[HLIN-A-0004]] | Authentication hoisted, identity forwarded | decided | The token on every request; the platform decides |
+
+## Open Questions
+
+From [[HLIN-A-0014]]. Where this specification needs an answer to be
+implementable, it proposes one and marks it; those are to be confirmed in
+design, not treated as settled.
+
+- **Prefix granularity.** Proposed default: one `assets` prefix and one set
+  of read and write `routes` per platform. Per panel or page would let a
+  platform confine a module further, at the cost of a longer manifest.
+- **Streaming over the bridge.** Proposed default: none in `[1, 0]`. A module
+  learns of changes through `changed` and refetches. A streaming `fetch` can
+  be added in a minor version if a real module needs one.
+- **Kit drift.** Proposed default: `ready` may name the kit; the shell logs
+  it on the operator channel and refuses nothing.
+- **Budgets.** Proposed default: 12 mounted frames per surface, the rest
+  mounted on request.
+- **Platforms' own frontends.** Nothing here depends on the answer.
+
+Added by this specification:
+
+- Whether `notice` should exist at all, given [[HLIN-S-0003]]'s rule. The
+  proposal confines and labels it; the alternative is that a module shows its
+  own notices inside its frame and the shell shows none.
+- Whether `viewer` in `init` should carry `sub` so a module can mark "yours"
+  without asking its platform. Proposed: no. The platform already knows, and
+  a module that needs it can ask.
+- The containment test matrix: which browsers, and the exact escape attempts
+  asserted (reading the parent, reading cookies, fetching the network,
+  navigating the frame, posting to `/p/` directly, calling another
+  platform's prefix, flooding messages).

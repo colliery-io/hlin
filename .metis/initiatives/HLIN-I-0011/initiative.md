@@ -4,14 +4,14 @@ level: initiative
 title: "Platforms ship UI modules, and the shell hosts them in sandboxes"
 short_code: "HLIN-I-0011"
 created_at: 2026-09-24T22:23:21.385709+00:00
-updated_at: 2026-09-24T22:23:21.385709+00:00
+updated_at: 2026-09-24T23:20:39.656199+00:00
 parent: HLIN-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/design"
 
 
 exit_criteria_met: false
@@ -171,3 +171,39 @@ and 3 land; 6 and 8 together, since each is the other's test; then 7, 9 and
 Opened after [[HLIN-A-0013]] and [[HLIN-A-0014]] were decided and the vision
 amended. Architecture is set by those decisions; design here is the bridge
 specification and the open questions above.
+
+### 2026-09-24 — bridge specification drafted
+
+Slice 1 drafted as [[HLIN-S-0007]] (Module Bridge): frames and sandbox
+attributes, `/m/` asset serving and the module CSP, the shell page's
+`frame-src`, the message envelope and every message in both directions, the
+`/p/` request proxy with its refusal codes, the mapping of bridge failures
+onto panel states, fallback, and versioning.
+
+Two things surfaced while writing it that the ADR did not say:
+
+- The shell page must carry `frame-src {shell}/m/`. Without it a module could
+  navigate its own frame to a hostile page that keeps the same `contentWindow`
+  and so inherits the bridge.
+- `/p/` must require `Sec-Fetch-Site: same-origin` and the shell's `Origin`,
+  rather than relying on the session cookie's `SameSite`, which is
+  configurable.
+
+Proposed defaults awaiting the user's confirmation:
+
+- One `assets` prefix and one set of read and write `routes` per platform.
+- No streaming `fetch` in bridge `[1, 0]`; `changed` plus refetch.
+- Kit version named in `ready`, logged, never refused.
+- 12 mounted frames per surface, the rest mounted on request.
+- `ready` within 10 s; heartbeat every 5 s visible and 30 s hidden; one miss
+  is `stale`, three are `unavailable (unreachable)`.
+- Limits: entry 256 KiB, asset 16 MiB, request body 1 MiB, response 4 MiB;
+  8 fetches in flight and 50 messages per second per frame.
+- Caching: entry revalidated per mount; assets cached only when the platform
+  marks them `immutable`.
+- `notice`: plain text, 140 characters, attributed to the platform. This is a
+  bounded exception to [[HLIN-S-0003]]'s rule that the shell never shows a
+  platform's words.
+- `init.viewer` carries a display name only, not `sub`.
+- NFR: a cached module is `ready` within 1 s; a six-module surface is
+  interactive within 3 s cold.
