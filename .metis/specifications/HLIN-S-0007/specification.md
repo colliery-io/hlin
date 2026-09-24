@@ -76,15 +76,17 @@ API, and anything a module does inside its own frame.
 | REQ-3.3 | The request proxy accepts only same-origin requests from the shell page | A module, or anything else, cannot call it directly |
 | REQ-3.4 | Writes require `Author`, carry an `Idempotency-Key`, carry a request-bound token, and are never retried by the shell | [[HLIN-A-0013]] |
 | REQ-3.5 | Platform answers are passed back to the module unchanged, within limits. Refusals the shell makes itself are marked as the shell's | The module shows its platform's words; the shell never shows them as its own |
+| REQ-3.6 | A streamed response flows only as fast as the module grants credit, and open streams are capped per frame and per page | Nothing buffers without bound, and module streams cannot starve the shell's own stream of connections |
 | REQ-4.1 | Every mounted panel is in exactly one of `loading`, `ready`, `stale`, `unavailable (cause)` at all times, whatever the module does | Rendering stays total |
 | REQ-4.2 | A panel declaring both a module and data falls back to shell-drawn data when its module is unavailable for a reason other than `unknown` or `deprecated` | The fallback is the reason to declare both |
+| REQ-4.3 | A frame in view is never unmounted to meet the budget, and a frame unmounted out of view is offered `suspend` first | A person never loses what they are looking at, and a module can keep what it held |
 | REQ-5.1 | The bridge has a major and a minor version. A module declares its major in the manifest and repeats it in `ready`; a mismatch is `unavailable (malformed)` | The shell must be able to tell a module that speaks the bridge from one that does not |
 
 ### Non-Functional Requirements
 
 | ID | Requirement | Rationale |
 |----|-------------|-----------|
-| NFR-1.1 | A cached module mounts and says `ready` within 1 second on a desktop browser; a surface of six modules from three platforms is interactive within 3 seconds cold. *Proposed default, confirm in design* | Weight is the first risk in the new bet; it needs a number to be watched against |
+| NFR-1.1 | A cached module mounts and says `ready` within 1 second on a desktop browser; a surface of six modules from three platforms is interactive within 3 seconds cold | Weight is the first risk in the new bet; it needs a number to be watched against |
 | NFR-1.2 | A module built with the SDK needs no bridge code of its own | Twelve teams implement this; the SDK is how they get it right |
 | NFR-1.3 | Containment is proven by browser tests, not argued | Every isolation property here fails silently if it fails |
 
@@ -119,8 +121,8 @@ is removed from the registry before it is removed from the document, so a
 message already in flight from it is dropped.
 
 **Mounting.** A frame is mounted when its panel comes within 200 px of the
-viewport, and stays mounted while its panel is on the surface. Frames beyond
-the budget (below) are not mounted until a person asks.
+viewport. Frames out of view are unmounted to keep the surface within its
+budget (see *Budget*), and remounted when their panel comes back.
 
 **The drag shield.** While a panel is dragged or resized, the shell lays a
 transparent element over every frame, so pointer events stay with the grid.
@@ -140,15 +142,14 @@ origin.
    identity, as it fetches a manifest ([[HLIN-S-0004]] REQ-3.1). Code is the
    same for every viewer; a module that must differ per person asks its
    platform over the bridge.
-3. Sizes are bounded: the entry document at 256 KiB, any other asset at
-   16 MiB. *Proposed default, confirm in design.*
+3. Sizes are bounded by `entry_bytes` and `asset_bytes` (see *Limits*).
 4. `Content-Type` is taken from the platform, except that `.wasm` is always
    served as `application/wasm` and `.html` as `text/html`, since streaming
    compilation and the CSP both depend on them.
 5. **Caching.** The entry document is revalidated on every mount. Other assets
    are cached immutably when the platform marks them so (`Cache-Control:
    immutable`, as hashed build output such as Trunk's is), and revalidated
-   otherwise. *Proposed default, confirm in design.*
+   otherwise.
 
 ### The module CSP
 
@@ -221,7 +222,9 @@ is dropped without reply.
   "theme": { "scheme": "dark", "tokens": { "--hl-bg": "#0f1115", "--hl-accent": "#7aa2f7" } },
   "viewer": { "name": "Alice" },
   "read_only": false,
-  "limits": { "request_bytes": 1048576, "response_bytes": 4194304 }
+  "limits": { "request_bytes": 1048576, "response_bytes": 4194304,
+              "fetches_in_flight": 8, "streams": 2 },
+  "restored": null
 } }
 ```
 
@@ -229,7 +232,9 @@ is dropped without reply.
 `viewer` is for display. It carries a name and nothing a platform would
 authorize on: the platform learns who is asking from the token on every
 request, not from its module. `read_only` says writes will be refused, so a
-module can stop offering them ([[HLIN-A-0012]]).
+module can stop offering them ([[HLIN-A-0012]]). `limits` are the values in
+force for this platform (see *Limits*). `restored` is what the module handed
+back at its last `suspend` on this page, or `null` (see *Budget*).
 
 **`context`**, whenever the time range or a parameter changes, with the same
 fields as `init.context`. A module refetches what depends on it.
@@ -263,10 +268,18 @@ the tab is hidden, so a module can stop timers and animation.
 
 `refusal` is `null` when the platform answered. When the shell refused the
 request itself, it names why (see *Refusals*), and `status` and `body` are the
-shell's.
+shell's. For a streamed request, `response` carries the status and headers,
+`"streaming": true` and no body; the body follows as `chunk` messages.
 
-**`heartbeat`**: `{ "n": 12 }`, every 5 seconds while the frame is visible and
-every 30 seconds while it is not. *Proposed default, confirm in design.*
+**`heartbeat`**: `{ "n": 12 }`, every 2 seconds while the frame is visible,
+and not at all while it is hidden. Browsers throttle timers in hidden
+documents, so a hidden module cannot be judged by its answers; the first
+heartbeat after `visibility: true` judges it instead.
+
+**`chunk`**, **`end`**: parts of a streamed response (see *Streaming*).
+
+**`suspend`**: `{ "deadline_ms": 500 }`, before the shell unmounts an
+out-of-view frame (see *Budget*).
 
 ### Module to shell
 
@@ -289,7 +302,9 @@ The shell logs it on the operator channel and does nothing else with it (see
   "body": "<ArrayBuffer>", "idempotency_key": "01J8Z…" } }
 ```
 
-`path` is relative to the platform's base. `headers` may carry only
+`"stream": true` asks for the response body as it arrives rather than
+whole (see *Streaming*). `path` is relative to the platform's base. `headers`
+may carry only
 `content-type`, `accept`, `if-match` and `if-none-match`; anything else is
 dropped. `idempotency_key` is required on writes. The SDK mints one per
 attempt and reuses it when a person retries.
@@ -317,17 +332,85 @@ panel's frame, attributed to the platform, as plain text of at most 140
 characters. `level` is `info`, `warning` or `error`. This is a deliberate,
 bounded exception to [[HLIN-S-0003]]'s rule that the shell never shows a
 platform's words: it is confined to that platform's own panel and labelled as
-theirs. *Proposed default, confirm in design.*
+theirs.
 
 **`heartbeat`**: `{ "n": 12 }`, echoing the shell's. The SDK answers
 automatically.
 
-### Rates
+**`pull`**, **`cancel`**: credit for, or an end to, a streamed response (see
+*Streaming*).
 
-A frame may have at most 8 `fetch` requests in flight and send at most 50
-messages per second. A `fetch` past the limit is answered with the refusal
-`too_many`; other messages past it are dropped. *Proposed default, confirm in
-design.*
+**`state`**: `{ "blob": "<ArrayBuffer>" }`, answering `suspend` (see *Budget*).
+
+### Limits
+
+Every limit is operator configuration: a `[modules.limits]` table in the
+shell's configuration sets the defaults, and a platform's entry may override
+any of them (`[[platforms]] modules.limits = { … }`). The shell sends the
+values in force in `init.limits`. The defaults:
+
+| Limit | Default | Applies to |
+|---|---|---|
+| `entry_bytes` | 256 KiB | The entry document |
+| `asset_bytes` | 16 MiB | Any other asset |
+| `request_bytes` | 1 MiB | A `fetch` body |
+| `response_bytes` | 4 MiB | A whole (not streamed) response body |
+| `fetches_in_flight` | 8 | Per frame, streams included |
+| `messages_per_second` | 50 | Per frame, `chunk` credit messages excluded |
+| `streams` | 2 | Open streamed responses per frame |
+| `stream_bytes_per_second` | 1 MiB | Per stream, enforced by the shell |
+| `stream_idle_seconds` | 60 | A stream with no bytes for this long is ended |
+| `state_bytes` | 64 KiB | A `state` blob |
+
+A `fetch` past a count limit is answered with the refusal `too_many`; other
+messages past the rate are dropped. A configured value is checked at startup
+like the rest of the configuration: zero, or a response limit below the
+request limit's floor of 1 KiB, stops the shell with the platform named.
+
+### Streaming
+
+A module may ask for a response body as it arrives: a log tail, a
+server-sent event feed of its own, a long export. It is a read only. `stream`
+on a write is refused with `method`, because a write's answer is a decision,
+not a feed.
+
+1. The module sends `fetch` with `"stream": true`.
+2. The page makes the request and answers with `response`, carrying the status
+   and headers and `"streaming": true`.
+3. The body follows as `chunk` messages, in order:
+   `{ "re": "m-17", "seq": 0, "body": "<ArrayBuffer>" }`.
+4. **Credit.** The page sends only as many bytes as the module has asked for.
+   The module sends `pull { "re": "m-17", "bytes": 262144 }`, and the SDK does
+   so automatically as it consumes. A module that stops pulling stops the
+   page reading, and the browser's own backpressure reaches the shell and then
+   the platform. Nothing is buffered without bound anywhere.
+5. The stream ends with `end { "re": "m-17" }`, or
+   `end { "re": "m-17", "error": "idle" | "rate" | "unreachable" | "cancelled" | "unmounted" }`.
+6. The module ends it early with `cancel { "re": "m-17" }`. The page aborts
+   the request, and the shell drops the upstream connection.
+
+Streams stay open while a frame is hidden; a module that wants otherwise
+cancels on `visibility: false`. Unmounting a frame ends its streams with
+`unmounted`.
+
+**Connections.** Every stream is a request from the shell page to the shell's
+own origin, beside the shell's own event stream ([[HLIN-S-0003]]). Over
+HTTP/1.1 a browser opens about six connections to one origin, and a surface of
+modules each holding a stream would exhaust them and stall everything else,
+including the shell's stream. So the page counts open module streams across
+the whole surface: at most 4 when the page was served over HTTP/1.1, and 32
+over HTTP/2 or later, read from the navigation's `nextHopProtocol`. A stream
+past the page's cap is refused with `too_many`. Serving the shell over HTTP/2
+is therefore what makes streaming modules practical, and the operator guide
+should say so.
+
+**Liveness is unchanged.** A platform's own event stream is still the shell's
+one subscription ([[HLIN-A-0011]]), relayed as `changed`. Streaming is for a
+module's own data, not a second route for the platform's events.
+
+At the proxy, a streamed response is passed through as it arrives: the
+upstream timeout applies until the status and headers, `response_bytes` does
+not apply, and `stream_bytes_per_second` and `stream_idle_seconds` do.
 
 ## The request proxy
 
@@ -361,8 +444,8 @@ with the session cookie, as any request from the shell page. The shell:
    query, relative to the platform's base, with a 30-second lifetime.
 7. **Calls the platform** at `{base}{path}?{query}` with the body, the allowed
    headers, the token and `Idempotency-Key`. The upstream timeout applies.
-   Bodies are bounded: 1 MiB up, 4 MiB down. *Proposed default, confirm in
-   design.*
+   Bodies are bounded by `request_bytes` and `response_bytes`, except that a
+   streamed response is passed through under the streaming limits instead.
 8. **Answers.** The platform's status and body pass back unchanged, with only
    `content-type`, `etag`, `last-modified` and `cache-control` from its
    headers. A 401 from a platform also goes to the operator channel: the
@@ -402,17 +485,20 @@ derives it from what a module draws.
 |---|---|
 | Frame created, no `ready` yet | `loading` |
 | `ready` received, bridge major matches | `ready` |
-| One heartbeat not echoed within 5 seconds | `stale`: the frame stays, dimmed |
-| Three heartbeats in a row not echoed | `unavailable (unreachable)` |
-| No `ready` within 10 seconds of the frame loading. *Proposed default, confirm in design* | `unavailable (unreachable)` |
+| One heartbeat not echoed within 2 seconds | `stale`: the frame stays, dimmed |
+| Three heartbeats in a row not echoed (about 6 seconds) | `unavailable (unreachable)` |
+| No `ready` within 10 seconds of the frame loading | `unavailable (unreachable)` |
 | Entry document or asset unreachable, 5xx, or timed out | `unavailable (unreachable)` |
 | Entry or asset over its limit, a 4xx from the asset prefix, or not HTML | `unavailable (malformed)` |
 | Manifest declares a bridge major the shell does not speak, or `ready` names a different major | `unavailable (malformed)` |
 | Panel or platform no longer in the registry | `unavailable (unknown)`; the frame is torn down |
 | Past the panel's sunset | `unavailable (deprecated)`; never mounted |
-| Beyond the surface's frame budget | `loading`, with a control to mount it |
+| Unmounted out of view to stay within the budget | Its last state, held; `loading` again when it remounts |
 
-`stale` recovers to `ready` on the next echoed heartbeat. `unreachable`
+`stale` recovers to `ready` on the next echoed heartbeat. Two seconds is
+tight enough that a module blocking its main thread for a long task will show
+`stale` briefly. That is accepted: `stale` only dims the frame, and a module
+that blocks for seconds is one a person would notice anyway. `unreachable`
 recovers only by remounting, which the shell does on the next platform
 `changed` event or when a person asks, not in a loop.
 
@@ -432,9 +518,19 @@ not the module.
 
 ### Budget
 
-At most 12 frames are mounted per surface. Past that, panels show `loading`
-with a control to mount them, and mounting one unmounts nothing. *Proposed
-default, confirm in design.*
+At most 12 frames are mounted per surface. When mounting another would pass
+that, the shell unmounts the out-of-view frame seen least recently. A frame in
+view is never unmounted, so a surface with more than 12 panels in view at once
+runs over the budget rather than blanking what a person is looking at.
+
+Unmounting loses whatever a module held only in memory: a half-typed entry, a
+scroll position, an expanded row. So before unmounting, the page sends
+`suspend`, and the module may answer `state` with a blob of at most
+`state_bytes` within the deadline. The page keeps it in memory for the life of
+the page, never on the server and never sent to the platform, and returns it
+as `init.restored` when the frame remounts. The SDK exposes this as a hook; a
+module that ignores it simply starts fresh. Reloading the page forgets every
+blob.
 
 ## Versioning
 
@@ -469,8 +565,9 @@ Specified in the [[HLIN-S-0001]] amendment; summarised here:
 }
 ```
 
-One `assets` prefix and one set of `routes` per platform. *Proposed default,
-confirm in design.*
+One `assets` prefix and one set of `routes` per platform. A module can reach
+any route its platform declared, which is enough: the platform authorizes
+every request, and a platform does not need protecting from its own module.
 
 ## Worked example
 
@@ -512,33 +609,32 @@ Alice opens a surface with the checklist's `items` panel.
 | [[HLIN-A-0012]] | `anonymous` is read-only | decided | `read_only` in `init`; writes refused |
 | [[HLIN-A-0004]] | Authentication hoisted, identity forwarded | decided | The token on every request; the platform decides |
 
+## Decided in design
+
+Confirmed by the owner on 2026-09-24, for [[HLIN-I-0011]]:
+
+| Question | Decision |
+|---|---|
+| Prefix granularity | One `assets` prefix and one set of read and write `routes` per platform |
+| Streaming | **In `[1, 0]`**: streamed reads with credit-based flow control, per-frame and per-page caps (*Streaming*) |
+| Kit drift | `ready` may name the kit; logged on the operator channel, never refused |
+| Frame budget | 12 mounted per surface; the least recently seen out-of-view frame is unmounted, with `suspend`/`state` so a module can keep what it held (*Budget*) |
+| Timing | `ready` within 10 seconds; heartbeat every 2 seconds while visible, none while hidden; `stale` after one miss, `unavailable` after three |
+| Limits | Operator configuration, per shell with per-platform overrides, defaulting to the values in *Limits* |
+| `notice` | Plain text, at most 140 characters, labelled as the platform's, confined to its panel |
+| `viewer` in `init` | Display name only |
+| Performance | A cached module `ready` within 1 second; six modules interactive within 3 seconds cold (NFR-1.1) |
+
+Three details were filled in while writing these down, and are worth a look:
+`suspend`/`state` (so unmounting does not silently lose a person's work), no
+heartbeat while hidden (browsers throttle hidden timers), and the page-wide
+stream cap tied to HTTP/2 (so streams cannot starve the shell's own stream).
+
 ## Open Questions
 
-From [[HLIN-A-0014]]. Where this specification needs an answer to be
-implementable, it proposes one and marks it; those are to be confirmed in
-design, not treated as settled.
-
-- **Prefix granularity.** Proposed default: one `assets` prefix and one set
-  of read and write `routes` per platform. Per panel or page would let a
-  platform confine a module further, at the cost of a longer manifest.
-- **Streaming over the bridge.** Proposed default: none in `[1, 0]`. A module
-  learns of changes through `changed` and refetches. A streaming `fetch` can
-  be added in a minor version if a real module needs one.
-- **Kit drift.** Proposed default: `ready` may name the kit; the shell logs
-  it on the operator channel and refuses nothing.
-- **Budgets.** Proposed default: 12 mounted frames per surface, the rest
-  mounted on request.
 - **Platforms' own frontends.** Nothing here depends on the answer.
-
-Added by this specification:
-
-- Whether `notice` should exist at all, given [[HLIN-S-0003]]'s rule. The
-  proposal confines and labels it; the alternative is that a module shows its
-  own notices inside its frame and the shell shows none.
-- Whether `viewer` in `init` should carry `sub` so a module can mark "yours"
-  without asking its platform. Proposed: no. The platform already knows, and
-  a module that needs it can ask.
-- The containment test matrix: which browsers, and the exact escape attempts
-  asserted (reading the parent, reading cookies, fetching the network,
-  navigating the frame, posting to `/p/` directly, calling another
-  platform's prefix, flooding messages).
+- **The containment test matrix:** which browsers, and the exact escape
+  attempts asserted (reading the parent, reading cookies, fetching the
+  network, navigating the frame, posting to `/p/` directly, calling another
+  platform's prefix, flooding messages, holding streams open to starve the
+  page).

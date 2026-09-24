@@ -60,9 +60,8 @@ follows it.
 - The checklist and feed platforms, Dex, and the two-person demo. Those are
   [[HLIN-I-0010]].
 - Retiring the shell-drawn path. Envelopes, kinds, packs and the stream stay.
-- Platform CSS beyond what a module ships inside its own frame, streaming
-  `fetch`, and kit-version enforcement. These are open questions below, not
-  goals.
+- Platform CSS beyond what a module ships inside its own frame, and
+  kit-version enforcement (decided: logged, never refused).
 - Migrating any real platform's frontend.
 
 ## Architecture
@@ -125,13 +124,18 @@ Slices, each demoable when it lands:
    scroll into view; the drag shield over frames.
 7. **Context and liveness.** `init`, `context`, `theme` and `visibility` sent
    down; `set-param`, `set-range`, `navigate` and `notice` acted on; `changed`
-   relayed from platform events and from modules.
-8. **The SDK.** A crate for Leptos modules: context and theme as signals,
+   relayed from platform events and from modules; the frame budget with
+   off-screen unmounting and `suspend`/`state`.
+8. **Streaming.** Streamed reads over the bridge: `chunk`/`end`, credit with
+   `pull`, `cancel`, per-frame and page-wide caps tied to HTTP/2, and the
+   proxy passing streamed bodies through under their own limits.
+9. **The SDK.** A crate for Leptos modules: context and theme as signals,
    `fetch` as an async call, `ready` and heartbeat handled, idempotency keys on
-   writes, theme applied to the frame's document.
-9. **Pages.** A navigation entry opens a platform page at full width through
+   writes, theme applied to the frame's document, streams as async readers,
+   and a `suspend` hook.
+10. **Pages.** A navigation entry opens a platform page at full width through
    the same host.
-10. **Proof.** A small module added to the existing sample platform, and
+11. **Proof.** A small module added to the existing sample platform, and
     browser tests: it draws, it follows the time picker, it makes a request as
     the viewer, and it cannot escape (the containment cases in Goals). A load
     time measurement for a surface of several modules.
@@ -145,24 +149,21 @@ calls, blind passthrough).
 
 ## Open Questions
 
-Carried from [[HLIN-A-0014]], to settle in design:
+Settled in design on 2026-09-24; see *Decided in design* in [[HLIN-S-0007]].
+Still open, and not blocking:
 
-- **Prefix granularity:** one read and one write prefix per platform, or per
-  panel and page.
-- **Streaming over the bridge:** whether `fetch` needs a streaming form, or
-  `changed` plus refetch is enough.
-- **Kit drift:** whether the shell should refuse or flag a module built
-  against a kit version too far from its own.
-- **Budgets:** a per-surface limit on mounted frames, and what the shell shows
-  past it.
 - **Platforms' own frontends:** whether they keep running beside Hlin or shrink
   into modules.
+- **The containment test matrix:** browsers, and the exact escape attempts.
+  Settled in slice 10's task.
 
 ## Implementation Plan
 
-Not decomposed. Expected order: 1 first; 2 and 3 in parallel; 4 and 5 once 2
-and 3 land; 6 and 8 together, since each is the other's test; then 7, 9 and
-10. [[HLIN-I-0010]] can start its platforms' server side and Dex once 3 lands.
+Not decomposed. Expected order: 1 (done) first; 2 and 3 in parallel; 4 and 5
+once 2 and 3 land, with operator-configured limits (`[modules.limits]`) in
+both; 6 and 9 together, since each is the other's test; then 7, 8, 10 and 11.
+[[HLIN-I-0010]] can start its platforms' server side once 3 lands; its
+sign-in with Dex needs nothing from here.
 
 ## Status Updates
 
@@ -207,3 +208,28 @@ Proposed defaults awaiting the user's confirmation:
 - `init.viewer` carries a display name only, not `sub`.
 - NFR: a cached module is `ready` within 1 s; a six-module surface is
   interactive within 3 s cold.
+
+### 2026-09-24 — design decisions confirmed
+
+The owner answered every proposed default in [[HLIN-S-0007]]. Kept as
+proposed: prefixes per platform, kit version logged only, `notice` as labelled
+plain text, `viewer` as a display name, and the 1 s / 3 s performance targets.
+Changed:
+
+- **Streaming is in bridge `[1, 0]`.** Added as slice 8. The spec now has
+  credit-based flow control and caps open module streams per frame and per page:
+  4 over HTTP/1.1 and 32 over HTTP/2. Without the page-wide cap, module streams
+  would use up the browser's roughly six connections to the shell and stall
+  the shell's own stream.
+- **The frame budget unmounts off-screen frames** (least recently seen), never
+  one in view. `suspend`/`state` added so a module can hand back up to 64 KiB
+  it would otherwise lose. The shell keeps it in page memory only.
+- **Heartbeat every 2 s while visible, none while hidden** (browsers throttle
+  hidden timers). A long main-thread task will show `stale` briefly, which is
+  accepted.
+- **Every limit is operator configuration**: `[modules.limits]` with
+  per-platform overrides, and the proposed values as defaults.
+
+`suspend`/`state`, the hidden-heartbeat rule and the page-wide stream cap were
+filled in while writing the decisions down. The design is ready for sign-off
+and decomposition.
