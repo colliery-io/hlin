@@ -18,7 +18,7 @@ initiative_id: NULL
 
 # Hlin Vision
 
-**One vantage over many systems, assembled by the people who use them.**
+**One place to work across many systems, assembled by the people who use them.**
 
 Hlin is named for the Norse goddess who watches over those she is named to protect.
 
@@ -26,74 +26,88 @@ Hlin is named for the Norse goddess who watches over those she is named to prote
 
 We are building roughly a dozen Rust platforms. Each has a Leptos frontend served from its own root, each ships on its own cadence, and each is developed by a team that should not have to coordinate with the other eleven to release.
 
-The cost lands on the people using them. Operational context is spread across a dozen origins, so answering a question that spans two systems means holding two tabs and doing the correlation by hand. There is no place where "how are things" can be answered. Each frontend is coherent on its own; together they are twelve tools rather than one product.
+The cost lands on the people using them. Their work is spread across a dozen origins, so anything that spans two systems means holding two tabs, signing in twice, and doing the correlation by hand. There is no single place to see how things are, and no single place to act on it. Each frontend is coherent on its own; together they are twelve tools rather than one product.
 
-The obvious fixes are both wrong. Building a thirteenth hand-written dashboard puts every cross-cutting view behind a central team's backlog and goes stale the moment a platform changes. Composing the frontends at runtime means a dozen WASM binaries in one document, each with its own allocator and reactive runtime, which is not viable at this count and would not be viable at half it.
+The obvious fixes are both wrong. Building a thirteenth hand-written application puts every cross-cutting need behind a central team's backlog and goes stale the moment a platform changes. Composing the frontends naively, as a dozen WASM binaries sharing one document and one authority, makes every platform's bug everyone's outage and puts every platform's credentials in the browser.
 
 ## Product/Solution Overview
 
-Hlin is a composition shell.
+Hlin is a workspace shell.
 
-Each platform declares, at runtime, what it can show. Hlin discovers those declarations, renders every declared panel through a single design system, and lets a person select panels from any platform and arrange them into a surface they authored.
+Each platform declares, at runtime, what it offers, and ships its own UI for it as modules. Hlin discovers those declarations, runs each module in its own sandbox, and lets a person select panels and pages from any platform and arrange them into a surface they authored. Where a platform offers data rather than a module, Hlin draws it itself.
 
-Nothing crosses the boundary except data and a declared view kind. Hlin does the rendering; platforms do not ship code into it.
+Platforms own their data, their rules and their UI. Hlin owns the page, the person and the wire: the only code in the shell's page, the signed-in identity, and every request between a module and its platform.
 
-That single constraint produces most of the properties we want. Design consistency is structural rather than enforced by review, because every panel is drawn by the same component library. Drag-and-drop composition is tractable, because every panel is the same kind of object to the layout engine. Adding a platform costs the shell nothing, because the shell was never compiled against it.
+That split produces most of the properties we want. A platform ships UI at its own pace, with no ceiling on what it can do. A module failing is one panel in a known state, never a broken page. The browser never holds a credential, because every request goes through the shell, which binds the viewer's identity to it and lets the platform decide. Adding a platform costs the shell nothing, because the shell was never compiled against it.
 
 ### What Hlin is not
 
-**Not a reverse proxy.** Path-prefixed routing and single-origin sessions sit underneath Hlin and make cross-platform data fetching and auth tractable. That plumbing is necessary and it is not the product.
+**Not a reverse proxy.** The shell carries requests between modules and platforms, and that plumbing is necessary, but it is not the product. It carries only what a platform declared, only for the platform that owns the module asking.
 
-**Not micro-frontends.** No runtime composition of independently built WASM modules; not now, not as a later phase. Panels are data, not applications.
+**Micro-frontends, isolated.** Independently built modules, each in its own sandboxed frame with an opaque origin, reaching nothing but their own platform, and only through the shell. Never in the shell's page.
 
 **Not a query layer.** Hlin shows what platforms choose to expose. It does not reach into anyone's database, and it defines no query language over platform internals.
 
-**Not a general dashboarding tool.** Grafana exists and is better at being Grafana. Hlin composes views authored by the teams that own the systems, in the vocabulary of those systems.
+**Not a general dashboarding tool.** Grafana exists and is better at being Grafana. Hlin hosts the UI of the teams that own the systems, in the terms of those systems.
 
-**Not a central bottleneck.** Shipping a panel does not require a Hlin release, a Hlin PR, or a design review.
+**Not a central bottleneck.** Shipping a panel or a module does not require a Hlin release, a Hlin PR, or a design review.
+
+**Not an authorization system.** Hlin knows who a person is. What they may do is each platform's decision, made from the identity the shell forwards and whatever the platform keeps about them.
 
 ## Current State
 
-A dozen independent Rust platforms, each with its own Leptos frontend at its own origin, each on its own release cadence. Cross-system questions are answered by hand across browser tabs. No shared vantage exists, and no mechanism exists for one to emerge without central coordination.
+A dozen independent Rust platforms, each with its own Leptos frontend at its own origin, each on its own release cadence. Cross-system work is done by hand across browser tabs. No shared place to work exists, and no mechanism exists for one to emerge without central coordination.
 
 ## Future State
 
-One shell where every platform's declared panels render through a single design system, and where the people using the systems — not a central team — compose the cross-platform views they need. Adding a platform, a panel, or a navigation entry is a deploy of that platform alone; the shell is never rebuilt to accommodate a child.
+One shell where every platform's UI runs side by side, each sandboxed, and where the people using the systems, not a central team, compose the surfaces they work in. A person signs in once and acts on any platform as themselves. Adding a platform, a module, or a navigation entry is a deploy of that platform alone; the shell is never rebuilt to accommodate a child.
 
 ## Major Features
 
-- **The manifest.** Each platform serves a document describing itself at a well-known path: navigation entries, offered panels, the parameters each panel responds to, health and summary endpoints, and lifecycle status for anything deprecated. Three rules keep it survivable across a dozen independent release cadences: the schema version is monotonic and additive with unknown fields ignored; icons and view kinds are names from a shared vocabulary rather than code; a malformed or absent manifest degrades to a plain link with a warning indicator, never a shell error.
+- **The manifest.** Each platform serves a document describing itself at a well-known path: navigation entries, offered panels and pages, their modules or data endpoints, the parameters each responds to, the route prefixes the shell may carry requests to, health and summary endpoints, and lifecycle status for anything deprecated. Three rules keep it survivable across a dozen independent release cadences: the schema version is monotonic and additive with unknown fields ignored; icons and view kinds are names from a shared vocabulary rather than code; a malformed or absent manifest degrades to a plain link with a warning indicator, never a shell error.
 - **Discovery.** Hlin reads a platform list from runtime configuration and polls each manifest. The registry sits behind a trait, so a push-based model with heartbeat expiry, or orchestrator-native label discovery, can replace configuration later without reshaping anything above it.
-- **Panels.** A panel declaration names a view kind and a data endpoint returning a typed envelope for that kind. Shell-level controls, notably time range, drive every panel that declares the corresponding parameter. Fan-out is aggregated shell-side, deduplicated across panels requesting the same data, and delivered to the browser over a single stream.
-- **Views.** The view registry lives in a companion crate beside the design system, so the component library stays free of Hlin's vocabulary. Adding a view kind is a release of that crate; platforms adopt it on their own schedule by naming it, and never trigger a shell rebuild themselves.
-- **Customization.** Composition-level customization comes first: users choose panels, arrange them, set titles and thresholds and time ranges. A bounded declarative view spec is the deliberate escape hatch for genuinely bespoke panels, and it is not built until composition-level customization has demonstrably failed a real case. Embedding a platform's own frontend in a panel is not a supported mechanism.
+- **Modules.** A platform's own UI for a panel or a page, built with the shared kit and the shell's SDK, served through the shell and run in a sandboxed frame. It talks to the shell over a versioned bridge: context in (time range, parameters, theme, who is signed in), requests and intents out. Decision HLIN-A-0014.
+- **Identity and requests.** A person signs in to Hlin once. Every request a module makes goes through the shell, which binds the viewer's identity to it, and the platform decides what to allow. Decisions HLIN-A-0004 and HLIN-A-0013.
+- **Panels drawn by the shell.** A panel may instead declare a view kind and a data endpoint returning a typed envelope, and the shell draws it. This is the way to show cross-platform summaries and time-driven charts, and the fallback when a module cannot load. Fan-out is aggregated shell-side, deduplicated across panels requesting the same data, and delivered over a single stream.
+- **Shared context.** Shell-level controls, notably time range, drive every panel and module that declares the corresponding parameter, whoever drew it.
+- **Views.** The view registry for shell-drawn panels lives in a companion crate beside the design system, so the component library stays free of Hlin's vocabulary.
+- **Customization.** Users choose panels and pages, arrange them, and set titles and time ranges. A platform that needs something bespoke ships it in its own module; nobody waits on a vocabulary change.
 
 ## Success Criteria
 
-A team ships a new panel on Tuesday morning. Someone on another team has it on their dashboard Tuesday afternoon, next to panels from two other platforms, with no Hlin release, no design review, and no conversation between the two teams.
+A team ships a new module on Tuesday morning. Someone on another team has it on their surface Tuesday afternoon, next to panels from two other platforms, with no Hlin release, no design review, and no conversation between the two teams.
 
-The bet: that the set of valuable cross-platform views is larger than any central team can enumerate, and that the constraint of a shared rendering vocabulary is a smaller cost than the coordination it removes. The second half is the part that could be wrong. If platform teams find the vocabulary too narrow to express what their systems actually need to show, they will route around it, and the shell becomes a link farm with extra steps. Guarding against that is what vocabulary governance is for, and it is the thing to watch in the first two adoptions.
+A person does a day's work in a platform without opening its own frontend.
+
+The bet: that sandboxed modules stay light and consistent enough to feel like one product. Each panel on screen costs a document and a runtime, and consistency now rests on a shared kit and convention rather than on the shell drawing everything. If surfaces load slowly, or teams' UIs visibly drift apart, the answer is shared caching and a stricter kit, not loosening the sandbox. Watch both in the first two adoptions.
 
 ## Principles
 
-**The shell renders everything.** Panels cross the boundary as data plus a view kind drawn from a shared vocabulary. A platform names `timeseries`; Hlin decides what a timeseries looks like. Consistency follows from the architecture instead of from discipline.
+**Platforms ship their UI; the shell hosts it.** A platform decides what its UI looks like and does. Consistency comes from a shared kit every module builds with and theme tokens the shell sends in.
 
-**Platforms are autonomous.** Adding a platform, a panel, or a navigation entry is a deploy of that platform. Discovery happens at runtime against a manifest each platform serves about itself. Hlin is never rebuilt to accommodate a child.
+**No platform code in the shell's page.** Every module runs in a sandboxed frame with an opaque origin. It cannot reach the shell's page, its cookies, another module, or the network.
 
-**The manifest is a public API.** Panels are a declared contract, not an implementation detail. They are versioned, diffed in CI, and deprecated with a window and a named successor. Removing a panel key without a major version is a breaking change; the shell detects it at runtime and flags it, and no build anywhere has to fail for the contract to be enforced.
+**Every request goes through the shell.** A module holds no credential. The shell carries its requests, only to its own platform, only under paths that platform declared, with the viewer's identity bound to each one.
 
-**Vocabulary is additive and governed.** View kinds are a bounded set owned by the design system. New kinds are added deliberately, with an owner and a bar for admission. Unknown kinds degrade to a fallback; they never break a layout.
+**The platform decides who may do what.** Hlin authenticates and forwards; it holds no roles and interprets nobody's policy.
 
-**Composition belongs to users.** Selecting and arranging panels requires a deploy from nobody. The set of useful cross-platform views is not knowable in advance by any central team, so we do not try to enumerate it.
+**Platforms are autonomous.** Adding a platform, a panel, a module, or a navigation entry is a deploy of that platform. Discovery happens at runtime against a manifest each platform serves about itself. Hlin is never rebuilt to accommodate a child.
 
-**Rendering is total over its inputs.** Every panel is in exactly one state at all times: loading, ready, stale, or unavailable, with unavailability distinguishing unreachable from malformed from unknown from deprecated. There is no state a platform can put a panel into that the shell does not have a rendering for.
+**The manifest and the bridge are public APIs.** Panel keys, pages, parameters, route prefixes and the bridge protocol are a declared contract, not an implementation detail. They are versioned and deprecated with a window and a named successor. Removing a panel key without a major version is a breaking change; the shell detects it at runtime and flags it, and no build anywhere has to fail for the contract to be enforced.
+
+**Vocabulary is additive and governed.** The view kinds the shell draws are a bounded set owned by the design system. Unknown kinds degrade to a fallback; they never break a layout.
+
+**Composition belongs to users.** Selecting and arranging panels requires a deploy from nobody. The set of useful surfaces is not knowable in advance by any central team, so we do not try to enumerate it.
+
+**Rendering is total over its inputs.** Every panel is in exactly one state at all times: loading, ready, stale, or unavailable, with unavailability distinguishing unreachable from malformed from unknown from deprecated. The shell draws the frame and state around every panel, so there is nothing a platform or a module can do, including never answering, that the shell has no rendering for.
 
 ## Constraints
 
-- Panels cross the platform/shell boundary as data plus a declared view kind only; no code ships across it.
-- No runtime composition of independently built WASM modules, in any phase.
+- No platform code runs in the shell's page, in any phase. Modules run only in sandboxed frames.
+- A module reaches nothing but its own platform, and only through the shell.
+- Panels cross the platform/shell boundary as a module, as data plus a declared view kind, or both.
 - The shell must never be rebuilt or released to accommodate a platform change.
-- Unknown view kinds and malformed manifests degrade gracefully; they never break a layout or produce a shell error.
+- Unknown view kinds, failed modules and malformed manifests degrade gracefully; they never break a layout or produce a shell error.
 
 ## Design Questions, Answered
 
@@ -103,7 +117,7 @@ All five are now decided. Each names the decision that closed it.
 - **The data envelope per view kind, and the initial vocabulary.** Five envelopes and six kinds, named separately and paired by an acceptance matrix, so data shape and rendering evolve on their own cadences. Specification HLIN-S-0002, decision HLIN-A-0003.
 - **Where the view registry lives.** A companion crate, `hlin-view`, so the design system stays a plain component library that platform frontends can use without taking on Hlin's contract types. Decision HLIN-A-0005.
 - **Layout persistence and sharing.** One owner per layout, personal or published to a shell-wide gallery, shared read-only with fork to edit. A layout referencing a platform the viewer cannot reach renders normally, with the refused panels showing as forbidden. Decision HLIN-A-0007.
-- **Authorization.** Authentication is hoisted to Hlin, the shell forwards a signed identity on every request, and platforms decide at fetch time. The shell interprets nobody's policy. Decision HLIN-A-0004, specification HLIN-S-0004.
+- **Authorization.** Authentication is hoisted to Hlin, the shell forwards a signed identity on every request, and platforms decide at fetch time. The shell interprets nobody's policy. Decision HLIN-A-0004, specification HLIN-S-0004. Writes carry identity bound to the request. Decision HLIN-A-0013.
 
 What remains open is recorded in those specifications rather than here.
 
@@ -123,3 +137,13 @@ hlin-view         view registry: kinds, the kind/envelope acceptance matrix, ren
 - *The view registry.* Architecture said the registry lives in the design system. It lives in a companion crate beside it, so the twelve platform frontends that use the design system for their own purposes never take on Hlin's contract types ([[HLIN-A-0005]]).
 
 The "Open design questions" section became "Design Questions, Answered" in the same pass; all five now have decisions.
+
+**2026-09-24.** The central bet changed. Designing a signed-in, two-way demo ([[HLIN-I-0010]]) raised what Hlin is for, and the owner chose: the place people work rather than a vantage over systems; platforms, not the shell, decide how their UI looks; only our own platforms; and micro UI, each module in a sandboxed iframe ([[HLIN-A-0014]]).
+
+- *Purpose and tagline.* "One vantage over many systems" became "one place to work across many systems". Hlin is a workspace shell, not a composition shell for views.
+- *Rendering.* "The shell renders everything" is replaced by "platforms ship their UI; the shell hosts it". Consistency moves from structural to a shared kit and convention. The shell still draws panels from data, as the way to show cross-platform summaries and as the fallback when a module fails.
+- *Micro-frontends.* "Not micro-frontends, not now, not as a later phase" is reversed. The reasons behind it were kept as requirements rather than dropped: no platform code in the shell's page, a sandbox per module, no credential in the browser, every request through the shell.
+- *New principles.* Every request goes through the shell with identity bound to it, and the platform decides who may do what ([[HLIN-A-0013]]).
+- *The bet.* It was that a shared vocabulary costs less than coordination. It is now that sandboxed modules stay light and consistent enough to feel like one product.
+
+What this leaves in place: autonomy, runtime discovery, the manifest as a contract, composition by users, and total rendering.
