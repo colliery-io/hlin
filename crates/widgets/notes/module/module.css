@@ -1,0 +1,48 @@
+/* The note's own look, against the shell's `--hlin-*` tokens and the shared
+ * classes in hlin-widget-module's widget.css. Nothing else.
+ *
+ * A sticky note without a yellow of its own: the warning colour, faintly,
+ * behind the text, so it reads as a note on every theme and drifts with the
+ * theme rather than against it. */
+
+.note {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.note__text {
+  margin: 0;
+  padding: 10px 12px;
+  min-height: 3em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 4px;
+  border-left: 4px solid var(--hlin-warn, #e0b44c);
+  background: color-mix(in srgb, var(--hlin-warn, #e0b44c) 12%, var(--hlin-raised, #161a21));
+  color: var(--hlin-text, #e6e9ee);
+}
+
+.note__text--empty {
+  color: var(--hlin-faint, #5b6573);
+  font-style: italic;
+}
+
+.note__draft {
+  min-height: 6em;
+  resize: vertical;
+}
+
+.note__by,
+.note__count {
+  flex: 1;
+}
+
+.note__theirs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--hlin-border, #2a3340);
+  border-radius: 6px;
+}

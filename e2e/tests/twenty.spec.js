@@ -212,4 +212,59 @@ test.describe('twenty widgets on one surface', () => {
     firstStayed();
     secondStayed();
   });
+
+  test('a kanban card added and taken off in one browser is in step in another', async ({
+    browser,
+  }) => {
+    const first = await (await browser.newContext()).newPage();
+    const second = await (await browser.newContext()).newPage();
+    await openSurface(first, surface, panels);
+    await openSurface(second, surface, panels);
+    const firstStayed = forbidReloads(first, 'the first browser');
+    const secondStayed = forbidReloads(second, 'the second browser');
+
+    const here = inside(widget(first, 'kanban', 'kanban'));
+    const there = inside(widget(second, 'kanban', 'kanban'));
+    await widget(first, 'kanban', 'kanban').scrollIntoViewIfNeeded();
+    await widget(second, 'kanban', 'kanban').scrollIntoViewIfNeeded();
+
+    // A card nobody else could have added, so its arrival is this test's.
+    const text = `Checked in step ${Date.now()}`;
+    await here.getByRole('textbox', { name: 'New card' }).fill(text);
+    await here.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(here.locator('li.kanban__card', { hasText: text })).toBeVisible();
+    await propagated('a card reaches the second browser', (options) =>
+      expect(there.locator('li.kanban__card', { hasText: text })).toBeVisible(options),
+    );
+    await shot(second, 212, 'twenty-kanban-in-step');
+
+    // Taken off again, which also keeps the column from filling up over runs.
+    await here.getByRole('button', { name: `Take off “${text}”` }).click();
+    await propagated('a card taken off leaves the second browser', (options) =>
+      expect(there.locator('li.kanban__card', { hasText: text })).toHaveCount(0, options),
+    );
+
+    firstStayed();
+    secondStayed();
+  });
+
+  test('the sparkline follows the time picker', async ({ page }) => {
+    await openSurface(page, surface, panels);
+    const panel = widget(page, 'sparkline', 'sparkline');
+    await panel.scrollIntoViewIfNeeded();
+    const line = inside(panel).locator('.sparkline');
+
+    // One panel on the surface declares `time_range`, so the bar has a
+    // picker, and its default hour reaches the module: a point a minute.
+    await expect(line).toHaveAttribute('data-step', '60000');
+    await expect.poll(async () => Number(await line.getAttribute('data-points'))).toBeGreaterThan(55);
+
+    await page.locator('.bar .picker button', { hasText: '15m' }).click();
+    await expect.poll(async () => Number(await line.getAttribute('data-points'))).toBeLessThan(17);
+
+    // A day: still at most sixty points, so twenty-four minutes apart.
+    await page.locator('.bar .picker button', { hasText: '24h' }).click();
+    await expect(line).toHaveAttribute('data-step', String(24 * 60_000));
+    await shot(page, 213, 'twenty-sparkline-day');
+  });
 });

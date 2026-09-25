@@ -1,0 +1,23 @@
+[package]
+name = "hlin-widget-status-module"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The status's own UI: a Leptos module the shell hosts in a frame"
+publish = false
+
+[[bin]]
+name = "hlin-widget-status-module"
+path = "src/main.rs"
+
+[dependencies]
+hlin-widget-module = { workspace = true }
+hlin-module = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The browser's clock, for how long the light has been this colour.
+js-sys = "0.3"

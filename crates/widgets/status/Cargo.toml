@@ -1,0 +1,31 @@
+[package]
+name = "hlin-widget-status"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Widget 10 of twenty: a service health light"
+publish = false
+
+[[bin]]
+name = "hlin-widget-status"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_widget_status"
+path = "src/lib.rs"
+
+[dependencies]
+hlin-widget-support = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+# When the light turned, as the status envelope writes it.
+chrono = { workspace = true }
+
+[dev-dependencies]
+hlin-widget-support = { workspace = true, features = ["testing"] }

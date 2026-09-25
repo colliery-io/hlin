@@ -1,0 +1,59 @@
+/* The dice's own look, against the shell's `--hlin-*` tokens and the shared
+ * classes in hlin-widget-module's widget.css. Nothing else. */
+
+.dice__die {
+  padding: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dice__count {
+  min-width: 3.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.dice__roll {
+  margin-left: auto;
+}
+
+.dice__latest {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.dice__latest .w-quiet {
+  grid-column: 1 / -1;
+}
+
+.dice__faces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* A die face: a rounded square in the accent's outline. */
+.dice__face {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  border: 2px solid var(--hlin-accent, #7fb2ff);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dice__past {
+  display: grid;
+  grid-template-columns: 1fr auto 3ch;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--hlin-border, #2a3340);
+}
+
+.dice__past-total {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

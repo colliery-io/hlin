@@ -1,0 +1,29 @@
+[package]
+name = "hlin-widget-kanban"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Widget 9 of twenty: one column of cards"
+publish = false
+
+[[bin]]
+name = "hlin-widget-kanban"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_widget_kanban"
+path = "src/lib.rs"
+
+[dependencies]
+hlin-widget-support = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+hlin-widget-support = { workspace = true, features = ["testing"] }

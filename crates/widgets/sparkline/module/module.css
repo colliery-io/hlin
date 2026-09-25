@@ -1,0 +1,40 @@
+/* The sparkline's own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.sparkline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sparkline__now {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.sparkline__chart {
+  width: 100%;
+  height: 72px;
+  display: block;
+  border-bottom: 1px solid var(--hlin-border, #2a3340);
+}
+
+/* Drawn in the accent, at the same width however wide the panel is. */
+.sparkline__line {
+  fill: none;
+  stroke: var(--hlin-accent, #7fb2ff);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline__empty {
+  height: 72px;
+  display: grid;
+  place-items: center;
+}
+
+.sparkline__metric {
+  padding: 2px 10px;
+}

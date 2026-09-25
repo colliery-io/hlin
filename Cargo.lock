@@ -1758,6 +1758,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-widget-dice"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "getrandom 0.3.4",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-dice-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-kanban"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-kanban-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hlin-widget-meetings"
 version = "0.0.1"
 dependencies = [
@@ -1792,6 +1839,29 @@ dependencies = [
  "serde",
  "serde_json",
  "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "hlin-widget-notes"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-notes-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1892,6 +1962,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-widget-quote"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-quote-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hlin-widget-reactions"
 version = "0.0.1"
 dependencies = [
@@ -1940,12 +2033,86 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-widget-sparkline"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-sparkline-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-status"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-status-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "js-sys",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-stopwatch"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-stopwatch-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "js-sys",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hlin-widget-support"
 version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-stream",
  "axum",
+ "chrono",
  "clap",
  "futures",
  "hlin-identity",

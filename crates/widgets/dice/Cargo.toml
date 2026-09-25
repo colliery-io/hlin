@@ -1,0 +1,31 @@
+[package]
+name = "hlin-widget-dice"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Widget 5 of twenty: roll, with recent history"
+publish = false
+
+[[bin]]
+name = "hlin-widget-dice"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_widget_dice"
+path = "src/lib.rs"
+
+[dependencies]
+hlin-widget-support = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+# Where the table's dice get their seed: the system, so nobody can predict them.
+getrandom = { workspace = true }
+
+[dev-dependencies]
+hlin-widget-support = { workspace = true, features = ["testing"] }

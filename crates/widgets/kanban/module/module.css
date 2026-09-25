@@ -1,0 +1,55 @@
+/* The column's own look, against the shell's `--hlin-*` tokens and the shared
+ * classes in hlin-widget-module's widget.css. Nothing else. */
+
+.kanban__head {
+  justify-content: space-between;
+}
+
+.kanban__title {
+  font-weight: 600;
+}
+
+/* A card: a raised tile on the panel's own surface, the accent down its side. */
+.kanban__card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--hlin-border, #2a3340);
+  border-left: 3px solid var(--hlin-accent, #7fb2ff);
+  border-radius: 6px;
+  background: var(--hlin-surface, #0f1217);
+}
+
+.kanban__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.kanban__text {
+  overflow-wrap: anywhere;
+}
+
+.kanban__body .w-quiet {
+  font-size: 11px;
+}
+
+.kanban__moves {
+  display: flex;
+  gap: 2px;
+}
+
+.kanban__moves .w-button {
+  padding: 0 6px;
+}
+
+.kanban__done {
+  color: var(--hlin-good, #4cc38a);
+}
+
+.kanban__add .w-input {
+  flex: 1;
+  min-width: 0;
+}
