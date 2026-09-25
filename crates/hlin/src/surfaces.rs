@@ -271,13 +271,22 @@ impl Surfaces {
                     .cloned()
             });
 
+            // A panel drawn only by its platform's module has nothing for the
+            // shell to fetch, so it is no part of the stream at all: the page
+            // mounts its module and says what state it is in from the bridge
+            // (HLIN-S-0007, *Panel states*). Retiring it instead would stream
+            // `unavailable (unknown)` for a panel that is perfectly well.
+            if declared
+                .as_ref()
+                .is_some_and(|declared| declared.drawn_by_shell().is_none())
+            {
+                continue;
+            }
+
             // A layout outlives the panels on it. When a platform stops
             // offering one, the panel does not disappear from the surface: it
             // says it is gone, which is the difference between a shell that
             // degrades and one that silently loses a person's work.
-            //
-            // Every accepted panel is one the shell can draw, so `drawn` is
-            // only ever absent here alongside `declared`.
             let drawn = declared.as_ref().and_then(|declared| {
                 declared
                     .drawn_by_shell()

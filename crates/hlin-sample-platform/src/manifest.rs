@@ -6,11 +6,15 @@
 //! would be rejected.
 
 use hlin_manifest::manifest::{
-    Lifecycle, Manifest, NavigationEntry, Panel, ParamDecl, Platform, SUPPORTED_SCHEMA_VERSION,
+    Lifecycle, Manifest, ModuleUi, NavigationEntry, Panel, ParamDecl, Platform, Routes,
+    SUPPORTED_SCHEMA_VERSION,
 };
 use serde_json::{Map, Value};
 
 /// The contract version this platform declares when it is behaving.
+///
+/// 2.2.0 ships modules: an `assets` prefix, the routes they may read, and
+/// three panels drawn by them. All additive.
 ///
 /// 2.1.0 adds `stage-activity`; adding a panel is additive, so it is a minor.
 /// 2.0.0 because `throughput-by-cluster` stopped declaring `time_range`, and
@@ -19,7 +23,7 @@ use serde_json::{Map, Value};
 /// `angreal demo walkthrough` failed with the violation naming the exact
 /// parameter — which is what HLIN-A-0002 exists to do, working against the code
 /// that was demonstrating it.
-pub const NORMAL_VERSION: &str = "2.1.0";
+pub const NORMAL_VERSION: &str = "2.2.0";
 
 /// The panel key dropped by `--breaking`, without a major bump.
 pub const BREAKING_PANEL_KEY: &str = "queue-depth";
@@ -60,8 +64,12 @@ pub fn build(name: &str, breaking: bool) -> Manifest {
         panels,
         health: "api/health".to_string(),
         events: Some("api/events".to_string()),
-        assets: None,
-        routes: None,
+        assets: Some(crate::modules::ASSETS.to_string()),
+        routes: Some(Routes {
+            read: vec![crate::modules::READS.to_string()],
+            write: vec![],
+            extra: Default::default(),
+        }),
         extra: Default::default(),
     }
 }
@@ -296,7 +304,71 @@ fn all_panels(name: &str) -> Vec<Panel> {
             ),
             "aurora.faceted",
         ),
+        // Three panels drawn by this platform's own modules (specification
+        // HLIN-S-0007), each a hand-written page of plain JavaScript, so what
+        // the shell's frame host is tested against is the wire itself and not
+        // an SDK that might agree with it by accident. See `crate::modules`.
+        //
+        // The probe declares data as well, so it has somewhere to fall back
+        // to; it can be told to stop answering heartbeats.
+        drawn_by_module(
+            panel(
+                "module-probe",
+                "Module probe",
+                Some("This platform's own module, asking it who is looking"),
+                "stat",
+                "scalar.v1",
+                "api/hlin/records-per-second",
+                vec![],
+            ),
+            crate::modules::PROBE,
+        ),
+        // Loads and never says `ready`, which is what a module whose code
+        // never starts looks like from outside.
+        drawn_by_module(
+            panel(
+                "module-silent",
+                "Module that never answers",
+                Some("A module that loads and never says it is ready"),
+                "stat",
+                "scalar.v1",
+                "api/hlin/records-per-second",
+                vec![],
+            ),
+            crate::modules::SILENT,
+        ),
+        // Its module or nothing: no data, so the shell fetches nothing for it.
+        Panel {
+            kind: None,
+            envelope: None,
+            data: None,
+            ..drawn_by_module(
+                panel(
+                    "module-only",
+                    "Module, and nothing else",
+                    Some("Drawn only by this platform's module"),
+                    "stat",
+                    "scalar.v1",
+                    "unused",
+                    vec![],
+                ),
+                crate::modules::PROBE,
+            )
+        },
     ]
+}
+
+/// Have this platform's module draw the panel, from an entry under
+/// [`crate::modules::ASSETS`].
+fn drawn_by_module(panel: Panel, entry: &str) -> Panel {
+    Panel {
+        ui: Some(ModuleUi {
+            entry: entry.to_string(),
+            bridge: 1,
+            extra: Default::default(),
+        }),
+        ..panel
+    }
 }
 
 fn panel(

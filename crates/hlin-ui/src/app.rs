@@ -21,8 +21,9 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
 
 use crate::draft::LayoutDraft;
+use crate::frame::{ModuleFrame, ModuleView, Mount};
 use crate::grid;
-use crate::state::SurfaceState;
+use crate::state::{PanelView, SurfaceState};
 
 /// How long a lost stream is merely stale before it is called unreachable.
 ///
@@ -126,6 +127,11 @@ where
 
     let stage: NodeRef<html::Main> = NodeRef::new();
 
+    // What each module panel's bridge says about it, by instance. Written by
+    // `frame`, which owns the frames; read here to draw the panels around them.
+    let modules = RwSignal::new(BTreeMap::<String, ModuleView>::new());
+    crate::frame::start(modules);
+
     // What the shell says about itself, and what there is to compose from.
     Effect::new(move |_| {
         leptos::task::spawn_local(async move {
@@ -134,7 +140,11 @@ where
                 set_read_only.set(config.read_only);
                 // The name where there is one, the identifier otherwise: a
                 // person should see who the shell thinks they are either way.
-                set_viewer.set(Some(config.principal.name.unwrap_or(config.principal.sub)));
+                let shown = config.principal.name.unwrap_or(config.principal.sub);
+                // Every module is told the same name, for display only: a
+                // platform learns who is asking from the token on each request.
+                crate::frame::set_viewer(Some(shown.clone()), config.read_only);
+                set_viewer.set(Some(shown));
                 set_sign_out.set(config.sign_out);
             }
             // A link to a surface names the layout; a bare visit gets the
@@ -428,6 +438,33 @@ where
         revision
     });
 
+    // What a module is told about where it is, when it starts: the range in
+    // force and its panel's own parameters.
+    Effect::new(move |_| {
+        let range = custom.get().unwrap_or_else(|| {
+            let to = Utc::now();
+            TimeRange {
+                from: to - Duration::seconds(chosen_range.get()),
+                to,
+            }
+        });
+        let params = draft.with(|draft| {
+            draft
+                .panels()
+                .iter()
+                .filter_map(|panel| Some((panel.id.clone()?, panel.selections.clone())))
+                .collect()
+        });
+        crate::frame::set_context(
+            Some(hlin_bridge::TimeRange {
+                from_millis: range.from.timestamp_millis(),
+                to_millis: range.to.timestamp_millis(),
+            }),
+            surface.with_untracked(SurfaceState::generation),
+            params,
+        );
+    });
+
     // -- Gestures ---------------------------------------------------------
 
     // The measured width of one column, taken from the grid element itself, so
@@ -679,7 +716,9 @@ where
                                                     }
                                                 >
                                                     <span class="offer-title">{panel.title.clone()}</span>
-                                                    <span class="offer-kind">{panel.kind.clone()}</span>
+                                                    // A panel only its module draws has no kind to
+                                                    // name; saying "module" says who draws it.
+                                                    <span class="offer-kind">{panel.kind.clone().unwrap_or_else(|| "module".to_string())}</span>
                                                 </button>
                                             }
                                         }).collect_view()}
@@ -706,165 +745,343 @@ where
                 // The gesture listeners are on the window, not here. See the
                 // effect above.
             >
-                {move || {
-                    let panels = draft.with(|draft| draft.panels().to_vec());
-                    if panels.is_empty() {
-                        return view! { <Empty composing=composing() read_only=read_only.get() /> }.into_any();
-                    }
+                <Show when=move || draft.with(|draft| draft.panels().is_empty())>
+                    {move || view! { <Empty composing=composing() read_only=read_only.get() /> }}
+                </Show>
 
-                    panels.into_iter().map(|instance| {
-                        let id = instance.id.clone();
-                        let position = instance.position;
-                        let known = id.clone().and_then(|id| surface.with(|state| state.panel(&id).cloned()));
-                        let catalogued = catalogued(&catalog.get(), &instance.platform_id, &instance.panel_key);
-                        let named = instance.id.clone().unwrap_or_default();
-                        let reference = instance.reference();
+                // One entry per panel, keyed, so a panel is created once and
+                // then updated in place. It used to be one closure redrawing
+                // every panel whenever the draft or the stream moved — every
+                // pointer move of a drag, every frame — which was fine for
+                // panels drawn from data and is fatal for a module: a frame
+                // recreated is a module reloaded, and would never get as far as
+                // saying `ready`.
+                <For
+                    each=move || draft.with(|draft| panel_keys(draft.panels()))
+                    key=|key| key.clone()
+                    children=move |key: String| {
+                        let drawer = drawer.clone();
+
+                        // This panel, as the draft has it now.
+                        let instance = Memo::new({
+                            let key = key.clone();
+                            move |_| draft.with(|draft| find_panel(draft.panels(), &key))
+                        });
+                        // The same with its position set aside, which is what
+                        // the heading and body are drawn from: a panel being
+                        // dragged moves, and does not redraw what is in it.
+                        let content = Memo::new(move |_| {
+                            instance.get().map(|mut panel| {
+                                panel.position = Placement::default();
+                                panel
+                            })
+                        });
+                        let entry = Memo::new(move |_| {
+                            content.with(|panel| {
+                                let panel = panel.as_ref()?;
+                                catalog.with(|catalog| {
+                                    catalogued(catalog, &panel.platform_id, &panel.panel_key)
+                                })
+                            })
+                        });
+                        let id = move || content.with(|panel| panel.as_ref().and_then(|panel| panel.id.clone()));
+
+                        // What the bridge says, for a panel its module draws.
+                        // `None` for every other panel.
+                        let module = Memo::new(move |_| {
+                            let id = id()?;
+                            entry.with(|entry| entry.as_ref().and_then(|entry| entry.ui.clone()))?;
+                            Some(modules.with(|views| views.get(&id).copied().unwrap_or_default()))
+                        });
+
+                        // The module to mount, while one is wanted: until it
+                        // is given up on. A memo, so the frame is recreated
+                        // only when what it would load actually changes.
+                        let mount = Memo::new(move |_| {
+                            let view = module.get()?;
+                            if view.fallen_back || matches!(view.state, hlin_view::PanelState::Unavailable(_)) {
+                                return None;
+                            }
+                            let panel = content.get()?;
+                            let entry = entry.get()?;
+                            let ui = entry.ui.clone()?;
+                            let limits = catalog.with(|catalog| {
+                                catalog
+                                    .iter()
+                                    .find(|platform| platform.id == panel.platform_id)
+                                    .and_then(|platform| platform.module_limits)
+                            });
+                            Some(Mount {
+                                instance: panel.id.clone()?,
+                                platform: panel.platform_id,
+                                panel: panel.panel_key,
+                                entry: ui.entry,
+                                bridge: ui.bridge,
+                                declares_data: entry.kind.is_some(),
+                                limits: limits.unwrap_or_default(),
+                            })
+                        });
+
+                        // The frame's accessible name: the panel's title and
+                        // its platform, as a person would say it.
+                        let frame_title = Signal::derive(move || {
+                            content.with(|panel| {
+                                let Some(panel) = panel else {
+                                    return String::new();
+                                };
+                                let platform = catalog.with(|catalog| {
+                                    catalog
+                                        .iter()
+                                        .find(|platform| platform.id == panel.platform_id)
+                                        .and_then(|platform| platform.name.clone())
+                                });
+                                let title = entry.with(|entry| title_of(panel, entry.as_ref()));
+                                format!(
+                                    "{title} — {}",
+                                    platform.unwrap_or_else(|| panel.platform_id.clone())
+                                )
+                            })
+                        });
+
+                        let known = move || id().and_then(|id| surface.with(|state| state.panel(&id).cloned()));
 
                         // A panel the stream has never mentioned, on a stream
                         // that has stopped answering, is not loading. Nothing is
                         // coming, and a skeleton that never resolves tells a
                         // person the panel is slow when the shell is gone.
-                        let abandoned = known.is_none()
-                            && surface.with(|state| {
-                                state.given_up(Utc::now(), Duration::seconds(grace.get()))
-                            });
-
-                        let drawn_state = match (&known, abandoned) {
-                            (Some(panel), _) => state_name(panel.state),
-                            (None, true) => "unavailable",
-                            (None, false) => "waiting",
+                        let abandoned = move |known: &Option<PanelView>| {
+                            known.is_none()
+                                && surface.with(|state| {
+                                    state.given_up(Utc::now(), Duration::seconds(grace.get()))
+                                })
                         };
 
-                        // What a component may change, and what it is set to.
-                        // Built from the same two things the chrome's own
-                        // controls read, so a pack drawing its own filter and
-                        // the control beside it can never disagree.
-                        let controls: Vec<hlin_view::Control> = catalogued
-                            .as_ref()
-                            .map(|entry| entry.controls.clone())
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|control| hlin_view::Control {
-                                param: control.param,
-                                label: control.label,
-                                chosen: instance
-                                    .selections
-                                    .get(&control.id)
-                                    .cloned()
-                                    .unwrap_or_default(),
-                                choices: choices
-                                    .with(|listed| {
-                                        listed
-                                            .get(&(reference.clone(), control.id.clone()))
-                                            .cloned()
-                                    })
-                                    .unwrap_or_default(),
-                                id: control.id,
-                            })
-                            .collect();
-
-                        // Where this panel's components send what a person did.
-                        // Every intent lands on the handler the chrome already
-                        // uses, which is the point: a design system gets the
-                        // capabilities the shell has, and no others.
-                        let emit = {
-                            let who = named.clone();
-                            hlin_view::Emit::to(move |intent| match intent {
-                                hlin_view::Intent::Select { param, values } => {
-                                    if who.is_empty() {
-                                        return;
-                                    }
-                                    set_draft.update(|draft| {
-                                        draft.set_selection(&who, &param, values)
-                                    });
-                                    save();
-                                    reapply();
+                        // One word for the markup. A module panel's is its
+                        // module's, from the bridge, until it falls back; then
+                        // it is the data path's, like any other panel.
+                        let drawn_state = move || match module.get() {
+                            Some(view) if !view.fallen_back => state_name(view.state),
+                            _ => {
+                                let known = known();
+                                match (&known, abandoned(&known)) {
+                                    (Some(panel), _) => state_name(panel.state),
+                                    (None, true) => "unavailable",
+                                    (None, false) => "waiting",
                                 }
-                                hlin_view::Intent::Range { from_millis, to_millis } => {
-                                    let Some(range) = span(from_millis, to_millis) else {
-                                        return;
-                                    };
-                                    // The picker is told as well as the shell.
-                                    // A chart brushed to an hour that left the
-                                    // bar still saying "24h" would be the
-                                    // chrome lying about what is on screen.
-                                    set_custom.set(Some(range));
-                                    set_chosen_range.set(0);
-                                    apply_range(range);
+                            }
+                        };
+                        let module_state = move || {
+                            module.get().map(|view| {
+                                if view.fallen_back {
+                                    "fallback"
+                                } else {
+                                    state_name(view.state)
                                 }
                             })
                         };
+                        let module_cause = move || {
+                            module.get().and_then(|view| match view.state {
+                                hlin_view::PanelState::Unavailable(cause) => Some(cause.to_string()),
+                                _ => None,
+                            })
+                        };
+                        let placed = move || instance.with(|panel| panel.as_ref().map(|panel| panel.position).unwrap_or_default());
 
                         view! {
                             <section
                                 class="panel"
-                                class:dragging=move || gesture.get().is_some_and(|active| Some(&active.instance) == id.as_ref())
+                                class:dragging=move || {
+                                    let id = id();
+                                    gesture.with(|active| {
+                                        active.as_ref().is_some_and(|active| Some(&active.instance) == id.as_ref())
+                                    })
+                                }
                                 // Named and located in the markup, so a browser
                                 // test can say "this panel moved" rather than
                                 // parsing a style attribute for grid lines.
-                                data-instance=named
-                                data-panel=reference
-                                data-x=position.x.to_string()
-                                data-y=position.y.to_string()
-                                data-w=position.w.to_string()
-                                data-h=position.h.to_string()
+                                data-instance=move || id().unwrap_or_default()
+                                data-panel=move || content.with(|panel| panel.as_ref().map(|panel| panel.reference()).unwrap_or_default())
+                                data-x=move || placed().x.to_string()
+                                data-y=move || placed().y.to_string()
+                                data-w=move || placed().w.to_string()
+                                data-h=move || placed().h.to_string()
                                 data-state=drawn_state
-                                style:grid-column=format!("{} / span {}", position.x + 1, position.w)
-                                style:grid-row=format!("{} / span {}", position.y + 1, position.h)
+                                data-module=module_state
+                                data-module-cause=module_cause
+                                style:grid-column=move || { let at = placed(); format!("{} / span {}", at.x + 1, at.w) }
+                                style:grid-row=move || { let at = placed(); format!("{} / span {}", at.y + 1, at.h) }
                             >
-                                <PanelHead
-                                    instance=instance.clone()
-                                    catalogued=catalogued.clone()
-                                    composing=composing()
-                                    on_grip=move |event, who| begin(event, who, GestureKind::Move)
-                                    on_remove=move |who: String| {
-                                        set_draft.update(|draft| draft.remove(&who));
-                                        save();
-                                    }
-                                    on_rename=move |(who, title): (String, String)| {
-                                        set_draft.update(|draft| draft.rename(&who, &title));
-                                        save();
-                                    }
-                                    on_kind=move |(who, kind): (String, Option<String>)| {
-                                        set_draft.update(|draft| draft.set_kind(&who, kind.as_deref()));
-                                        save();
-                                    }
-                                    controls=controls.clone()
-                                    on_select=move |(who, param, value): (String, String, String)| {
-                                        let values = if value.is_empty() { vec![] } else { vec![value] };
-                                        set_draft.update(|draft| draft.set_selection(&who, &param, values));
-                                        save();
-                                        reapply();
-                                    }
-                                />
+                                {move || {
+                                    let drawer = drawer.clone();
+                                    let for_data = drawer.clone();
+                                    let Some(instance) = content.get() else {
+                                        return ().into_any();
+                                    };
+                                    let catalogued = entry.get();
+                                    let named = instance.id.clone().unwrap_or_default();
+                                    let reference = instance.reference();
+                                    let known = known();
+                                    let abandoned = abandoned(&known);
 
-                                <PanelBody
-                                    drawer=drawer.clone()
-                                    known=known
-                                    abandoned=abandoned
-                                    kind_override=instance.kind_override.clone()
-                                    catalogued=catalogued
-                                    controls=controls
-                                    emit=emit
-                                />
+                                    // What a component may change, and what it is set to.
+                                    // Built from the same two things the chrome's own
+                                    // controls read, so a pack drawing its own filter and
+                                    // the control beside it can never disagree.
+                                    let controls: Vec<hlin_view::Control> = catalogued
+                                        .as_ref()
+                                        .map(|entry| entry.controls.clone())
+                                        .unwrap_or_default()
+                                        .into_iter()
+                                        .map(|control| hlin_view::Control {
+                                            param: control.param,
+                                            label: control.label,
+                                            chosen: instance
+                                                .selections
+                                                .get(&control.id)
+                                                .cloned()
+                                                .unwrap_or_default(),
+                                            choices: choices
+                                                .with(|listed| {
+                                                    listed
+                                                        .get(&(reference.clone(), control.id.clone()))
+                                                        .cloned()
+                                                })
+                                                .unwrap_or_default(),
+                                            id: control.id,
+                                        })
+                                        .collect();
+
+                                    // Where this panel's components send what a person did.
+                                    // Every intent lands on the handler the chrome already
+                                    // uses, which is the point: a design system gets the
+                                    // capabilities the shell has, and no others.
+                                    let emit = {
+                                        let who = named.clone();
+                                        hlin_view::Emit::to(move |intent| match intent {
+                                            hlin_view::Intent::Select { param, values } => {
+                                                if who.is_empty() {
+                                                    return;
+                                                }
+                                                set_draft.update(|draft| {
+                                                    draft.set_selection(&who, &param, values)
+                                                });
+                                                save();
+                                                reapply();
+                                            }
+                                            hlin_view::Intent::Range { from_millis, to_millis } => {
+                                                let Some(range) = span(from_millis, to_millis) else {
+                                                    return;
+                                                };
+                                                // The picker is told as well as the shell.
+                                                // A chart brushed to an hour that left the
+                                                // bar still saying "24h" would be the
+                                                // chrome lying about what is on screen.
+                                                set_custom.set(Some(range));
+                                                set_chosen_range.set(0);
+                                                apply_range(range);
+                                            }
+                                        })
+                                    };
+
+                                    let head = view! {
+                                        <PanelHead
+                                            instance=instance.clone()
+                                            catalogued=catalogued.clone()
+                                            composing=composing()
+                                            on_grip=move |event, who| begin(event, who, GestureKind::Move)
+                                            on_remove=move |who: String| {
+                                                set_draft.update(|draft| draft.remove(&who));
+                                                save();
+                                            }
+                                            on_rename=move |(who, title): (String, String)| {
+                                                set_draft.update(|draft| draft.rename(&who, &title));
+                                                save();
+                                            }
+                                            on_kind=move |(who, kind): (String, Option<String>)| {
+                                                set_draft.update(|draft| draft.set_kind(&who, kind.as_deref()));
+                                                save();
+                                            }
+                                            controls=controls.clone()
+                                            on_select=move |(who, param, value): (String, String, String)| {
+                                                let values = if value.is_empty() { vec![] } else { vec![value] };
+                                                set_draft.update(|draft| draft.set_selection(&who, &param, values));
+                                                save();
+                                                reapply();
+                                            }
+                                        />
+                                    };
+
+                                    let data = move || view! {
+                                        <PanelBody
+                                            drawer=for_data.clone()
+                                            known=known.clone()
+                                            abandoned=abandoned
+                                            kind_override=instance.kind_override.clone()
+                                            catalogued=catalogued.clone()
+                                            controls=controls.clone()
+                                            emit=emit.clone()
+                                        />
+                                    };
+
+                                    let body = match module.get() {
+                                        // The module draws it; the frame follows this.
+                                        Some(view) if !view.fallen_back => match view.state {
+                                            hlin_view::PanelState::Unavailable(cause) => view! {
+                                                <ModuleUnavailable
+                                                    drawer=drawer.clone()
+                                                    cause=cause
+                                                    instance=named.clone()
+                                                    fallen_back=false
+                                                />
+                                            }.into_any(),
+                                            _ => ().into_any(),
+                                        },
+                                        // Drawn by Hlin, and saying why.
+                                        Some(view) => view! {
+                                            {data()}
+                                            <ModuleUnavailable
+                                                drawer=drawer.clone()
+                                                cause=match view.state {
+                                                    hlin_view::PanelState::Unavailable(cause) => cause,
+                                                    _ => hlin_view::Cause::Unreachable,
+                                                }
+                                                instance=named.clone()
+                                                fallen_back=true
+                                            />
+                                        }.into_any(),
+                                        None => data().into_any(),
+                                    };
+
+                                    view! { {head} {body} }.into_any()
+                                }}
+
+                                {move || mount.get().map(|mount| view! {
+                                    <ModuleFrame mount=mount title=frame_title />
+                                })}
 
                                 <Show when=move || composing()>
                                     <span
                                         class="corner"
-                                        on:pointerdown={
-                                            let who = instance.id.clone();
-                                            move |event: PointerEvent| {
-                                                if let Some(who) = who.clone() {
-                                                    begin(event, who, GestureKind::Resize);
-                                                }
+                                        on:pointerdown=move |event: PointerEvent| {
+                                            if let Some(who) = id() {
+                                                begin(event, who, GestureKind::Resize);
                                             }
                                         }
                                     />
                                 </Show>
                             </section>
                         }
-                    }).collect_view().into_any()
-                }}
+                    }
+                />
+
+                // While a panel is dragged or resized, a transparent sheet
+                // over the whole grid. A frame is another document: a pointer
+                // crossing one stops reaching this page, the window listeners
+                // stop hearing the gesture, and the panel sticks mid-drag. The
+                // shield keeps every pointer event on the page until it ends.
+                <Show when=move || gesture.with(Option::is_some)>
+                    <div class="drag-shield"></div>
+                </Show>
             </main>
         </div>
     }
@@ -926,8 +1143,10 @@ fn PanelHead(
         .unwrap_or_default();
     let default_kind = catalogued
         .as_ref()
-        .map(|panel| panel.kind.clone())
+        .and_then(|panel| panel.kind.clone())
         .unwrap_or_else(|| "raw".to_string());
+    // A panel only its module draws has no kinds to choose between.
+    let drawn_by_shell = catalogued.as_ref().is_none_or(|panel| panel.kind.is_some());
     let chosen_kind = instance.kind_override.clone();
 
     if !composing {
@@ -961,6 +1180,7 @@ fn PanelHead(
 
             <select
                 class="kind"
+                hidden=!drawn_by_shell
                 on:change={
                     let id = id.clone();
                     move |event| {
@@ -1087,7 +1307,7 @@ fn PanelBody(
     // a panel always draws.
     let kind = kind_override
         .as_deref()
-        .or(catalogued.as_ref().map(|entry| entry.kind.as_str()))
+        .or(catalogued.as_ref().and_then(|entry| entry.kind.as_deref()))
         .map(Kind::resolve)
         .unwrap_or_else(|| preferred_kind(&panel));
 
@@ -1128,6 +1348,57 @@ fn PanelBody(
         {panel.detail.clone().map(|text| view! { <p class="detail">{text}</p> })}
     }
     .into_any()
+}
+
+/// What a module panel shows when its module is unavailable.
+///
+/// Drawn through the pack like any other unavailable panel, with the cause in
+/// words, and one way back: mounting the module again is the only recovery
+/// from `unavailable` (specification HLIN-S-0007, *Panel states*), and doing it
+/// in a loop by itself would hammer a platform that is already failing. So a
+/// person asks. Where the panel fell back to its data, this is the line under
+/// that data saying Hlin drew it, and why.
+#[component]
+fn ModuleUnavailable(
+    drawer: Drawer,
+    cause: hlin_view::Cause,
+    instance: String,
+    /// The panel's data is drawn above this.
+    fallen_back: bool,
+) -> impl IntoView {
+    let why = match cause {
+        hlin_view::Cause::Malformed => "this platform's module could not be used",
+        _ => "this platform's module is not responding",
+    };
+    let retry = move |_| crate::frame::retry(&instance);
+
+    if fallen_back {
+        return view! {
+            <p class="detail module-note">
+                {format!("Drawn by Hlin: {why}. ")}
+                <button class="retry-module" on:click=retry>"Try the module again"</button>
+            </p>
+        }
+        .into_any();
+    }
+
+    let drawn = plan(hlin_view::PanelState::Unavailable(cause), Kind::Raw, None);
+    view! {
+        {drawer.draw(&drawn, None)}
+        <p class="detail module-note">
+            {format!("{}. ", capitalised(why))}
+            <button class="retry-module" on:click=retry>"Try the module again"</button>
+        </p>
+    }
+    .into_any()
+}
+
+fn capitalised(text: &str) -> String {
+    let mut characters = text.chars();
+    match characters.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
+        None => String::new(),
+    }
 }
 
 /// Two date boxes and a button, for a range no preset covers.
@@ -1218,6 +1489,35 @@ fn matches(panel: &CatalogPanel, needle: &str) -> bool {
             .description
             .as_deref()
             .is_some_and(|text| text.to_lowercase().contains(needle))
+}
+
+/// The key each panel on the surface is drawn under: its identity, or, for one
+/// added a moment ago that the shell has not named yet, its place.
+fn panel_keys(panels: &[hlin_stream::layout::PanelInstanceDocument]) -> Vec<String> {
+    panels
+        .iter()
+        .enumerate()
+        .map(|(index, panel)| panel_key(index, panel))
+        .collect()
+}
+
+fn panel_key(index: usize, panel: &hlin_stream::layout::PanelInstanceDocument) -> String {
+    panel
+        .id
+        .clone()
+        .unwrap_or_else(|| format!("unsaved:{index}"))
+}
+
+/// The panel drawn under a key, if it is still on the surface.
+fn find_panel(
+    panels: &[hlin_stream::layout::PanelInstanceDocument],
+    key: &str,
+) -> Option<hlin_stream::layout::PanelInstanceDocument> {
+    panels
+        .iter()
+        .enumerate()
+        .find(|(index, panel)| panel_key(*index, panel) == key)
+        .map(|(_, panel)| panel.clone())
 }
 
 /// The catalogue entry for an instance, where its platform still declares it.

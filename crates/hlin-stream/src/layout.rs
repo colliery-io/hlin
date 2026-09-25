@@ -221,6 +221,60 @@ pub struct CatalogPlatform {
     pub reachable: bool,
     /// The panels a viewer may use.
     pub panels: Vec<CatalogPanel>,
+    /// The limits this platform's modules run within, where it ships any.
+    ///
+    /// The page enforces some of these itself (a frame's request count and
+    /// message rate are refused in the page, without a request) and hands all
+    /// of them to each module in `init`, so it has to be told them. Absent for
+    /// a platform that declares no `assets`, which has no modules to bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_limits: Option<ModuleLimits>,
+}
+
+/// The limits a platform's modules run within, as the page needs them
+/// (specification HLIN-S-0007, *Limits*).
+///
+/// Only what the page itself acts on or passes to a module. The asset and
+/// stream-rate limits are the shell's alone to enforce and are not here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModuleLimits {
+    /// The largest `fetch` body.
+    pub request_bytes: u64,
+    /// The largest whole response body.
+    pub response_bytes: u64,
+    /// Requests one frame may have in flight, streams included.
+    pub fetches_in_flight: u32,
+    /// Messages one frame may send per second, stream credit excluded.
+    pub messages_per_second: u32,
+    /// Streamed responses one frame may hold open.
+    pub streams: u32,
+    /// The largest blob a module may hand back before it is unmounted.
+    pub state_bytes: u64,
+}
+
+impl Default for ModuleLimits {
+    /// The specification's defaults, which is what a page that was never told
+    /// otherwise holds a module to.
+    fn default() -> Self {
+        Self {
+            request_bytes: 1024 * 1024,
+            response_bytes: 4 * 1024 * 1024,
+            fetches_in_flight: 8,
+            messages_per_second: 50,
+            streams: 2,
+            state_bytes: 64 * 1024,
+        }
+    }
+}
+
+/// The module that draws a panel, as the page needs to mount it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogUi {
+    /// Its entry document, relative to the platform base: `/ui/items/index.html`.
+    /// The page loads it from the shell, at `/m/{platform}{entry}`.
+    pub entry: String,
+    /// The bridge major it speaks.
+    pub bridge: u32,
 }
 
 /// One panel a platform offers.
@@ -238,8 +292,17 @@ pub struct CatalogPanel {
     /// What it is for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// The platform's default rendering.
-    pub kind: String,
+    /// The platform's default rendering. Absent for a panel drawn only by its
+    /// platform's module, which the shell has nothing to draw with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// The module that draws this panel, where its platform ships one.
+    ///
+    /// A panel with both this and `kind` is drawn by its module and falls back
+    /// to the shell's drawing when the module is unavailable; a panel with
+    /// only this is its module or nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<CatalogUi>,
     /// How often this panel's platform says its data is worth refetching.
     ///
     /// Absent for the many panels content with the shell's own interval.
@@ -267,8 +330,9 @@ pub struct CatalogPanel {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pushed: bool,
 
-    /// What its data endpoint returns.
-    pub envelope: String,
+    /// What its data endpoint returns. Absent exactly when `kind` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<String>,
     /// The controls it responds to, by vocabulary name.
     #[serde(default)]
     pub params: Vec<String>,

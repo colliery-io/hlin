@@ -115,8 +115,9 @@ pub async fn catalog(State(state): State<AppState>) -> Json<Vec<CatalogPlatform>
             panels: view
                 .accepted_panels()
                 .into_iter()
-                .filter_map(|panel| catalog_panel(&view.config.id, panel))
+                .map(|panel| catalog_panel(&view.config.id, panel))
                 .collect(),
+            module_limits: module_limits(&state.config, view),
         })
         .collect();
 
@@ -128,32 +129,63 @@ pub async fn catalog(State(state): State<AppState>) -> Json<Vec<CatalogPlatform>
 /// One function rather than two similar ones, so an operator's view of a panel
 /// and a composer's view of it cannot drift apart.
 ///
-/// `None` for a panel the shell cannot draw itself, which is one drawn only by
-/// its platform's module; the registry does not offer those yet.
-pub fn catalog_panel(platform_id: &str, panel: &hlin_manifest::Panel) -> Option<CatalogPanel> {
-    let drawn = panel.drawn_by_shell()?;
-    Some(CatalogPanel {
+/// A panel drawn only by its platform's module has no `kind`, `envelope` or
+/// kinds to switch between: there is nothing for the shell to draw it with.
+/// It is described all the same, because a person can put it on a surface and
+/// the page mounts its module there.
+pub fn catalog_panel(platform_id: &str, panel: &hlin_manifest::Panel) -> CatalogPanel {
+    let drawn = panel.drawn_by_shell();
+    CatalogPanel {
         key: panel.key.clone(),
         reference: format!("{platform_id}/{}", panel.key),
         title: panel.title.clone(),
         description: panel.description.clone(),
-        kind: drawn.kind.to_string(),
+        kind: drawn.map(|drawn| drawn.kind.to_string()),
+        ui: panel.ui.as_ref().map(|ui| hlin_stream::layout::CatalogUi {
+            entry: ui.entry.clone(),
+            bridge: ui.bridge,
+        }),
         refresh_ms: panel.refresh_ms,
         component: panel.component.clone(),
         pushed: panel.pushed,
-        envelope: drawn.envelope.to_string(),
+        envelope: drawn.map(|drawn| drawn.envelope.to_string()),
         params: panel
             .params
             .iter()
             .map(|declaration| declaration.param.clone())
             .collect(),
         controls: panel.params.iter().filter_map(control_for).collect(),
-        available_kinds: hlin_view::Kind::accepting(drawn.envelope)
-            .into_iter()
-            .map(|kind| kind.name().to_string())
-            .collect(),
+        available_kinds: drawn
+            .map(|drawn| {
+                hlin_view::Kind::accepting(drawn.envelope)
+                    .into_iter()
+                    .map(|kind| kind.name().to_string())
+                    .collect()
+            })
+            .unwrap_or_default(),
         deprecated: panel.lifecycle.is_deprecated(),
         successor: panel.lifecycle.successor.clone(),
+    }
+}
+
+/// The limits a platform's modules run within, as the page is told them.
+///
+/// Only for a platform whose manifest declares `assets`: without that it ships
+/// no module, and telling the page limits for frames it will never mount is
+/// noise in every catalogue answer.
+pub fn module_limits(
+    config: &crate::config::Config,
+    view: &crate::registry::PlatformView,
+) -> Option<hlin_stream::layout::ModuleLimits> {
+    view.manifest.as_ref()?.assets.as_ref()?;
+    let limits = config.module_limits(&view.config.id);
+    Some(hlin_stream::layout::ModuleLimits {
+        request_bytes: limits.request_bytes as u64,
+        response_bytes: limits.response_bytes as u64,
+        fetches_in_flight: limits.fetches_in_flight,
+        messages_per_second: limits.messages_per_second,
+        streams: limits.streams,
+        state_bytes: limits.state_bytes as u64,
     })
 }
 

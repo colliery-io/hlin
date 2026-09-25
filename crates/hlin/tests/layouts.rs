@@ -44,17 +44,34 @@ impl ManifestClient for Everywhere {
     }
 }
 
+/// Both platforms offer the same two shell-drawn panels. The second also ships
+/// modules: one panel drawn only by its module, so there is a panel on offer
+/// the shell has nothing to fetch for.
 fn manifest(id: &str) -> Manifest {
+    let modules = if id == OTHER {
+        r#""assets": "/ui/",
+          "routes": { "read": ["/api/"] },"#
+    } else {
+        ""
+    };
+    let board = if id == OTHER {
+        r#",
+            { "key": "board", "title": "Board",
+               "ui": { "entry": "/ui/board/index.html", "bridge": 1 } }"#
+    } else {
+        ""
+    };
     hlin_manifest::parse_str(&format!(
         r#"{{
           "schema_version": 1,
           "contract_version": "1.0.0",
           "platform": {{ "id": "{id}", "name": "{id}" }},
+          {modules}
           "panels": [
             {{ "key": "throughput", "title": "Throughput", "kind": "timeseries",
                "envelope": "series.v1", "data": "api/throughput" }},
             {{ "key": "queue-depth", "title": "Queue depth", "kind": "stat",
-               "envelope": "scalar.v1", "data": "api/queue-depth" }}
+               "envelope": "scalar.v1", "data": "api/queue-depth" }}{board}
           ],
           "health": "api/health"
         }}"#
@@ -185,12 +202,142 @@ async fn the_picker_is_offered_every_accepted_panel_grouped_by_platform() {
         .expect("the panel is offered");
 
     assert_eq!(throughput.reference, "orebank/throughput");
-    assert_eq!(throughput.envelope, "series.v1");
+    assert_eq!(throughput.envelope.as_deref(), Some("series.v1"));
+    assert_eq!(
+        throughput.ui, None,
+        "a panel with no module says so rather than naming an entry"
+    );
     assert!(
         throughput.available_kinds.len() > 1,
         "a viewer can switch a series between more than one rendering, which is \
          the whole reason the picker carries the list: {:?}",
         throughput.available_kinds
+    );
+}
+
+#[tokio::test]
+async fn a_panel_drawn_only_by_its_module_is_offered_with_where_to_mount_it() {
+    let (app, _, _) = shell().await;
+
+    let (_, body) = call(&app, get("/api/panels")).await;
+    let platforms: Vec<CatalogPlatform> = serde_json::from_value(body).expect("a catalogue");
+    let smelter = platforms
+        .iter()
+        .find(|platform| platform.id == OTHER)
+        .expect("the platform is in the catalogue");
+
+    let board = smelter
+        .panels
+        .iter()
+        .find(|panel| panel.key == "board")
+        .expect("a module-only panel can be put on a surface, so it is offered");
+    let ui = board.ui.as_ref().expect("and says which module draws it");
+    assert_eq!(ui.entry, "/ui/board/index.html");
+    assert_eq!(ui.bridge, 1);
+    assert_eq!(
+        (board.kind.as_deref(), board.envelope.as_deref()),
+        (None, None),
+        "the shell has nothing to draw it with, and does not pretend otherwise"
+    );
+    assert!(board.available_kinds.is_empty());
+
+    // The page enforces a frame's limits itself, so it is told them, and only
+    // for a platform that ships modules at all.
+    let limits = smelter
+        .module_limits
+        .expect("a platform with assets carries its limits");
+    assert_eq!(limits.fetches_in_flight, 8);
+    assert_eq!(limits.messages_per_second, 50);
+    let orebank = platforms
+        .iter()
+        .find(|platform| platform.id == PLATFORM)
+        .expect("the platform is in the catalogue");
+    assert_eq!(orebank.module_limits, None);
+}
+
+#[tokio::test]
+async fn a_module_only_panel_sits_on_a_surface_without_the_shell_fetching_for_it() {
+    // The stream carries what the shell fetched. A panel whose module draws it
+    // has nothing fetched, so it must be absent from the stream rather than
+    // retired: a retired panel streams `unavailable (unknown)`, which would
+    // tell a person a perfectly good panel had gone.
+    let config = Arc::new(config());
+    let issuer = Arc::new(hlin_identity::Issuer::generate("hlin"));
+    let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
+    let registry = Arc::new(
+        Registry::new(&config, issuer.clone(), store.clone(), Arc::new(Everywhere))
+            .expect("registry builds"),
+    );
+    registry.poll_all().await;
+
+    let surfaces = Arc::new(hlin::surfaces::Surfaces::new());
+    let state = AppState {
+        config: config.clone(),
+        registry,
+        issuer,
+        surfaces: surfaces.clone(),
+        store: store.clone(),
+        client: reqwest::Client::new(),
+        stream_client: reqwest::Client::new(),
+        proxy_client: hlin::clients::Clients::plain().proxying,
+        streams: Arc::new(hlin::stream::streams::Streams::new()),
+    };
+    let app = router(state.clone());
+
+    let (_, home) = call(&app, get("/api/layouts/home")).await;
+    let mut layout: LayoutDocument = serde_json::from_value(home).expect("a layout");
+    let id = layout.id.clone().expect("an identity");
+    layout.panels = vec![
+        PanelInstanceDocument::new(OTHER, "board", Placement::default()),
+        PanelInstanceDocument::new(
+            PLATFORM,
+            "throughput",
+            Placement {
+                x: 6,
+                ..Placement::default()
+            },
+        ),
+    ];
+    let (status, body) = call(
+        &app,
+        send(
+            "PUT",
+            &format!("/api/layouts/{id}"),
+            &serde_json::to_value(&layout).expect("serialises"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "a module panel can be placed");
+    let written: LayoutDocument = serde_json::from_value(body).expect("a layout");
+    let board = written.panels[0].id.clone().expect("an identity");
+    let throughput = written.panels[1].id.clone().expect("an identity");
+
+    let headers = axum::http::HeaderMap::new();
+    let principal = config
+        .principal_from(&headers)
+        .known()
+        .expect("the dev authenticator always answers");
+    let running = surfaces
+        .for_surface(&id, &principal, &state, &headers)
+        .await
+        .expect("a surface");
+
+    let named: Vec<String> = running
+        .current()
+        .await
+        .into_iter()
+        .filter_map(|frame| match frame {
+            hlin_stream::Frame::Panel(panel) => Some(panel.instance.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        named.contains(&throughput),
+        "the shell-drawn panel is streamed"
+    );
+    assert!(
+        !named.contains(&board),
+        "and the module's panel is not, in any state: {named:?}"
     );
 }
 

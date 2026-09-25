@@ -1,0 +1,18 @@
+<!doctype html>
+<!--
+  A module that loads and never says `ready`: no script at all. From outside it
+  is indistinguishable from a module whose code failed to start, which is the
+  case the shell's `ready` timeout exists for.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Module that never answers</title>
+    <style>
+      body { margin: 0; padding: 8px 10px; font: 13px/1.5 system-ui, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <p>This module never says it is ready.</p>
+  </body>
+</html>

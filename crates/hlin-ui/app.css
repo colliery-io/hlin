@@ -198,3 +198,35 @@ body {
     var(--hlin-faint) 50%, var(--hlin-faint) 60%, transparent 60%
   );
 }
+
+/* -- Modules -------------------------------------------------------------- */
+
+/* A platform's own module fills the panel beneath its heading, edge to edge:
+   what is inside the frame is the platform's to draw, and the panel's padding
+   would only be a border around somebody else's page. */
+.grid { position: relative; }
+.module-frame {
+  flex: 1; min-height: 0; margin: 0 -12px -12px;
+  transition: opacity 0.2s;
+}
+.module-frame iframe {
+  display: block; width: 100%; height: 100%; border: 0;
+  background: transparent;
+}
+/* One heartbeat missed: the module is still there, and may be busy. Dimmed,
+   not hidden, because stale says "not current", not "gone". */
+.panel[data-module="stale"] .module-frame { opacity: 0.45; }
+
+.panel .module-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.panel .retry-module {
+  font: inherit; font-size: 11px; padding: 1px 8px; cursor: pointer;
+  background: var(--hlin-raised); color: inherit;
+  border: 1px solid var(--hlin-border); border-radius: 3px;
+}
+
+/* Laid over every frame while a panel is dragged or resized, so the pointer
+   stays with this page rather than falling into a module's document. */
+.drag-shield {
+  position: absolute; inset: 0; z-index: 20;
+  cursor: grabbing; background: transparent;
+}

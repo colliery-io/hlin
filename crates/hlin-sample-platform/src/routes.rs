@@ -85,6 +85,8 @@ pub fn router(config: Config) -> Router {
         .route("/api/hlin/batches", get(batches))
         .route("/api/hlin/stage-activity", get(stage_activity))
         .route("/api/events", get(events))
+        .route("/api/module/whoami", get(whoami))
+        .route("/ui/{*path}", get(crate::modules::asset))
         .with_state(state)
 }
 
@@ -99,6 +101,23 @@ async fn manifest(State(config): State<Arc<Config>>) -> Json<serde_json::Value> 
 
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok" }))
+}
+
+/// Who is asking, as this platform sees them: what its module asks over the
+/// bridge to show that a request carried through the shell arrives as the
+/// viewer, not as the shell and not as the module.
+///
+/// Under [`crate::modules::READS`], the one prefix the manifest lets modules
+/// read, and behind identity like every other route here.
+async fn whoami(State(config): State<Arc<Config>>, headers: HeaderMap) -> Response {
+    match identify(&config, &headers) {
+        Ok(caller) => Json(serde_json::json!({
+            "principal": caller.principal,
+            "platform": config.name,
+        }))
+        .into_response(),
+        Err(refusal) => refusal.into_response(),
+    }
 }
 
 /// Who is asking, or a refusal.

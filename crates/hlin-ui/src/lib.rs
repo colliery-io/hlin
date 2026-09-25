@@ -37,6 +37,7 @@
 /// inside it.
 pub const APP_CSS: &str = include_str!("../app.css");
 
+pub mod bridge;
 pub mod draft;
 pub mod grid;
 pub mod state;
@@ -45,6 +46,7 @@ pub mod state;
 // gets it and the host build still type-checks what it can.
 pub mod api;
 pub mod app;
+pub mod frame;
 pub mod pack;
 pub mod stream;
 

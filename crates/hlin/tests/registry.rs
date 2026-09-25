@@ -138,11 +138,10 @@ async fn a_platform_is_known_once_it_has_been_asked() {
 }
 
 #[tokio::test]
-async fn only_panels_the_shell_can_draw_are_offered_until_modules_can_be_mounted() {
-    // A panel drawn only by its platform's module is valid, but this shell
-    // cannot mount modules yet, so offering it would put an empty frame on a
-    // surface. A panel that declares a module *and* data is offered exactly as
-    // it was before it declared the module.
+async fn a_panel_drawn_only_by_its_module_is_offered_beside_one_the_shell_can_draw() {
+    // The page mounts modules, so a panel that is its module or nothing can be
+    // put on a surface. It has no endpoint, so nothing looking a panel up by
+    // the data it serves can find it.
     let document = hlin_manifest::parse_str(&format!(
         r#"{{
           "schema_version": 1,
@@ -173,8 +172,14 @@ async fn only_panels_the_shell_can_draw_are_offered_until_modules_can_be_mounted
         .into_iter()
         .map(|panel| panel.key.as_str())
         .collect();
-    assert_eq!(offered, ["throughput"]);
+    assert_eq!(offered, ["board", "throughput"]);
+    assert!(view.panel("board").is_some());
     assert!(view.panel_by_endpoint("api/throughput").is_some());
+    assert_eq!(
+        view.panel_by_endpoint("api/throughput")
+            .map(|panel| panel.key.as_str()),
+        Some("throughput")
+    );
 }
 
 #[tokio::test]

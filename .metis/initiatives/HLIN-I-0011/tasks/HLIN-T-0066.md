@@ -70,3 +70,33 @@ the bridge, in `hlin-ui`.
 ### 2026-09-24
 
 Created when [[HLIN-I-0011]] was decomposed. Not started.
+
+### 2026-09-24 (started)
+
+Read the task, HLIN-S-0007 and HLIN-T-0069's summary. Plan:
+
+- **Shell.** `accepted_panels()` stops filtering module-only panels;
+  `catalog_panel` always answers, with `kind`/`envelope` optional and a new
+  `ui` (`entry`, `bridge`), so the picker and `/api/platforms` both carry it.
+  `CatalogPlatform` gains the module limits in force for the platform (the
+  page needs `fetches_in_flight`, `messages_per_second` and the byte limits
+  for `init.limits`). A module-only panel on a layout is left out of the
+  stream's composition entirely (no instance, no fetch, not retired); a panel
+  declaring both keeps being fetched so fallback is immediate.
+- **Page.** `hlin-ui/src/bridge.rs`, free of the DOM and tested on the host:
+  the registry (window handle to platform, panel, instance, mount time), the
+  liveness machine (loading, ready, stale, unavailable; `init` resend every
+  250 ms, ready timeout, heartbeat misses, visibility), the per-frame
+  allowance (`messages_per_second`, `fetches_in_flight`), the `/p/` path
+  builder (refuses anything a browser would normalise out of the platform's
+  prefix), and the fallback rule. `hlin-ui/src/frame.rs` is the wiring: one
+  window `message` listener, one 250 ms tick, iframes created imperatively so
+  registry removal can precede document removal.
+- **Grid.** Panels rendered with a keyed `<For>` so a frame is not recreated
+  on every draft change or stream frame (the old single closure redrew every
+  panel on each pointer move, which would reload every iframe). A drag shield
+  over the grid while a gesture is held.
+- **Sample platform.** `assets = /ui/`, `routes.read = [/api/module/]`, a
+  hand-written plain-JS probe module and a silent module, a `whoami` read
+  route, and module panels (`module-probe` ui+data, `module-silent` ui+data
+  that never says ready, `module-only` ui alone).

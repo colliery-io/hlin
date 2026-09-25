@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  A module written by hand, against the bridge's wire format and nothing else
+  (specification HLIN-S-0007, *Messages*). No SDK, no build step: what the
+  shell's page is tested against is the protocol, not a library that might
+  agree with the page by accident.
+
+  The script is a file of its own because the module CSP allows scripts only
+  from this platform's module assets, never inline.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Module probe</title>
+    <style>
+      body { margin: 0; padding: 8px 10px; font: 13px/1.5 system-ui, sans-serif; }
+      p { margin: 0 0 4px; }
+      .label { color: #868e96; }
+      button { font: inherit; font-size: 12px; margin: 4px 4px 0 0; }
+    </style>
+  </head>
+  <body>
+    <p><span class="label">Bridge:</span> <span id="state" data-state="waiting">waiting for init</span></p>
+    <p><span class="label">Looking:</span> <span id="viewer">nobody yet</span></p>
+    <p><span class="label">The platform says:</span> <span id="whoami">not asked yet</span></p>
+    <p><span class="label">Twenty at once:</span> <span id="flood">not tried</span></p>
+    <button id="stop" type="button">Stop answering</button>
+    <button id="twenty" type="button">Ask twenty at once</button>
+    <script src="probe.js"></script>
+  </body>
+</html>
