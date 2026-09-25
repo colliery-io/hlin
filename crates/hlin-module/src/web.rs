@@ -103,8 +103,14 @@ impl Host for WebHost {
 /// nothing but the shell's page can drive the module. Call once, as the
 /// module starts, before anything is drawn; then call [`Module::ready`] once
 /// it can draw.
+///
+/// In a debug build it also starts watching the frame's main thread, and warns
+/// in the console when the module holds it for 200 ms or more (see the crate
+/// docs, *Never block the main thread*). A release build does not.
 pub async fn connect() -> Module {
     let window = web_sys::window().expect("a module runs in a browser window");
+    #[cfg(debug_assertions)]
+    crate::watch::start();
     let parent = window.parent().ok().flatten();
     let module = Module::new(WebHost::new(parent.clone()));
 

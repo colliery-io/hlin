@@ -12,6 +12,8 @@
 // Pack-agnostic: every assertion is on the shell's own markup or inside the
 // module's frame, so it runs whichever demo flavour is up.
 
+const fs = require('fs');
+const path = require('path');
 const { test, expect } = require('@playwright/test');
 const { freshLayout, discardLayout, openSurface, shot } = require('./helpers');
 
@@ -22,6 +24,18 @@ const PLATFORM = 'orebank';
 const annotations = (page) =>
   page.locator(`section.panel[data-panel="${PLATFORM}/annotations"]`);
 const inside = (panel) => panel.frameLocator('iframe');
+
+/** Whether the demo under test was built optimised, as performance.spec.js asks. */
+function releaseBuild() {
+  try {
+    const build = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '..', '..', 'demo', 'state', 'build.json'), 'utf8'),
+    );
+    return build.release === true;
+  } catch {
+    return false;
+  }
+}
 
 /** A layout holding only the annotations panel. */
 async function layoutOf(request, title) {
@@ -127,5 +141,53 @@ test.describe('a module built with the SDK', () => {
     await shot(here, 81, 'sdk-module-written');
     await one.close();
     await two.close();
+  });
+
+  test('holding the main thread is warned about in a debug build, and only there', async ({
+    page,
+  }) => {
+    // A module must never block its main thread (HLIN-S-0007, *Open
+    // Questions*), and the SDK tells its author when theirs does: in a debug
+    // build, a task of 200 ms or more is warned about in the frame's console
+    // (HLIN-T-0090). Chromium measures the frame's own tasks; Firefox and
+    // WebKit report no long tasks, so there the SDK notices a timer firing
+    // late. A release build (`angreal demo up --release`) watches nothing.
+    const release = releaseBuild();
+    const warnings = [];
+    page.on('console', (message) => {
+      if (message.type() === 'warning' && message.text().startsWith('hlin-module:')) {
+        warnings.push(message.text());
+      }
+    });
+
+    await openSurface(page, mine);
+    const panel = annotations(page);
+    await expect(panel).toHaveAttribute('data-module', 'ready', { timeout: 30_000 });
+    await expect(inside(panel).locator('#viewer')).toHaveText('Development User');
+    const frame = page.frames().find((one) => one.url().includes('/ui/annotations/'));
+    expect(frame, 'the annotations frame').toBeTruthy();
+
+    // Settled first, so nothing the module did as it started is counted.
+    await page.waitForTimeout(500);
+    warnings.length = 0;
+    // The module's own busy loop, in a task of its own.
+    await frame.evaluate(() => window.annotations.spin(300));
+
+    if (release) {
+      await page.waitForTimeout(3_000);
+      expect(warnings).toEqual([]);
+      return;
+    }
+    await expect.poll(() => warnings.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    const said = warnings[0];
+    console.log(`${test.info().project.name}: ${said}`);
+    // The duration, and the rule. Measured, it is the spin's own 300 ms or a
+    // hair over; seen from a late 50 ms clock, somewhere above 250 ms.
+    const held = Number(said.match(/held (?:the main thread )?for (?:about )?(\d+) ms/)?.[1]);
+    expect(held).toBeGreaterThanOrEqual(250);
+    expect(held).toBeLessThan(1_000);
+    expect(said).toContain('A module must never block its main thread');
+    expect(said).toContain('Web Worker');
+    expect(warnings).toHaveLength(1);
   });
 });

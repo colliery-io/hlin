@@ -308,6 +308,8 @@ Hlin reads a platform list from runtime configuration and polls each manifest. T
 
 A platform's own UI for a panel or a page, built with the shared kit and the shell's SDK, served through the shell and run in a sandboxed frame. It talks to the shell over a versioned bridge: context in (time range, parameters, theme, who is signed in), requests and intents out. Decision HLIN-A-0014.
 
+A module must never block its main thread. The sandbox contains what a module can reach, not how long it runs: in Firefox, WebKit and Chromium's headless shell a module's frame shares the page's thread, so a module that spins holds the whole surface still until it stops. Work that takes more than a frame or two belongs in chunks that yield, or in a Web Worker loaded from the module's own assets. A debug build of a module made with `hlin-module` warns in its console when a task holds the thread for 200 ms or more; a release build does not watch.
+
 ### Identity and requests
 
 A person signs in to Hlin once. Every request a module makes goes through the shell, which binds the viewer's identity to it, and the platform decides what to allow. Decisions HLIN-A-0004 and HLIN-A-0013.

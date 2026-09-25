@@ -683,3 +683,27 @@ fn every_message_a_module_sends_has_its_own_id() {
         .collect();
     assert_eq!(ids, ["m-1", "m-2", "m-3"]);
 }
+
+/// The main-thread watch is in a debug build and not in a release one, judged
+/// by whether its words are in this very binary: the debug build's own tests
+/// of the watch put them there, and a release build has no watch to put them
+/// anywhere. `cargo test -p hlin-module --lib --release` runs the release
+/// half. The words are spelled backwards here so this test does not carry
+/// them itself.
+#[test]
+fn the_main_thread_watch_is_compiled_into_a_debug_build_only() {
+    let needle: String = "daerht niam sti kcolb reven tsum eludom A"
+        .chars()
+        .rev()
+        .collect();
+    let binary = std::fs::read(std::env::current_exe().expect("the test's own binary"))
+        .expect("the test's own binary is readable");
+    let carried = binary
+        .windows(needle.len())
+        .any(|window| window == needle.as_bytes());
+    assert_eq!(
+        carried,
+        cfg!(debug_assertions),
+        "the watch's rule should be in a debug build and nowhere in a release one"
+    );
+}

@@ -76,6 +76,34 @@ fn main() {
         leptos::mount::mount_to_body(move || view! { <Annotations module=drawn /> });
         module.ready(Some(KIT));
     });
+    offer_spin();
+}
+
+/// `window.annotations.spin(ms)`: holds the frame's main thread for `ms`, in
+/// a task of its own, as a module that blocks would. What the browser test of
+/// the SDK's long-task warning asks for (HLIN-T-0090); nothing in the module
+/// calls it. A task of its own, not the caller's, because a debugger's
+/// evaluation is not a task the page's own observers see.
+fn offer_spin() {
+    use leptos::wasm_bindgen::JsValue;
+    use leptos::wasm_bindgen::closure::Closure;
+
+    let spin = Closure::<dyn Fn(f64)>::new(|millis: f64| {
+        set_timeout(
+            move || {
+                let until = js_sys::Date::now() + millis;
+                while js_sys::Date::now() < until {
+                    // Nothing: that is the point.
+                }
+            },
+            std::time::Duration::ZERO,
+        );
+    });
+    let hooks = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&hooks, &JsValue::from_str("spin"), spin.as_ref());
+    let _ = js_sys::Reflect::set(&js_sys::global(), &JsValue::from_str("annotations"), &hooks);
+    // Lives as long as the frame does.
+    spin.forget();
 }
 
 /// How close to now a range must end to be read as running up to the present.

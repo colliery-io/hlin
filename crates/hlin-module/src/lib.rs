@@ -71,6 +71,26 @@
 //! # }
 //! ```
 //!
+//! # Never block the main thread
+//!
+//! A module must not hold its main thread for long. The sandbox contains what
+//! a module can reach, not how long it runs: in Firefox, WebKit and Chromium's
+//! headless shell a module's frame shares the page's thread, so a module that
+//! spins holds the whole surface still, every other panel and the shell's
+//! heartbeat included, until it stops (specification HLIN-S-0007, *Open
+//! Questions*, and decision HLIN-A-0014, *Negative*). Work that takes more
+//! than a frame or two belongs in chunks that yield between them (a `setTimeout`,
+//! or an `await` on something that does), or in a Web Worker loaded from the
+//! module's own assets, which its CSP allows.
+//!
+//! In a debug build, [`connect`] watches for this and warns in the frame's
+//! console when a task holds the thread for 200 ms or more, at most once every
+//! ten seconds, counting what it held back. Where the browser reports long
+//! tasks (Chromium) the module's own tasks are measured; elsewhere a timer
+//! that fires late is noticed, which cannot tell this module from the page or
+//! another module sharing the thread, and the warning says so. A release
+//! build compiles the watch out: it observes nothing and logs nothing.
+//!
 //! # Testing without a browser
 //!
 //! Everything that touches the browser is behind [`Host`]. [`connect`] uses the
@@ -80,6 +100,9 @@
 mod key;
 mod request;
 mod stream;
+// A debug build's alone: a release build carries none of it.
+#[cfg(debug_assertions)]
+mod watch;
 mod web;
 
 use std::cell::RefCell;
