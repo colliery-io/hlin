@@ -119,6 +119,48 @@ fn only_static_bearer_admits_to_collapsing_everyone_into_one_caller() {
     }
 }
 
+/// A write is carried only where the platform can tell who made it
+/// ([[HLIN-A-0013]] decision 3), and a strategy that cannot says why rather
+/// than producing a credential for "someone".
+#[test]
+fn only_a_strategy_that_names_the_viewer_carries_writes() {
+    let request = hlin_identity::BoundRequest::new("POST", "/api/items").expect("bindable");
+    let nothing = build(&CredentialConfig::None, "orebank", issuer()).expect("builds");
+    let mut strategies = every_strategy();
+    strategies.push(("none", nothing));
+
+    for (name, credentialer) in strategies {
+        let acts = matches!(name, "hlin-token" | "forward-session");
+        assert_eq!(credentialer.acts_as_viewer(), acts, "{name}");
+        assert_eq!(
+            credentialer.write_headers(&viewer(), &request).is_ok(),
+            acts,
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn hlin_token_binds_a_write_to_its_method_and_path() {
+    let issuer = issuer();
+    let credentialer = build(&CredentialConfig::HlinToken, "orebank", issuer.clone()).unwrap();
+    let request = hlin_identity::BoundRequest::new("DELETE", "/api/items/i1").unwrap();
+    let headers = credentialer.write_headers(&viewer(), &request).unwrap();
+
+    let token = &headers[0].1;
+    let verifier = hlin_identity::Verifier::with_keys("hlin", issuer.jwks());
+    assert!(
+        verifier
+            .verify_request(token, "orebank", "DELETE", "/api/items/i1")
+            .is_ok()
+    );
+    assert!(
+        verifier
+            .verify_request(token, "orebank", "DELETE", "/api/items/i2")
+            .is_err()
+    );
+}
+
 #[test]
 fn nothing_a_viewer_carries_leaks_into_an_unrelated_strategys_headers() {
     // The viewer carries a cookie. Only the strategy that is meant to forward

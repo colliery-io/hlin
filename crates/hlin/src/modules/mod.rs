@@ -9,6 +9,8 @@ pub mod assets;
 
 use serde::{Deserialize, Serialize};
 
+pub mod requests;
+
 /// The bounds a module runs within (HLIN-S-0007, *Limits*).
 ///
 /// Operator configuration, because the right numbers depend on what the

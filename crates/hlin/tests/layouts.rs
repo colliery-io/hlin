@@ -123,6 +123,7 @@ async fn shell_with(configured: Config) -> (axum::Router, Arc<dyn Store>, Arc<Co
         store: store.clone(),
         client: reqwest::Client::new(),
         stream_client: reqwest::Client::new(),
+        proxy_client: hlin::clients::Clients::plain().proxying,
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 
@@ -522,6 +523,7 @@ async fn two_requests_arriving_together_get_the_same_surface() {
         store: store.clone(),
         client: reqwest::Client::new(),
         stream_client: reqwest::Client::new(),
+        proxy_client: hlin::clients::Clients::plain().proxying,
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 
@@ -589,6 +591,7 @@ async fn a_surface_nobody_is_watching_stops_asking_its_platforms() {
         store: store.clone(),
         client: reqwest::Client::new(),
         stream_client: reqwest::Client::new(),
+        proxy_client: hlin::clients::Clients::plain().proxying,
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 

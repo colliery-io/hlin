@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::response::IntoResponse;
-use hlin_identity::{IDENTITY_HEADER, Issuer, Principal};
+use hlin_identity::{BoundRequest, IDENTITY_HEADER, Issuer, Principal};
 use serde::{Deserialize, Serialize};
 
 /// How the shell identifies itself to one platform.
@@ -216,6 +216,35 @@ pub trait Credentialer: Send + Sync {
     fn collapses_principals(&self) -> bool {
         false
     }
+
+    /// Whether the platform can tell who is acting when a write arrives.
+    ///
+    /// A write is only worth carrying if the platform can hold the person who
+    /// made it to its own rules ([[HLIN-A-0013]] decision 3). A strategy that
+    /// sends the same credential for everyone, or none at all, gives it nobody
+    /// to judge, so the shell refuses the write itself rather than send
+    /// something the platform can only accept as "someone".
+    ///
+    /// False unless a strategy says otherwise, so a strategy added later
+    /// carries no writes until somebody has decided that it should.
+    fn acts_as_viewer(&self) -> bool {
+        false
+    }
+
+    /// The headers for one write, tied to that write where the strategy can
+    /// tie them.
+    ///
+    /// Separate from [`Credentialer::headers`] because a write needs more than
+    /// a read: the platform must be able to tell that the identity it received
+    /// was meant for this method at this path and nothing else. Only asked of
+    /// a strategy that [`acts_as_viewer`](Credentialer::acts_as_viewer).
+    fn write_headers(
+        &self,
+        _viewer: &Viewer,
+        _request: &BoundRequest,
+    ) -> Result<Vec<(String, String)>, String> {
+        Err(format!("{} cannot carry a write", self.name()))
+    }
 }
 
 /// Build the credentialer a platform's configuration asks for.
@@ -274,6 +303,27 @@ impl Credentialer for ForwardSession {
     fn name(&self) -> &'static str {
         "forward-session"
     }
+
+    /// The platform shares the shell's session, so the cookie already names
+    /// the person, and the platform judges a write by it exactly as it judges
+    /// one arriving from its own frontend.
+    fn acts_as_viewer(&self) -> bool {
+        true
+    }
+
+    /// The same cookies as a read. There is nothing to bind: the session is
+    /// the platform's own credential, never minted per request, and the
+    /// platform already accepts it for writes from its own pages. What binding
+    /// protects against — a captured read credential replayed as a write — is
+    /// a property of the session itself here, and no worse through the shell
+    /// than without it.
+    fn write_headers(
+        &self,
+        viewer: &Viewer,
+        _request: &BoundRequest,
+    ) -> Result<Vec<(String, String)>, String> {
+        self.headers(viewer)
+    }
 }
 
 /// Mints a token per request.
@@ -296,6 +346,26 @@ impl Credentialer for HlinToken {
 
     fn name(&self) -> &'static str {
         "hlin-token"
+    }
+
+    fn acts_as_viewer(&self) -> bool {
+        true
+    }
+
+    /// A token bound to this method and path, living thirty seconds, so one
+    /// captured from a log cannot be replayed as any other write
+    /// ([[HLIN-A-0013]] decision 4).
+    fn write_headers(
+        &self,
+        viewer: &Viewer,
+        request: &BoundRequest,
+    ) -> Result<Vec<(String, String)>, String> {
+        let token = self
+            .issuer
+            .mint_bound(&viewer.principal, &self.audience, request)
+            .map_err(|error| error.to_string())?;
+
+        Ok(vec![(IDENTITY_HEADER.to_lowercase(), token)])
     }
 }
 

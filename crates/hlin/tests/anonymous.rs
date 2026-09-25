@@ -104,6 +104,7 @@ async fn shell_with(configured: Config) -> (axum::Router, Arc<dyn Store>) {
         store: store.clone(),
         client: reqwest::Client::new(),
         stream_client: reqwest::Client::new(),
+        proxy_client: hlin::clients::Clients::plain().proxying,
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 

@@ -40,6 +40,10 @@ pub struct AppState {
     /// still give up.
     pub stream_client: reqwest::Client,
 
+    /// A third, for requests made on a module's behalf, which never follows
+    /// a redirect ([`crate::clients::Clients::proxying`]).
+    pub proxy_client: reqwest::Client,
+
     /// Every platform event stream the shell holds, shared across surfaces.
     ///
     /// One connection per platform for the whole shell (HLIN-S-0006 REQ-2.1),
@@ -83,6 +87,13 @@ pub fn router(state: AppState) -> Router {
         .route("/m", get(crate::modules::assets::serve))
         .route("/m/", get(crate::modules::assets::serve))
         .route("/m/{*asset}", get(crate::modules::assets::serve))
+        // A module's requests to its own platform (HLIN-S-0007). Every method
+        // reaches the handler, which refuses the ones it does not carry with
+        // its own refusal rather than a bare 405 from the router.
+        .route(
+            "/p/{platform_id}/{*path}",
+            axum::routing::any(crate::modules::requests::carry),
+        )
         // Empty unless the shell authenticates people itself. A shell told who
         // everyone is by a proxy has nothing to offer on `/auth/login`, and a
         // route that exists and cannot work is worse than one that does not.

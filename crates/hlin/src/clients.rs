@@ -39,6 +39,19 @@ pub struct Clients {
     /// For connections meant to stay open, which take a connect timeout and no
     /// request timeout.
     pub streaming: reqwest::Client,
+
+    /// For requests made on a module's behalf: its requests under `/p/` and
+    /// its assets under `/m/` (HLIN-S-0007).
+    ///
+    /// The fetching client's timeout and trust, and one difference: it never
+    /// follows a redirect. There the shell sends an address the module chose,
+    /// within prefixes the platform declared, with the viewer's identity
+    /// attached. A redirect followed would send that identity wherever the
+    /// answer pointed — `reqwest` strips `Authorization` when a redirect
+    /// changes host, but not the identity header — and would reach a path no
+    /// prefix was ever checked against. So a platform's redirect is its
+    /// answer, passed back like any other.
+    pub proxying: reqwest::Client,
 }
 
 impl Clients {
@@ -56,13 +69,22 @@ impl Clients {
         let streaming = reqwest::Client::builder()
             .connect_timeout(config.timings.upstream_timeout())
             .user_agent(concat!("hlin/", env!("CARGO_PKG_VERSION")))
-            .tls_certs_merge(anchors)
+            .tls_certs_merge(anchors.clone())
             .build()
             .map_err(|error| format!("could not build the streaming client: {error}"))?;
+
+        let proxying = reqwest::Client::builder()
+            .timeout(config.timings.upstream_timeout())
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("hlin/", env!("CARGO_PKG_VERSION")))
+            .tls_certs_merge(anchors)
+            .build()
+            .map_err(|error| format!("could not build the proxying client: {error}"))?;
 
         Ok(Self {
             fetching,
             streaming,
+            proxying,
         })
     }
 
@@ -71,6 +93,10 @@ impl Clients {
         Self {
             fetching: reqwest::Client::new(),
             streaming: reqwest::Client::new(),
+            proxying: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("a client with no configuration builds"),
         }
     }
 }

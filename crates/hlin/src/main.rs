@@ -187,6 +187,7 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
         store,
         client: clients.fetching.clone(),
         stream_client: clients.streaming.clone(),
+        proxy_client: clients.proxying.clone(),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 
