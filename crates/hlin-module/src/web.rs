@@ -44,7 +44,7 @@ impl Host for WebHost {
     }
 
     /// Tokens become custom properties on the document root, so a module's
-    /// CSS reads `var(--hl-bg)` and follows the shell without asking. Tokens
+    /// CSS reads `var(--hlin-surface)` and follows the shell without asking. Tokens
     /// the shell stops sending are removed, and only `--` names are applied:
     /// the shell's theme is tokens, not arbitrary style.
     fn apply_theme(&self, theme: &Theme) {

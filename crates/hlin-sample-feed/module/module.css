@@ -2,24 +2,24 @@
  *
  * Aurora's stylesheet is injected by the module itself (see `app.rs`). This
  * file maps Aurora's tokens onto the shell's theme, so the panel follows the
- * surface it sits on: the SDK sets whatever `--hl-*` tokens the shell sends
+ * surface it sits on: the SDK sets whatever `--hlin-*` tokens the shell sends
  * as custom properties on <html>, and anything the shell does not send falls
  * back to Aurora's own value. `html:root` rather than `:root` so this wins
  * over Aurora's `:root`, which is injected later. */
 
 html:root {
-  --bg: var(--hl-bg, #0e1116);
-  --panel: var(--hl-panel, #161a21);
-  --control: var(--hl-control, #1b2129);
-  --border: var(--hl-border, #232a34);
-  --border-control: var(--hl-border, #2a3340);
-  --fg: var(--hl-fg, #e6e9ee);
-  --fg-bright: var(--hl-fg, #f1f4f8);
-  --muted: var(--hl-muted, #8b95a3);
-  --faint: var(--hl-faint, #5b6573);
-  --ice: var(--hl-accent, #7fb2ff);
-  --bad: var(--hl-bad, #f06464);
-  --ok: var(--hl-good, #4bd07f);
+  --bg: var(--hlin-surface, #0e1116);
+  --panel: var(--hlin-raised, #161a21);
+  --control: var(--hlin-raised, #1b2129);
+  --border: var(--hlin-border, #232a34);
+  --border-control: var(--hlin-border, #2a3340);
+  --fg: var(--hlin-text, #e6e9ee);
+  --fg-bright: var(--hlin-text, #f1f4f8);
+  --muted: var(--hlin-dim, #8b95a3);
+  --faint: var(--hlin-faint, #5b6573);
+  --ice: var(--hlin-accent, #7fb2ff);
+  --bad: var(--hlin-bad, #f06464);
+  --ok: var(--hlin-good, #4bd07f);
 }
 
 .feed {

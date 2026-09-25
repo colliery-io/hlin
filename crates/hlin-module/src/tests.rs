@@ -70,7 +70,7 @@ fn done<F: Future + Unpin>(future: &mut F) -> F::Output {
 
 fn init() -> Init {
     let mut tokens = BTreeMap::new();
-    tokens.insert("--hl-bg".to_string(), "#0f1115".to_string());
+    tokens.insert("--hlin-surface".to_string(), "#0f1115".to_string());
     Init {
         platform: "checklist".into(),
         panel: "items".into(),
@@ -168,7 +168,7 @@ fn init_sets_every_signal_and_applies_the_theme() {
     assert!(module.visible().get_untracked());
     assert_eq!(module.limits().get_untracked(), Limits::default());
     assert_eq!(host.themes.borrow().len(), 1);
-    assert_eq!(host.themes.borrow()[0].tokens["--hl-bg"], "#0f1115");
+    assert_eq!(host.themes.borrow()[0].tokens["--hlin-surface"], "#0f1115");
 }
 
 #[test]

@@ -224,7 +224,7 @@ the first `init` it receives and ignores the rest:
     "params": { "list": ["team"] },
     "generation": 4
   },
-  "theme": { "scheme": "dark", "tokens": { "--hl-bg": "#0f1115", "--hl-accent": "#7aa2f7" } },
+  "theme": { "scheme": "dark", "tokens": { "--hlin-surface": "#0f1115", "--hlin-accent": "#7aa2f7" } },
   "viewer": { "name": "Alice" },
   "read_only": false,
   "limits": { "request_bytes": 1048576, "response_bytes": 4194304,
@@ -246,6 +246,26 @@ fields as `init.context`. A module refetches what depends on it.
 
 **`theme`**, whenever the scheme or tokens change, with the same fields as
 `init.theme`.
+
+`scheme` is `light` or `dark`. `tokens` are the mounted design pack's chrome
+colours, and the set is closed so a module can be written against it:
+
+| Token | Is |
+|---|---|
+| `--hlin-surface` | The page behind everything |
+| `--hlin-raised` | A panel, card or control on it |
+| `--hlin-border` | Lines between things |
+| `--hlin-text` | Body text |
+| `--hlin-dim` | Secondary text |
+| `--hlin-faint` | Tertiary text, placeholders |
+| `--hlin-accent` | The pack's accent: links, primary actions |
+| `--hlin-on-accent` | Text drawn on the accent |
+| `--hlin-good` | Success |
+| `--hlin-warn` | Caution |
+| `--hlin-bad` | Failure, refusal |
+
+A pack may send more; a module should fall back to its own colours for any
+token it does not receive.
 
 **`changed`**, when the module's platform reports that something changed, or
 when another module of the same platform says it wrote something:

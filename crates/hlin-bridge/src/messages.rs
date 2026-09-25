@@ -169,7 +169,7 @@ pub struct TimeRange {
 pub struct Theme {
     /// Light or dark.
     pub scheme: Scheme,
-    /// CSS custom properties (`--hl-bg` and so on) to their values.
+    /// CSS custom properties (`--hlin-surface` and so on) to their values.
     #[serde(default)]
     pub tokens: BTreeMap<String, String>,
 }

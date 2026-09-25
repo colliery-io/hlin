@@ -51,7 +51,7 @@ fn init_reads_and_writes_as_the_specification_shows() {
                 "params": { "list": ["team"] },
                 "generation": 4
             },
-            "theme": { "scheme": "dark", "tokens": { "--hl-bg": "#0f1115", "--hl-accent": "#7aa2f7" } },
+            "theme": { "scheme": "dark", "tokens": { "--hlin-surface": "#0f1115", "--hlin-accent": "#7aa2f7" } },
             "viewer": { "name": "Alice" },
             "read_only": false,
             "limits": { "request_bytes": 1048576, "response_bytes": 4194304,
@@ -80,7 +80,7 @@ fn context_theme_and_visibility_read_and_write() {
     );
     shell(
         "theme",
-        json!({ "scheme": "light", "tokens": { "--hl-fg": "#111" } }),
+        json!({ "scheme": "light", "tokens": { "--hlin-text": "#111" } }),
     );
     shell("visibility", json!({ "visible": false }));
 }
