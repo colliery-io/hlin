@@ -4,14 +4,14 @@ level: task
 title: "Prove a module runs, and cannot escape, in a real browser"
 short_code: "HLIN-T-0071"
 created_at: 2026-09-25T00:01:10.232071+00:00
-updated_at: 2026-09-25T00:01:10.232071+00:00
+updated_at: 2026-09-25T12:02:02.482292+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: HLIN-I-0011
 ## Objective
 
 Slice 11 of [[HLIN-I-0011]]. NFR-1.1 and NFR-1.3 of [[HLIN-S-0007]].
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

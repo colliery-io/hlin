@@ -4,14 +4,14 @@ level: task
 title: "Measure twenty platforms on one surface, and prove it degrades one at a time"
 short_code: "HLIN-T-0084"
 created_at: 2026-09-25T02:43:04.052973+00:00
-updated_at: 2026-09-25T02:43:04.052973+00:00
+updated_at: 2026-09-25T12:02:01.782161+00:00
 parent: HLIN-I-0012
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0012
 
 Task 5 of [[HLIN-I-0012]]: the numbers the new bet asked to be watched,
 and proof that twenty independent platforms fail independently.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
