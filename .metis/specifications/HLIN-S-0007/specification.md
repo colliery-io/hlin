@@ -213,6 +213,73 @@ send whichever `Origin` passed. A shell reachable from other machines sets
 `public_url`, which also closes the fallback to a host name somebody else has
 pointed at it.
 
+## Containment
+
+Every isolation property above fails silently if it fails, so each is proven
+in a real browser (NFR-1.3) rather than argued: `e2e/tests/containment.spec.js`
+mounts the sample platform's hostile module (`ui/hostile`, plain JavaScript
+under exactly the frame and policy every module gets), which tries each escape
+when asked and reports what stopped it. What a frame cannot report about
+itself (a navigation that ended its document, a window that did or did not
+open, a request that did or did not leave the browser) is judged from outside,
+by the page and by the test harness. The matrix, settled for `[1, 0]`:
+
+| Escape attempted | Stopped by |
+|---|---|
+| Read the parent: its `document`, `location`, `localStorage`, a global, `top.document` | The opaque origin: every read throws `SecurityError` |
+| Read cookies, `localStorage`, `sessionStorage`, IndexedDB, Cache Storage, having set some on the shell's origin first | The opaque origin: each throws or fails |
+| Reach the network: `fetch` (the platform directly, the shell's API, another platform's `/m/`, anywhere), XHR, WebSocket, EventSource, an image, `sendBeacon` | The module CSP (`connect-src`, `img-src`); no request leaves the browser |
+| Run script from elsewhere (the platform directly, another platform's `/m/`, `import()`), inline, `eval`, `new Function`, a `javascript:` URL, a worker from a blob, a frame of its own | The module CSP (`script-src`, and `default-src` for workers and frames) |
+| Navigate its own frame off `/m/`: to its platform directly, the shell's pages, `/p/`, a `data:` document | The shell page's `frame-src`, reported on the page; nothing is fetched |
+| Open a window, a link to `_blank`, navigate the top, submit a form to `_top`, navigate a sibling frame, open a dialog | The sandbox's flags (no `allow-popups`, `allow-top-navigation*`, `allow-modals`; a sandboxed frame may navigate only itself), and `form-action 'none'` |
+| Pose as the shell to a sibling module (a forged `context`) | The SDK, and the hand-written modules, hear only `window.parent` |
+| Use a powerful feature: geolocation, fullscreen, the clipboard | The frame's empty `allow`, where the browser governs the feature by permissions policy (see below) |
+| Call `/p/` directly | The module CSP first. With it taken away (a test-only switch, where the harness has one): 403 from the proxy, since the frame's request is cross-site and carries no session; and the platform asked directly answers 401, having no token from the shell |
+| Reach another platform through the bridge: a `platform` field, `..` and `%2e%2e` climbs, the proxy's own address, absolute and scheme-relative URLs | The page routes by frame, never by message: the field is ignored and answered by the frame's own platform; every climb is refused `outside_prefix` in the page |
+| Announce a change as another platform | The page relays a module's `changed` only to its own platform's modules |
+| Flood: 200 messages then a `fetch`; 30 `fetch`es at once | `messages_per_second` (the `fetch` is refused `too_many`); `fetches_in_flight` (8 answered, the rest `too_many`) |
+| Starve the page: two frames each holding streams open unpulled | `streams` per frame (the third is `too_many`) and the page-wide cap over HTTP/1.1 (another module's stream is `too_many`), while its whole requests and the shell's own stream carry on |
+| Throw, synchronously and as a rejected promise | Nothing to stop: the module's error is its own, and the page and panel are unmoved |
+
+**Browsers.** Chromium runs the matrix on every `angreal e2e test`;
+`HLIN_BROWSERS=chromium,chromium-full,firefox,webkit` runs it in the full
+Chromium browser and in Firefox and WebKit as well. As first run (Chromium
+153, Firefox 155, WebKit 26.6), every row holds in all four, with these
+differences, which are the browsers' and not the shell's:
+
+- **A module that spins holds the page still, except in Chromium.** A
+  sandboxed frame served from the page's own site runs in the page's process
+  unless the browser isolates sandboxed frames. Full Chromium does
+  (`IsolateSandboxedIframes`): while a module busy-looped for five seconds the
+  page kept drawing (longest frame gap 17 ms), and the heartbeat marked the
+  panel `stale`, then `ready` when it stopped. Firefox, WebKit and Chromium's
+  headless shell do not: the page drew nothing for the whole five seconds, and
+  because the page's own clock was held too, not even `stale` could be shown
+  until it was over. Containment of *what a module can reach* holds
+  everywhere; containment of *its CPU* is Chromium's alone (see *Open
+  Questions*).
+- **The clipboard.** Chromium withholds clipboard writes from a frame whose
+  `allow` does not grant them. Firefox and WebKit do not govern clipboard
+  writes by permissions policy, and let a frame write (never read) the
+  clipboard on a person's click; nothing the shell sends can withhold it there.
+- **A blocked navigation** leaves an error page in the frame in Chromium and
+  Firefox, which answers nothing, so the module is given up on like any that
+  stops answering; WebKit cancels the navigation and leaves the module where
+  it was.
+- The request-proxy row's second half needs the CSP taken away, which
+  Playwright can do in Chromium and Firefox and not in WebKit, where the CSP
+  stops it first.
+
+**Recorded, not prevented.** `frame-src` confines a frame to `/m/`, not to its
+own platform's part of it: a module can load another platform's module
+document into its own frame. That gives nothing away. The document runs in the
+same sandbox under its own platform's CSP, and the page still attributes the
+frame to the platform that owns the panel: it is never sent `init` again, and
+anything it asked would be carried to the first platform, not its own. And a
+cross-origin window always exposes a few properties (`length`, frames by
+index, `postMessage`), which let a module find and post to its siblings; that
+is the bridge's own means, and a module hears only its parent.
+
 ## Messages
 
 ### Envelope
@@ -701,8 +768,14 @@ stream cap tied to HTTP/2 (so streams cannot starve the shell's own stream).
 ## Open Questions
 
 - **Platforms' own frontends.** Nothing here depends on the answer.
-- **The containment test matrix:** which browsers, and the exact escape
-  attempts asserted (reading the parent, reading cookies, fetching the
-  network, navigating the frame, posting to `/p/` directly, calling another
-  platform's prefix, flooding messages, holding streams open to starve the
-  page).
+- **A module's CPU, outside Chromium.** In Firefox and WebKit a module frame
+  shares the page's process, so a module that spins freezes the whole
+  surface, heartbeat included (*Containment*). Serving `/m/` from a site of
+  its own (a module origin beside the shell's) would put frames in another
+  process wherever the browser isolates by site, which Firefox does and WebKit
+  does not; it would also change *The shell's origin*, the module CSP and the
+  request proxy's first check. Not needed for `[1, 0]`; worth deciding before
+  a platform ships a heavy module to people on Firefox.
+
+The containment matrix, an open question until HLIN-T-0071, is settled and
+written down in *Containment*.
