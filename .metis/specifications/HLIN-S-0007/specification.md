@@ -424,10 +424,12 @@ Idempotency-Key: 01J8Z…          (writes)
 
 with the session cookie, as any request from the shell page. The shell:
 
-1. **Checks the caller.** `Sec-Fetch-Site: same-origin` and an `Origin` equal
-   to the shell's own are required. Anything else is 403 `not_from_shell`.
-   The session cookie's `SameSite` setting is not relied on, because it is
-   configurable.
+1. **Checks the caller.** `Sec-Fetch-Site: same-origin` is required on every
+   request. `Origin` must equal the shell's own wherever it is present, and is
+   required on writes. Browsers send no `Origin` on a same-origin `GET` or
+   `HEAD`, so requiring it on reads would refuse every read the page makes.
+   Anything else is 403 `not_from_shell`. The session cookie's `SameSite`
+   setting is not relied on, because it is configurable.
 2. **Checks the person.** No session is 401 `not_signed_in`.
 3. **Checks the path.** Percent-decoded once, then refused if it contains `..`,
    an empty segment, a backslash, a scheme or a host. It must fall, by segment,
@@ -446,7 +448,11 @@ with the session cookie, as any request from the shell page. The shell:
    headers, the token and `Idempotency-Key`. The upstream timeout applies.
    Bodies are bounded by `request_bytes` and `response_bytes`, except that a
    streamed response is passed through under the streaming limits instead.
-8. **Answers.** The platform's status and body pass back unchanged, with only
+8. **Answers.** A platform's redirect is passed back as its answer, without
+   `Location`, and never followed: following it would carry the viewer's
+   identity to an address the platform did not declare, and passing
+   `Location` on would let the page follow it with the viewer's session. The
+   platform's status and body pass back unchanged, with only
    `content-type`, `etag`, `last-modified` and `cache-control` from its
    headers. A 401 from a platform also goes to the operator channel: the
    shell's token was refused, which is a configuration fault, not the

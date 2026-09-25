@@ -211,6 +211,12 @@ async fn state(base: &str) -> AppState {
         .build()
         .unwrap();
 
+    let proxy_client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(500))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
     AppState {
         config,
         registry,
@@ -219,6 +225,7 @@ async fn state(base: &str) -> AppState {
         store,
         client: client.clone(),
         stream_client: client,
+        proxy_client,
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     }
 }
@@ -491,13 +498,19 @@ async fn a_platform_that_cannot_be_reached_is_a_bad_gateway() {
 }
 
 #[tokio::test]
-async fn a_redirect_out_of_the_prefix_is_not_served() {
-    let (app, _) = shell().await;
+async fn a_redirect_out_of_the_prefix_is_not_served_or_followed() {
+    let (app, asked) = shell().await;
 
     let answered = fetch(&app, "/m/checklist/ui/items/moved.js").await;
 
     assert_eq!(answered.status, StatusCode::BAD_GATEWAY);
     assert_ne!(answered.body, b"not for a module");
+    let asked = asked.lock().unwrap();
+    assert!(
+        asked.iter().all(|(path, _)| path != "/admin/secret"),
+        "the address a redirect names is never asked for: {:?}",
+        asked.iter().map(|(path, _)| path).collect::<Vec<_>>()
+    );
 }
 
 // -- Types --------------------------------------------------------------------

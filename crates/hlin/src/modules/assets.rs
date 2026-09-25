@@ -206,7 +206,9 @@ const PASSED_BACK: [header::HeaderName; 2] = [header::ETAG, header::LAST_MODIFIE
 async fn fetch(state: &AppState, asked: Asked, headers: &HeaderMap) -> Response {
     // As the shell, like a manifest: nothing from the viewer but whether the
     // browser already has this file.
-    let mut request = state.client.get(asked.url.clone());
+    // The proxying client, which never follows a redirect: a platform's 3xx
+    // is refused below before anything is fetched from where it points.
+    let mut request = state.proxy_client.get(asked.url.clone());
     for name in CONDITIONAL {
         if let Some(value) = headers.get(&name) {
             request = request.header(name, value);
@@ -225,15 +227,15 @@ async fn fetch(state: &AppState, asked: Asked, headers: &HeaderMap) -> Response 
         }
     };
 
-    // The shared client follows redirects, so a moved asset has already been
-    // fetched from wherever it moved to. Serving it would let a platform point
-    // its prefix anywhere the shell can reach, so it is refused, as a platform
-    // failing to serve what it declared.
-    if *answer.url() != asked.url {
+    // A redirect is refused rather than followed. Following it would let a
+    // platform point its prefix anywhere the shell can reach, so it counts as
+    // a platform failing to serve what it declared, and the address it names
+    // is never asked for. `304 Not Modified` is a 3xx too, and is not a
+    // redirect: it is the answer to the browser's revalidation.
+    if answer.status().is_redirection() && answer.status() != StatusCode::NOT_MODIFIED {
         tracing::warn!(
             platform = asked.platform,
             asked = %asked.url,
-            landed = %answer.url(),
             "module asset redirected; refused"
         );
         return refused(StatusCode::BAD_GATEWAY, "the platform redirected");
