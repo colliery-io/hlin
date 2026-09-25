@@ -104,6 +104,35 @@ async fn platform(elsewhere: &str) -> (String, Log) {
                     tokio::time::sleep(Duration::from_secs(3)).await;
                     "late".into_response()
                 }
+                // Streamed bodies. Each drops a `CLOSED` record in the log
+                // when its connection goes, however it goes.
+                "trickle" => streaming(
+                    Closing::new(&log, &path),
+                    vec![
+                        (Duration::ZERO, b"first".to_vec()),
+                        // Longer than the upstream timeout.
+                        (Duration::from_millis(1500), b"second".to_vec()),
+                    ],
+                ),
+                "quiet" => streaming(
+                    Closing::new(&log, &path),
+                    vec![
+                        (Duration::ZERO, b"hello".to_vec()),
+                        (Duration::from_secs(30), b"too late".to_vec()),
+                    ],
+                ),
+                "flood" => streaming(
+                    Closing::new(&log, &path),
+                    (0..2000)
+                        .map(|_| (Duration::from_millis(5), vec![b'f'; 512]))
+                        .collect(),
+                ),
+                "endless" => streaming(
+                    Closing::new(&log, &path),
+                    (0..20_000)
+                        .map(|_| (Duration::from_millis(20), b"tick\n".to_vec()))
+                        .collect(),
+                ),
                 _ => (
                     StatusCode::OK,
                     [
@@ -131,6 +160,51 @@ async fn platform(elsewhere: &str) -> (String, Log) {
     });
 
     (format!("http://127.0.0.1:{port}"), log)
+}
+
+/// Records in the platform's log that a streamed body's connection went.
+struct Closing {
+    log: Log,
+    path: String,
+}
+
+impl Closing {
+    fn new(log: &Log, path: &str) -> Self {
+        Self {
+            log: log.clone(),
+            path: path.to_string(),
+        }
+    }
+}
+
+impl Drop for Closing {
+    fn drop(&mut self) {
+        self.log.lock().unwrap().push(Seen {
+            method: "CLOSED".to_string(),
+            path: self.path.clone(),
+            query: None,
+            headers: Default::default(),
+            body: Vec::new(),
+        });
+    }
+}
+
+/// A body sent a piece at a time, each after its pause.
+fn streaming(closing: Closing, pieces: Vec<(Duration, Vec<u8>)>) -> axum::response::Response {
+    let pieces = pieces.into_iter();
+    let body = futures::stream::unfold((closing, pieces), |(closing, mut pieces)| async move {
+        let (pause, piece) = pieces.next()?;
+        tokio::time::sleep(pause).await;
+        Some((
+            Ok::<_, std::convert::Infallible>(bytes::Bytes::from(piece)),
+            (closing, pieces),
+        ))
+    });
+    (
+        [("content-type", "text/event-stream")],
+        Body::from_stream(body),
+    )
+        .into_response()
 }
 
 /// Every platform declares the same routes: reads under `/api/` and
@@ -200,6 +274,16 @@ async fn shell_with(auth: AuthConfig) -> Shell {
         },
     };
 
+    // Streams that may go quiet for a second, at a kilobyte a second.
+    let mut narrow = platform_config("narrow", &base, CredentialConfig::HlinToken);
+    narrow.modules = PlatformModules {
+        limits: LimitOverrides {
+            stream_idle_seconds: Some(1),
+            stream_bytes_per_second: Some(SMALL),
+            ..Default::default()
+        },
+    };
+
     let config = Arc::new(Config {
         public_url: Some(ORIGIN.to_string()),
         modules: Default::default(),
@@ -236,6 +320,7 @@ async fn shell_with(auth: AuthConfig) -> Shell {
                 },
             ),
             small,
+            narrow,
             // Port 1: nothing listens there.
             PlatformConfig {
                 id: "gone".to_string(),
@@ -1061,4 +1146,298 @@ async fn a_shell_refusal_says_whose_it_is_in_its_body_too() {
             .as_str()
             .is_some_and(|reason| !reason.is_empty())
     );
+}
+
+// -- Streamed answers (*Streaming*) -------------------------------------------
+
+use futures::StreamExt;
+use hlin_stream::streamed::{Decoder, Ended, Frame, STREAM_HEADER};
+
+/// A streamed read, as the page asks for one.
+fn streamed(uri: &str) -> axum::http::request::Builder {
+    from_page("GET", uri).header(STREAM_HEADER, "1")
+}
+
+/// A streamed answer, read a frame at a time as the page reads it.
+struct Streamed {
+    status: StatusCode,
+    headers: axum::http::HeaderMap,
+    body: axum::body::BodyDataStream,
+    decoder: Decoder,
+    held: std::collections::VecDeque<Frame>,
+}
+
+impl Streamed {
+    async fn open(shell: &Shell, request: axum::http::request::Builder) -> Self {
+        let response = shell
+            .app
+            .clone()
+            .oneshot(request.body(Body::empty()).expect("a request"))
+            .await
+            .expect("the router answers");
+        Self {
+            status: response.status(),
+            headers: response.headers().clone(),
+            body: response.into_body().into_data_stream(),
+            decoder: Decoder::new(),
+            held: Default::default(),
+        }
+    }
+
+    /// The next frame, or `None` if the body stopped without one.
+    async fn next(&mut self) -> Option<Frame> {
+        loop {
+            if let Some(frame) = self.held.pop_front() {
+                return Some(frame);
+            }
+            let piece = self.body.next().await?.ok()?;
+            self.held.extend(self.decoder.push(&piece));
+        }
+    }
+
+    /// Every frame to the end, and the data they carried.
+    async fn rest(&mut self) -> (Vec<u8>, Option<Ended>) {
+        let mut data = Vec::new();
+        while let Some(frame) = self.next().await {
+            match frame {
+                Frame::Data(piece) => data.extend(piece),
+                Frame::End(why) => return (data, Some(why)),
+            }
+        }
+        (data, None)
+    }
+}
+
+impl Shell {
+    /// Whether the platform has seen the connection for `path` close.
+    fn closed(&self, path: &str) -> bool {
+        self.seen()
+            .iter()
+            .any(|seen| seen.method == "CLOSED" && seen.path.ends_with(path))
+    }
+
+    async fn waits_for_close(&self, path: &str) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !self.closed(path) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("the platform never saw {path} close"));
+    }
+}
+
+#[tokio::test]
+async fn a_streamed_read_passes_each_piece_through_as_it_arrives() {
+    let shell = shell().await;
+    let mut answer = Streamed::open(&shell, streamed("/p/checklist/api/trickle")).await;
+    assert_eq!(answer.status, StatusCode::OK);
+    assert_eq!(
+        answer
+            .headers
+            .get(STREAM_HEADER)
+            .map(|v| v.to_str().unwrap()),
+        Some("framed")
+    );
+    // Only what a whole answer passes back, besides.
+    assert_eq!(
+        answer
+            .headers
+            .get("content-type")
+            .map(|v| v.to_str().unwrap()),
+        Some("text/event-stream")
+    );
+
+    // The first piece arrives while the platform is still holding the second:
+    // passed through, not gathered.
+    let first = tokio::time::timeout(Duration::from_millis(800), answer.next())
+        .await
+        .expect("the first piece before the platform has finished");
+    assert_eq!(first, Some(Frame::Data(b"first".to_vec())));
+
+    // The platform paused for longer than the upstream timeout, which bounds
+    // only its status and headers.
+    assert_eq!(
+        answer.rest().await,
+        (b"second".to_vec(), Some(Ended::Finished))
+    );
+
+    let seen = shell.seen();
+    let request = seen.iter().find(|seen| seen.method == "GET").unwrap();
+    assert!(
+        request.headers.get(STREAM_HEADER).is_none(),
+        "the page's own header is the shell's, not the platform's"
+    );
+}
+
+#[tokio::test]
+async fn response_bytes_does_not_bound_a_streamed_answer() {
+    let shell = shell().await;
+    // Twice `small`'s `response_bytes`, which a whole answer is refused for.
+    let mut answer = Streamed::open(&shell, streamed("/p/small/api/big")).await;
+    assert_eq!(answer.status, StatusCode::OK);
+    let (data, ended) = answer.rest().await;
+    assert_eq!(data.len(), SMALL * 2);
+    assert_eq!(ended, Some(Ended::Finished));
+}
+
+#[tokio::test]
+async fn a_platforms_status_and_words_stream_like_any_answer() {
+    let shell = shell().await;
+    let mut answer = Streamed::open(&shell, streamed("/p/checklist/api/forbidden")).await;
+    assert_eq!(answer.status, StatusCode::FORBIDDEN);
+    assert_eq!(answer.headers.get("x-hlin-refusal"), None);
+    assert_eq!(
+        answer.rest().await,
+        (
+            b"Only Alice may edit Alice's items".to_vec(),
+            Some(Ended::Finished)
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_stream_the_shell_refuses_is_refused_whole() {
+    let shell = shell().await;
+    let answer = shell.call(streamed("/p/checklist/admin/secrets")).await;
+    answer.refused(StatusCode::NOT_FOUND, "outside_prefix");
+    assert_eq!(answer.headers.get(STREAM_HEADER), None);
+}
+
+#[tokio::test]
+async fn a_streamed_write_is_refused_for_its_method() {
+    let shell = shell().await;
+    let answer = shell
+        .call(from_page("POST", "/p/checklist/api/items").header(STREAM_HEADER, "1"))
+        .await;
+    answer.refused(StatusCode::METHOD_NOT_ALLOWED, "method");
+    assert!(shell.seen().is_empty());
+}
+
+#[tokio::test]
+async fn a_stream_whose_headers_do_not_come_in_time_is_a_timeout() {
+    let shell = shell().await;
+    let answer = shell.call(streamed("/p/checklist/api/slow")).await;
+    answer.refused(StatusCode::GATEWAY_TIMEOUT, "timeout");
+}
+
+#[tokio::test]
+async fn a_stream_that_goes_quiet_is_ended_as_idle() {
+    let shell = shell().await;
+    let started = std::time::Instant::now();
+    let mut answer = Streamed::open(&shell, streamed("/p/narrow/api/quiet")).await;
+    let ended = tokio::time::timeout(Duration::from_secs(5), answer.rest())
+        .await
+        .expect("ended long before the platform's next piece");
+    assert_eq!(ended, (b"hello".to_vec(), Some(Ended::Idle)));
+    assert!(started.elapsed() >= Duration::from_secs(1));
+    shell.waits_for_close("/api/quiet").await;
+}
+
+#[tokio::test]
+async fn a_stream_faster_than_its_rate_is_ended_for_it() {
+    let shell = shell().await;
+    let mut answer = Streamed::open(&shell, streamed("/p/narrow/api/flood")).await;
+    let (data, ended) = tokio::time::timeout(Duration::from_secs(5), answer.rest())
+        .await
+        .expect("ended long before the flood is over");
+    assert_eq!(ended, Some(Ended::Rate));
+    // At most one second's allowance got through.
+    assert!(data.len() <= SMALL, "{} bytes passed", data.len());
+    shell.waits_for_close("/api/flood").await;
+
+    // The same flood is within the default rate.
+    let mut answer = Streamed::open(&shell, streamed("/p/checklist/api/flood")).await;
+    for _ in 0..20 {
+        assert!(matches!(answer.next().await, Some(Frame::Data(_))));
+    }
+}
+
+#[tokio::test]
+async fn the_page_going_away_drops_the_platforms_connection() {
+    let shell = shell().await;
+    let mut answer = Streamed::open(&shell, streamed("/p/checklist/api/endless")).await;
+    assert_eq!(answer.next().await, Some(Frame::Data(b"tick\n".to_vec())));
+    assert!(!shell.closed("/api/endless"));
+
+    // What a `cancel` does in the page: the request is aborted.
+    drop(answer);
+    shell.waits_for_close("/api/endless").await;
+}
+
+#[tokio::test]
+async fn a_stream_the_platform_breaks_off_ends_as_unreachable() {
+    // A platform that sends a status and a piece and then resets.
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut request = [0u8; 4096];
+            let _ = socket.read(&mut request).await;
+            let _ = socket
+                .write_all(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n")
+                .await;
+            // Gone without the last chunk.
+        }
+    });
+
+    let base = format!("http://127.0.0.1:{port}");
+    let config = Arc::new(Config {
+        public_url: Some(ORIGIN.to_string()),
+        modules: Default::default(),
+        bind: "127.0.0.1".to_string(),
+        port: 8080,
+        issuer: "hlin".to_string(),
+        key_path: "/tmp/unused.key".into(),
+        ca_bundle: None,
+        database_url: None,
+        database_url_env: None,
+        frontend: "unused".into(),
+        auth: AuthConfig::TrustedHeader {
+            header: USER.to_string(),
+            groups_header: None,
+            name_header: None,
+            acknowledge_proxy_required: true,
+        },
+        timings: Timings::default(),
+        platforms: vec![platform_config(
+            "broken",
+            &base,
+            CredentialConfig::HlinToken,
+        )],
+    });
+    let issuer = Arc::new(Issuer::generate("hlin"));
+    let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
+    let registry = Arc::new(
+        Registry::new(&config, issuer.clone(), store.clone(), Arc::new(Manifests))
+            .expect("registry builds"),
+    );
+    registry.poll_all().await;
+    let clients = hlin::clients::Clients::build(&config).expect("clients build");
+    let shell = Shell {
+        app: router(AppState {
+            config,
+            registry,
+            issuer: issuer.clone(),
+            surfaces: Arc::new(hlin::surfaces::Surfaces::new()),
+            store,
+            client: clients.fetching,
+            stream_client: clients.streaming,
+            proxy_client: clients.proxying,
+            streams: Arc::new(hlin::stream::streams::Streams::new()),
+        }),
+        issuer,
+        log: Arc::default(),
+        elsewhere: Arc::default(),
+    };
+
+    let mut answer = Streamed::open(&shell, streamed("/p/broken/api/items")).await;
+    assert_eq!(answer.status, StatusCode::OK);
+    let ended = tokio::time::timeout(Duration::from_secs(5), answer.rest())
+        .await
+        .expect("an end");
+    assert_eq!(ended, (b"hello".to_vec(), Some(Ended::Unreachable)));
 }

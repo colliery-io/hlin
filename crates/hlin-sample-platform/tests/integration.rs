@@ -517,3 +517,61 @@ async fn a_quiet_platform_still_says_it_is_there() {
          as liveness: {seen:?}"
     );
 }
+
+// -- The feed its module streams -------------------------------------------
+
+async fn feed_counts(base: &str, id: &str) -> serde_json::Value {
+    reqwest::get(format!("{base}/api/module/feed/{id}"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_feed_ticks_in_order_and_counts_what_it_wrote_until_its_reader_leaves() {
+    use futures::StreamExt;
+    let (base, _changes) = serving().await;
+
+    let feed = reqwest::get(format!("{base}/api/module/feed?id=counted&every_ms=10"))
+        .await
+        .expect("the feed opens");
+    assert_eq!(
+        feed.headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/event-stream")
+    );
+
+    let mut body = feed.bytes_stream();
+    let mut read = String::new();
+    while !read.contains("data: tick 3\n") {
+        let piece = body.next().await.expect("more").expect("a piece");
+        read.push_str(&String::from_utf8_lossy(&piece));
+    }
+    let order: Vec<usize> = (0..4)
+        .map(|n| read.find(&format!("data: tick {n}\n")).expect("each tick"))
+        .collect();
+    assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{read}");
+
+    let open = feed_counts(&base, "counted").await;
+    assert_eq!(open["open"], true);
+    assert!(open["ticks"].as_u64().unwrap() >= 4);
+
+    drop(body);
+    let mut closed = false;
+    for _ in 0..100 {
+        if feed_counts(&base, "counted").await["open"] == false {
+            closed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(closed, "the feed saw its reader leave");
+
+    let unknown = reqwest::get(format!("{base}/api/module/feed/never-opened"))
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), 404);
+}

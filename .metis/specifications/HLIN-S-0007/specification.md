@@ -439,6 +439,13 @@ module's own data, not a second route for the platform's events.
 At the proxy, a streamed response is passed through as it arrives: the
 upstream timeout applies until the status and headers, `response_bytes` does
 not apply, and `stream_bytes_per_second` and `stream_idle_seconds` do.
+The page asks for a streamed answer with `X-Hlin-Stream`, and the shell
+answers one with the same header and a framed body (data frames as they
+arrive, then an end frame naming `idle`, `rate` or `unreachable`, or none),
+because an HTTP body cannot otherwise say why it stopped and the module's
+`end` must. A body that stops without an end frame is `unreachable`. The
+format is the shell's and its page's (`hlin_stream::streamed`); a module
+never sees it.
 
 ## The request proxy
 

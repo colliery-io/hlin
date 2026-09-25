@@ -8,7 +8,8 @@
 //! there. What is here is the part that cannot be tested without a browser:
 //! creating the frame, one `message` listener for the whole page, one clock,
 //! the observers that say where a panel is, and the requests to `/p/` and to
-//! the shell's relay.
+//! the shell's relay, and the reading of a streamed response as fast as its
+//! module asks and no faster.
 //!
 //! Frames are created imperatively rather than through the view, for one
 //! reason the specification insists on: a frame leaving the surface is removed
@@ -28,11 +29,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use hlin_bridge::{
-    ChangeSource, Context, Envelope, Heartbeat, IdMint, Init, Limits, Method, ModuleChanged,
-    ModuleMessage, NoticeLevel, Refusal, Response, Scheme, Selections, ShellChanged, ShellMessage,
-    Suspend, Target, Theme, TimeRange, Viewer, Visibility,
+    ChangeSource, Chunk, Context, End, EndError, Envelope, Heartbeat, IdMint, Init, Limits, Method,
+    ModuleChanged, ModuleMessage, NoticeLevel, Refusal, Response, Scheme, Selections, ShellChanged,
+    ShellMessage, Suspend, Target, Theme, TimeRange, Viewer, Visibility,
 };
 use hlin_stream::layout::ModuleLimits;
+use hlin_stream::streamed::{Decoder, Ended, Frame, STREAM_HEADER};
 use hlin_stream::{ChangeOrigin, ChangedFrame};
 use hlin_view::{Cause, PanelState};
 use leptos::prelude::*;
@@ -240,6 +242,57 @@ struct Page {
     /// Modules given up on as unreachable, by instance, with their platform
     /// and panel: remounted on that panel's next change from the platform.
     given_up: BTreeMap<String, (String, String)>,
+    /// Streamed responses being read, by a number of the page's own: a
+    /// module's `fetch` id is only unique within its own mounting.
+    flows: BTreeMap<u64, Flow>,
+    flow_serial: u64,
+    /// How many module streams the whole page may hold open, from the
+    /// protocol it was served over (*Streaming*, *Connections*).
+    stream_cap: usize,
+}
+
+/// One streamed response, between the page's reads and its module's `pull`s.
+struct Flow {
+    instance: String,
+    /// The mounting that asked, so a remounted frame neither counts nor
+    /// feeds its predecessor's streams.
+    serial: u64,
+    /// The module's `fetch` id, which every `chunk` and `end` names.
+    re: String,
+    outbox: bridge::Outbox,
+    /// Aborting it aborts the request, and the shell drops the platform's
+    /// connection.
+    abort: web_sys::AbortController,
+    /// Wakes the reading task when it is waiting for credit.
+    wake: Option<futures::channel::oneshot::Sender<()>>,
+    /// Set when `end` has been sent, by whichever side ended it: the page
+    /// never says anything after it.
+    ended: bool,
+}
+
+impl Page {
+    /// Streams open in one mounting, and on the whole page.
+    fn open_streams(&self, instance: &str, serial: u64) -> (usize, usize) {
+        let open = self.flows.values().filter(|flow| !flow.ended);
+        let (mut here, mut all) = (0, 0);
+        for flow in open {
+            all += 1;
+            if flow.instance == instance && flow.serial == serial {
+                here += 1;
+            }
+        }
+        (here, all)
+    }
+
+    /// The open stream this mounting's module calls `re`.
+    fn flow_named(&self, instance: &str, serial: u64, re: &str) -> Option<u64> {
+        self.flows
+            .iter()
+            .find(|(_, flow)| {
+                !flow.ended && flow.instance == instance && flow.serial == serial && flow.re == re
+            })
+            .map(|(id, _)| *id)
+    }
 }
 
 thread_local! {
@@ -279,6 +332,16 @@ pub fn start(published: RwSignal<BTreeMap<String, ModuleView>>) {
     let Some(window) = web_sys::window() else {
         return;
     };
+
+    let protocol = window
+        .performance()
+        .map(|performance| performance.get_entries_by_type("navigation"))
+        .and_then(|entries| {
+            js_sys::Reflect::get(&entries.get(0), &JsValue::from_str("nextHopProtocol")).ok()
+        })
+        .and_then(|protocol| protocol.as_string())
+        .unwrap_or_default();
+    PAGE.with(|page| page.borrow_mut().stream_cap = bridge::page_stream_cap(&protocol));
 
     let heard = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(on_message);
     let _ = window.add_event_listener_with_callback("message", heard.as_ref().unchecked_ref());
@@ -730,6 +793,7 @@ fn seen(instance: &str, in_view: Option<bool>) {
 /// document. Called when its panel leaves the surface, and when the module is
 /// given up on.
 pub fn unmount(instance: &str) {
+    end_streams_of(instance);
     PAGE.with(|page| {
         let mut page = page.borrow_mut();
         page.registry.remove(instance);
@@ -819,6 +883,15 @@ fn keep_to_budget() {
 /// A frame that came back into view while it was being suspended is left
 /// where it is: the budget never takes what a person is looking at.
 fn detach(instance: &str) {
+    let staying = PAGE.with(|page| {
+        page.borrow()
+            .hosts
+            .get(instance)
+            .is_none_or(|host| host.in_view)
+    });
+    if !staying {
+        end_streams_of(instance);
+    }
     PAGE.with(|page| {
         let mut page = page.borrow_mut();
         let Some(host) = page.hosts.get(instance) else {
@@ -1146,6 +1219,10 @@ enum Then {
     Changed(String, ModuleChanged),
     /// The module answered `suspend`: keep this, and unmount it.
     Keep(Option<Vec<u8>>),
+    /// Credit for a stream of this mounting's.
+    Pull(u64, hlin_bridge::Pull),
+    /// The module ended a stream of this mounting's.
+    Cancel(u64, String),
 }
 
 /// A `fetch` the page will make.
@@ -1154,6 +1231,17 @@ struct Carriage {
     re: String,
     address: String,
     fetch: hlin_bridge::Fetch,
+}
+
+/// Room for streams, as the page stood when a message arrived.
+#[derive(Debug, Clone, Copy)]
+struct StreamRoom {
+    /// Open in the frame that sent it.
+    in_frame: usize,
+    /// Open on the whole page.
+    on_page: usize,
+    /// The page's cap.
+    page_cap: usize,
 }
 
 fn on_message(event: web_sys::MessageEvent) {
@@ -1172,8 +1260,15 @@ fn on_message(event: web_sys::MessageEvent) {
         let mut page = page.borrow_mut();
         // Identity is the window the message came from, never anything in it.
         let instance = page.registry.source(&source)?.instance.clone();
+        let serial = page.hosts.get(&instance)?.serial;
+        let (in_frame, on_page) = page.open_streams(&instance, serial);
+        let room = StreamRoom {
+            in_frame,
+            on_page,
+            page_cap: page.stream_cap,
+        };
         let host = page.hosts.get_mut(&instance)?;
-        Some((instance, handle(host, envelope, at)))
+        Some((instance, handle(host, envelope, at, room)))
     });
 
     let Some((instance, then)) = handled else {
@@ -1195,8 +1290,37 @@ fn on_message(event: web_sys::MessageEvent) {
             Some(re),
             ShellMessage::Response(refused(refusal, reason)),
         ),
+        Then::Carry(carriage) if carriage.fetch.stream => {
+            // Counted open from this moment, before anything else the module
+            // sent is handled, so two asked for at once cannot both be the
+            // last one allowed.
+            let Some((flow, signal)) = open_flow(&instance, &carriage) else {
+                return;
+            };
+            leptos::task::spawn_local(carry_stream(instance, carriage, flow, signal));
+        }
         Then::Carry(carriage) => {
             leptos::task::spawn_local(carry(instance, carriage));
+        }
+        Then::Pull(serial, pull) => {
+            PAGE.with(|page| {
+                let mut page = page.borrow_mut();
+                let flow = page
+                    .flow_named(&instance, serial, &pull.re)
+                    .and_then(|id| page.flows.get_mut(&id));
+                if let Some(flow) = flow {
+                    flow.outbox.grant(pull.bytes);
+                    if let Some(wake) = flow.wake.take() {
+                        let _ = wake.send(());
+                    }
+                }
+            });
+        }
+        Then::Cancel(serial, re) => {
+            let flow = PAGE.with(|page| page.borrow().flow_named(&instance, serial, &re));
+            if let Some(flow) = flow {
+                end_flow(flow, Some(EndError::Cancelled));
+            }
         }
         Then::Ask(asked) => ask(asked),
         Then::SetParam(id, values) => {
@@ -1241,7 +1365,7 @@ fn ask(asked: Asked) {
     }
 }
 
-fn handle(host: &mut Host, envelope: Envelope<ModuleMessage>, at: f64) -> Then {
+fn handle(host: &mut Host, envelope: Envelope<ModuleMessage>, at: f64, room: StreamRoom) -> Then {
     if matches!(host.liveness.state(), PanelState::Unavailable(_)) {
         return Then::Nothing;
     }
@@ -1298,7 +1422,11 @@ fn handle(host: &mut Host, envelope: Envelope<ModuleMessage>, at: f64) -> Then {
                 Then::Publish(host.view())
             }
         }
-        ModuleMessage::Fetch(fetch) => admit_fetch(host, envelope.id, fetch),
+        ModuleMessage::Fetch(fetch) => admit_fetch(host, envelope.id, fetch, room),
+        // A stream's credit and its end, like a `fetch`, need no `ready`: they
+        // are about a request the page already let the module make.
+        ModuleMessage::Pull(pull) => Then::Pull(host.serial, pull),
+        ModuleMessage::Cancel(cancel) => Then::Cancel(host.serial, cancel.re),
         ModuleMessage::State(state) => {
             // Only an answer to `suspend`; anything else is a module keeping
             // state the page never offered to hold.
@@ -1335,12 +1463,11 @@ fn handle(host: &mut Host, envelope: Envelope<ModuleMessage>, at: f64) -> Then {
             host.notice = shown;
             Then::Publish(host.view())
         }
-        // A streamed response's credit and cancellation are HLIN-T-0068's.
         _ => Then::Nothing,
     }
 }
 
-fn admit_fetch(host: &mut Host, re: String, fetch: hlin_bridge::Fetch) -> Then {
+fn admit_fetch(host: &mut Host, re: String, fetch: hlin_bridge::Fetch, room: StreamRoom) -> Then {
     if fetch.method == Method::Other {
         return Then::Refuse(
             re,
@@ -1348,15 +1475,9 @@ fn admit_fetch(host: &mut Host, re: String, fetch: hlin_bridge::Fetch) -> Then {
             "the bridge carries only HTTP's six methods",
         );
     }
-    if fetch.stream {
-        // A streamed read is HLIN-T-0068's; until it lands a module asking for
-        // one is told the method is not carried, which is what it would hear
-        // for `stream` on a write.
-        return Then::Refuse(
-            re,
-            Refusal::Method,
-            "streamed responses are not carried yet",
-        );
+    // A stream is a read only: a write's answer is a decision, not a feed.
+    if fetch.stream && !matches!(fetch.method, Method::Get | Method::Head) {
+        return Then::Refuse(re, Refusal::Method, "only a read may be streamed");
     }
     let size = fetch.body.as_ref().map_or(0, Vec::len) as u64;
     if size > host.mount.limits.request_bytes {
@@ -1372,6 +1493,21 @@ fn admit_fetch(host: &mut Host, re: String, fetch: hlin_bridge::Fetch) -> Then {
             );
         }
     };
+    if fetch.stream
+        && !bridge::admits_stream(
+            room.in_frame,
+            host.mount.limits.streams,
+            room.on_page,
+            room.page_cap,
+        )
+    {
+        let reason = if room.on_page >= room.page_cap {
+            "this page has as many streams open as it can hold"
+        } else {
+            "this frame has as many streams open as it may"
+        };
+        return Then::Refuse(re, Refusal::TooMany, reason);
+    }
     if !host.allowance.begin_fetch() {
         return Then::Refuse(
             re,
@@ -1414,57 +1550,9 @@ async fn carry(instance: String, carriage: Carriage) {
         mut fetch,
     } = carriage;
 
-    let method = match fetch.method {
-        Method::Get => gloo_net::http::Method::GET,
-        Method::Head => gloo_net::http::Method::HEAD,
-        Method::Post => gloo_net::http::Method::POST,
-        Method::Put => gloo_net::http::Method::PUT,
-        Method::Patch => gloo_net::http::Method::PATCH,
-        Method::Delete | Method::Other => gloo_net::http::Method::DELETE,
-    };
-    let mut builder = gloo_net::http::RequestBuilder::new(&address)
-        .method(method)
-        .header("x-hlin-instance", &instance);
-    for (name, value) in &fetch.headers {
-        if hlin_bridge::is_allowed_request_header(name) {
-            builder = builder.header(name, value);
-        }
-    }
-    if let Some(key) = &fetch.idempotency_key {
-        builder = builder.header("idempotency-key", key);
-    }
-    let request = match fetch.body.take() {
-        Some(bytes) => builder.body(js_sys::Uint8Array::from(bytes.as_slice())),
-        None => builder.build(),
-    };
-
-    let answer = match request {
+    let answer = match request_for(&instance, &address, &mut fetch, None) {
         Ok(request) => match request.send().await {
-            Ok(response) => {
-                let status = response.status();
-                let headers = response.headers();
-                let entries: Vec<(String, String)> = headers.entries().collect();
-                let refusal = bridge::refusal_named(
-                    entries
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case("x-hlin-refusal"))
-                        .map(|(_, value)| value.as_str()),
-                );
-                match response.binary().await {
-                    Ok(body) => Response {
-                        status,
-                        headers: bridge::passed_back(
-                            entries
-                                .iter()
-                                .map(|(name, value)| (name.as_str(), value.as_str())),
-                        ),
-                        body: Some(body),
-                        refusal,
-                        streaming: false,
-                    },
-                    Err(_) => refused(Refusal::Unreachable, "the answer stopped partway"),
-                }
-            }
+            Ok(response) => whole(response).await,
             Err(_) => refused(Refusal::Unreachable, "the shell could not be reached"),
         },
         Err(_) => refused(Refusal::Unreachable, "the request could not be made"),
@@ -1482,6 +1570,350 @@ async fn carry(instance: String, carriage: Carriage) {
     if current.is_some() {
         post(&instance, Some(re), ShellMessage::Response(answer));
     }
+}
+
+/// The request to `/p/` for a module's `fetch`: its method, the headers a
+/// module may send, its key, its body, and for a stream the header asking for
+/// one and the signal that aborts it.
+fn request_for(
+    instance: &str,
+    address: &str,
+    fetch: &mut hlin_bridge::Fetch,
+    abort: Option<&web_sys::AbortSignal>,
+) -> Result<gloo_net::http::Request, gloo_net::Error> {
+    let method = match fetch.method {
+        Method::Get => gloo_net::http::Method::GET,
+        Method::Head => gloo_net::http::Method::HEAD,
+        Method::Post => gloo_net::http::Method::POST,
+        Method::Put => gloo_net::http::Method::PUT,
+        Method::Patch => gloo_net::http::Method::PATCH,
+        Method::Delete | Method::Other => gloo_net::http::Method::DELETE,
+    };
+    let mut builder = gloo_net::http::RequestBuilder::new(address)
+        .method(method)
+        .header("x-hlin-instance", instance);
+    if fetch.stream {
+        builder = builder.header(STREAM_HEADER, "1").abort_signal(abort);
+    }
+    for (name, value) in &fetch.headers {
+        if hlin_bridge::is_allowed_request_header(name) {
+            builder = builder.header(name, value);
+        }
+    }
+    if let Some(key) = &fetch.idempotency_key {
+        builder = builder.header("idempotency-key", key);
+    }
+    match fetch.body.take() {
+        Some(bytes) => builder.body(js_sys::Uint8Array::from(bytes.as_slice())),
+        None => builder.build(),
+    }
+}
+
+/// An answer's status, and the headers a module may see, with the shell's
+/// refusal named if it was one.
+fn answered(
+    response: &gloo_net::http::Response,
+) -> (u16, BTreeMap<String, String>, Option<Refusal>) {
+    let entries: Vec<(String, String)> = response.headers().entries().collect();
+    let refusal = bridge::refusal_named(
+        entries
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("x-hlin-refusal"))
+            .map(|(_, value)| value.as_str()),
+    );
+    let headers = bridge::passed_back(
+        entries
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    );
+    (response.status(), headers, refusal)
+}
+
+/// An answer read whole.
+async fn whole(response: gloo_net::http::Response) -> Response {
+    let (status, headers, refusal) = answered(&response);
+    match response.binary().await {
+        Ok(body) => Response {
+            status,
+            headers,
+            body: Some(body),
+            refusal,
+            streaming: false,
+        },
+        Err(_) => refused(Refusal::Unreachable, "the answer stopped partway"),
+    }
+}
+
+// -- Streams -------------------------------------------------------------------
+
+/// Count a stream the page has admitted as open, with the signal that aborts
+/// its request.
+fn open_flow(instance: &str, carriage: &Carriage) -> Option<(u64, web_sys::AbortSignal)> {
+    let abort = web_sys::AbortController::new().ok()?;
+    let signal = abort.signal();
+    let id = PAGE.with(|page| {
+        let mut page = page.borrow_mut();
+        page.flow_serial += 1;
+        let id = page.flow_serial;
+        page.flows.insert(
+            id,
+            Flow {
+                instance: instance.to_string(),
+                serial: carriage.serial,
+                re: carriage.re.clone(),
+                outbox: bridge::Outbox::new(),
+                abort,
+                wake: None,
+                ended: false,
+            },
+        );
+        id
+    });
+    Some((id, signal))
+}
+
+/// End a stream: tell its module why, once, and stop its request.
+///
+/// Whoever ends a stream calls this — the reading task when the body is over,
+/// a `cancel`, an unmount — and whichever comes first is the one the module
+/// hears. Aborting the request is what makes the shell drop the platform's
+/// connection. The flow stays counted as ended until its task has let go.
+fn end_flow(id: u64, error: Option<EndError>) {
+    let ended = PAGE.with(|page| {
+        let mut page = page.borrow_mut();
+        let flow = page.flows.get_mut(&id).filter(|flow| !flow.ended)?;
+        flow.ended = true;
+        flow.abort.abort();
+        if let Some(wake) = flow.wake.take() {
+            let _ = wake.send(());
+        }
+        let (instance, serial, re) = (flow.instance.clone(), flow.serial, flow.re.clone());
+        let delivered = flow.outbox.delivered();
+        let host = page
+            .hosts
+            .get(&instance)
+            .filter(|host| host.serial == serial)?;
+        Some((
+            instance,
+            re,
+            format!("{}/{}", host.mount.platform, host.mount.panel),
+            delivered,
+        ))
+    });
+    let Some((instance, re, module, delivered)) = ended else {
+        return;
+    };
+    // On the console, where an operator debugging a module looks, and where
+    // a browser test can see an end the module itself did not live to.
+    let why = error
+        .and_then(|error| serde_json::to_value(error).ok())
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| "finished".to_string());
+    leptos::logging::log!("module {module}: stream {re} ended ({why}) after {delivered} bytes");
+    post(&instance, None, ShellMessage::End(End { re, error }));
+}
+
+/// End every stream a frame holds, because its document is going
+/// (*Streaming*: unmounting ends a frame's streams with `unmounted`).
+///
+/// Called before the frame leaves the document, so the module is told while
+/// there is still someone to tell.
+fn end_streams_of(instance: &str) {
+    let open: Vec<u64> = PAGE.with(|page| {
+        page.borrow()
+            .flows
+            .iter()
+            .filter(|(_, flow)| flow.instance == instance && !flow.ended)
+            .map(|(id, _)| *id)
+            .collect()
+    });
+    for id in open {
+        end_flow(id, Some(EndError::Unmounted));
+    }
+}
+
+/// What a stream's reading task does next.
+enum Step {
+    /// Send the module this `chunk`.
+    Send(u64, Vec<u8>),
+    /// Everything read has been sent, and the shell said how it ended.
+    End(Ended),
+    /// Read more from the network.
+    Read,
+    /// Wait for credit.
+    Wait(futures::channel::oneshot::Receiver<()>),
+    /// Somebody else ended it.
+    Gone,
+}
+
+/// Make a module's streamed request to `/p/`, and hand its body over as the
+/// module asks for it (*Streaming*).
+///
+/// The page reads from the network only when it has sent everything it read
+/// and the module has credit left, so it holds at most one read, and a
+/// module that stops pulling stops the read. The browser then stops reading
+/// the connection, the shell stops reading the platform, and the platform
+/// stops being able to send: nothing buffers without bound anywhere.
+async fn carry_stream(instance: String, carriage: Carriage, id: u64, signal: web_sys::AbortSignal) {
+    let Carriage {
+        serial,
+        re,
+        address,
+        mut fetch,
+    } = carriage;
+
+    let sent = match request_for(&instance, &address, &mut fetch, Some(&signal)) {
+        Ok(request) => request
+            .send()
+            .await
+            .map_err(|_| "the shell could not be reached"),
+        Err(_) => Err("the request could not be made"),
+    };
+    let gone = || PAGE.with(|page| page.borrow().flows.get(&id).is_none_or(|flow| flow.ended));
+
+    match sent {
+        Err(reason) => {
+            if !gone() {
+                post(
+                    &instance,
+                    Some(re),
+                    ShellMessage::Response(refused(Refusal::Unreachable, reason)),
+                );
+            }
+        }
+        // Not streamed after all: the shell refused it before asking the
+        // platform, and said so whole.
+        Ok(response) if response.headers().get(STREAM_HEADER).is_none() => {
+            let answer = whole(response).await;
+            if !gone() {
+                post(&instance, Some(re), ShellMessage::Response(answer));
+            }
+        }
+        Ok(response) => {
+            let (status, headers, _) = answered(&response);
+            if !gone() {
+                post(
+                    &instance,
+                    Some(re.clone()),
+                    ShellMessage::Response(Response {
+                        status,
+                        headers,
+                        body: None,
+                        refusal: None,
+                        streaming: true,
+                    }),
+                );
+                follow(&instance, &re, id, response).await;
+            }
+        }
+    }
+
+    // Let go of it, and of its place in the frame's requests in flight.
+    PAGE.with(|page| {
+        let mut page = page.borrow_mut();
+        if let Some(flow) = page.flows.remove(&id) {
+            flow.abort.abort();
+        }
+        if let Some(host) = page
+            .hosts
+            .get_mut(&instance)
+            .filter(|host| host.serial == serial)
+        {
+            host.allowance.end_fetch();
+        }
+    });
+}
+
+/// Read a streamed body and send it on as credit allows, until it ends.
+async fn follow(instance: &str, re: &str, id: u64, response: gloo_net::http::Response) {
+    // A `HEAD`, or a body the browser will not show: nothing to follow.
+    let Some(reader) = response.body().and_then(|body| {
+        body.get_reader()
+            .dyn_into::<web_sys::ReadableStreamDefaultReader>()
+            .ok()
+    }) else {
+        end_flow(id, None);
+        return;
+    };
+
+    let mut decoder = Decoder::new();
+    // How the shell said it ended, once it has.
+    let mut ending: Option<Ended> = None;
+    loop {
+        let step = PAGE.with(|page| {
+            let mut page = page.borrow_mut();
+            let Some(flow) = page.flows.get_mut(&id).filter(|flow| !flow.ended) else {
+                return Step::Gone;
+            };
+            if let Some((seq, body)) = flow.outbox.next_chunk() {
+                return Step::Send(seq, body);
+            }
+            if let (true, Some(ending)) = (flow.outbox.is_empty(), ending) {
+                return Step::End(ending);
+            }
+            if ending.is_none() && flow.outbox.wants_more() {
+                return Step::Read;
+            }
+            let (wake, woken) = futures::channel::oneshot::channel();
+            flow.wake = Some(wake);
+            Step::Wait(woken)
+        });
+
+        match step {
+            Step::Send(seq, body) => post(
+                instance,
+                None,
+                ShellMessage::Chunk(Chunk {
+                    re: re.to_string(),
+                    seq,
+                    body: Some(body),
+                }),
+            ),
+            Step::End(ended) => {
+                end_flow(id, bridge::end_error(ended));
+                break;
+            }
+            Step::Read => match read(&reader).await {
+                Some(Ok(piece)) => {
+                    for frame in decoder.push(&piece) {
+                        match frame {
+                            Frame::Data(bytes) => PAGE.with(|page| {
+                                if let Some(flow) = page.borrow_mut().flows.get_mut(&id) {
+                                    flow.outbox.hold(bytes);
+                                }
+                            }),
+                            Frame::End(why) => ending = Some(why),
+                        }
+                    }
+                }
+                // Over without the shell saying so, or broken off: cut
+                // somewhere between. What was read still goes first.
+                Some(Err(())) | None => ending = Some(ending.unwrap_or(Ended::Unreachable)),
+            },
+            Step::Wait(woken) => {
+                let _ = woken.await;
+            }
+            Step::Gone => break,
+        }
+    }
+    let _ = reader.cancel();
+}
+
+/// The next piece of a body: `None` at its end, an error if it broke off or
+/// was aborted.
+async fn read(reader: &web_sys::ReadableStreamDefaultReader) -> Option<Result<Vec<u8>, ()>> {
+    let Ok(result) = wasm_bindgen_futures::JsFuture::from(reader.read()).await else {
+        return Some(Err(()));
+    };
+    let done = js_sys::Reflect::get(&result, &JsValue::from_str("done"))
+        .ok()
+        .and_then(|done| done.as_bool())
+        .unwrap_or(true);
+    if done {
+        return None;
+    }
+    let value = js_sys::Reflect::get(&result, &JsValue::from_str("value")).ok()?;
+    Some(Ok(js_sys::Uint8Array::new(&value).to_vec()))
 }
 
 // -- The view ------------------------------------------------------------------

@@ -14,6 +14,7 @@
 
 pub mod changes;
 pub mod data;
+pub mod feed;
 pub mod manifest;
 pub mod modules;
 pub mod routes;

@@ -149,6 +149,37 @@ one the shell itself makes and for the same reason:
   ignored in silence — and a trust anchor that is silently ignored fails
   against every platform at once.
 
+### Modules that stream: serve the shell over HTTP/2
+
+A module may read a response as it arrives — a log tail, a feed, a long
+export — and every such stream holds a request from the browser to the shell
+open for as long as it runs. Over HTTP/1.1 a browser opens about six
+connections to one origin, and the shell's own event stream needs one of them,
+so the page holds at most **4** module streams at once across the whole
+surface and refuses the next. Over HTTP/2 or later every request shares one
+connection, and the page allows **32**. The page reads which it was served
+over from the browser, so nothing is configured: put the shell behind
+something that speaks HTTP/2 to browsers (any TLS-terminating ingress or load
+balancer does) if its platforms' modules stream. Browsers speak HTTP/2 only
+over TLS, so a plain-`http` shell, like the demo's, is always on the cap of 4.
+
+Each stream is also bounded by the shell, per platform if need be:
+
+```toml
+[modules.limits]
+streams = 2                      # open at once, per frame; 0 turns streaming off
+stream_bytes_per_second = 1048576
+stream_idle_seconds = 60         # ended when nothing arrives for this long
+
+[[platforms]]
+id = "logs"
+base_url = "https://logs.internal.example.com"
+modules.limits = { stream_idle_seconds = 300 }
+```
+
+A streamed response is not bounded by `response_bytes`, and the upstream
+timeout covers it only until the platform sends its headers.
+
 ### Bringing your own design pack
 
 Panels are drawn by whichever design pack the front end was built with, and the

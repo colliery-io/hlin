@@ -13,6 +13,12 @@
 // make it misbehave on purpose: one stops it answering heartbeats, which is
 // what a wedged module looks like from outside, and one sends more requests
 // at once than a frame may have in flight.
+//
+// And it streams (*Streaming*): "Follow the feed" reads its platform's feed
+// as a module should, granting credit as it consumes. For the browser tests,
+// `window.probeStreams` opens streams with whatever credit a test chooses,
+// pulls and cancels by hand, and reports every `chunk` and `end` it heard, so
+// a test can hold a module still and see that the page holds still too.
 
 (function () {
   'use strict';
@@ -29,6 +35,10 @@
   var flood = { answered: 0, refused: 0, other: 0 };
   var asked = 0;
   var heard = 0;
+  // Streamed fetches, by their id: what was granted and what arrived.
+  var streams = {};
+  // Whole fetches a test is waiting on, by their id.
+  var promised = {};
 
   function send(type, data, re) {
     sent += 1;
@@ -63,6 +73,16 @@
   }
 
   function answered(message) {
+    if (streams[message.re]) {
+      streamAnswered(message);
+      return;
+    }
+    if (promised[message.re]) {
+      var resolve = promised[message.re];
+      delete promised[message.re];
+      resolve(message.data);
+      return;
+    }
     var purpose = waiting[message.re];
     if (!purpose) {
       return;
@@ -94,6 +114,128 @@
       show('whoami', 'an unreadable answer (' + data.status + ')');
     }
   }
+
+  // -- Streams --
+
+  function openStream(query, options) {
+    options = options || {};
+    var id = send('fetch', {
+      method: options.method || 'GET',
+      path: '/api/module/feed',
+      query: query || '',
+      headers: { accept: 'text/event-stream' },
+      stream: true,
+      idempotency_key: options.method && options.method !== 'GET' ? 'probe-' + sent : undefined,
+    });
+    streams[id] = {
+      id: id,
+      credit: options.credit === undefined ? 4096 : options.credit,
+      auto: !!options.auto,
+      status: null,
+      streaming: null,
+      refusal: null,
+      seqs: [],
+      bytes: 0,
+      pulled: 0,
+      ended: false,
+      error: null,
+      text: '',
+    };
+    return id;
+  }
+
+  function pull(id, bytes) {
+    var stream = streams[id];
+    if (!stream || stream.ended || bytes <= 0) {
+      return;
+    }
+    stream.pulled += bytes;
+    send('pull', { re: id, bytes: bytes });
+  }
+
+  function streamAnswered(message) {
+    var stream = streams[message.re];
+    var data = message.data;
+    stream.status = data.status;
+    stream.streaming = !!data.streaming;
+    stream.refusal = data.refusal || null;
+    if (!stream.streaming) {
+      stream.ended = true;
+    } else {
+      pull(stream.id, stream.credit);
+    }
+    showStreams();
+  }
+
+  function chunk(data) {
+    var stream = streams[data.re];
+    if (!stream || !(data.body instanceof ArrayBuffer)) {
+      return;
+    }
+    stream.seqs.push(data.seq);
+    stream.bytes += data.body.byteLength;
+    // The tail only, so a long stream does not grow the probe without bound.
+    stream.text = (stream.text + new TextDecoder().decode(data.body)).slice(-4096);
+    if (stream.auto) {
+      pull(stream.id, data.body.byteLength);
+    }
+    showStreams();
+  }
+
+  function ended(data) {
+    var stream = streams[data.re];
+    if (!stream) {
+      return;
+    }
+    stream.ended = true;
+    stream.error = data.error || null;
+    showStreams();
+  }
+
+  function showStreams() {
+    var ids = Object.keys(streams);
+    var open = ids.filter(function (id) { return !streams[id].ended; }).length;
+    var last = ids.length ? streams[ids[ids.length - 1]] : null;
+    var ticks = last ? last.text.match(/tick \d+/g) : null;
+    show(
+      'streams',
+      open + ' open' +
+        (last ? ', last ' + (last.refusal ? 'refused: ' + last.refusal
+          : last.ended ? 'ended' + (last.error ? ': ' + last.error : '')
+          : ticks ? 'at ' + ticks[ticks.length - 1] : 'waiting') : ''),
+    );
+    document.getElementById('streams').setAttribute('data-open', String(open));
+  }
+
+  // For the browser tests: everything a stream heard, as plain data.
+  window.probeStreams = {
+    open: openStream,
+    pull: pull,
+    cancel: function (id) {
+      send('cancel', { re: id });
+    },
+    get: function (id) {
+      return JSON.parse(JSON.stringify(streams[id] || null));
+    },
+    // What the platform says its feed wrote, asked whole through the shell.
+    counts: function (feed) {
+      return new Promise(function (resolve) {
+        var id = send('fetch', {
+          method: 'GET',
+          path: '/api/module/feed/' + encodeURIComponent(feed),
+          query: '',
+          headers: { accept: 'application/json' },
+        });
+        promised[id] = function (data) {
+          if (data.refusal || data.status !== 200 || !data.body) {
+            resolve(null);
+            return;
+          }
+          resolve(JSON.parse(new TextDecoder().decode(data.body)));
+        };
+      });
+    },
+  };
 
   // The surface's range, as whole minutes, and this panel's parameters.
   function context(data) {
@@ -159,6 +301,14 @@
 
       case 'response':
         answered(message);
+        break;
+
+      case 'chunk':
+        chunk(message.data);
+        break;
+
+      case 'end':
+        ended(message.data);
         break;
 
       case 'context':
@@ -238,6 +388,11 @@
 
   document.getElementById('goto').addEventListener('click', function () {
     send('navigate', { to: { platform: platform, panel: 'module-probe' } });
+  });
+
+  document.getElementById('follow').addEventListener('click', function () {
+    openStream('every_ms=500', { auto: true, credit: 256 * 1024 });
+    showStreams();
   });
 
   document.getElementById('nowhere').addEventListener('click', function () {

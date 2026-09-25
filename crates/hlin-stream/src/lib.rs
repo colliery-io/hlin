@@ -10,7 +10,8 @@
 //! Two protocols live here. The stream, below, is what the shell pushes to a
 //! browser watching a surface. [`layout`] is what the two say to each other
 //! about the surface itself: the layout being composed, and the catalogue of
-//! panels it can be composed from.
+//! panels it can be composed from. [`streamed`] is how the shell hands its
+//! page a module's streamed response, with the reason it ended.
 //!
 //! What travels from the shell to a browser.
 //!
@@ -24,6 +25,7 @@
 //! interoperate.
 
 pub mod layout;
+pub mod streamed;
 
 use chrono::{DateTime, Utc};
 use hlin_manifest::Envelope;

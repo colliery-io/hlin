@@ -86,6 +86,8 @@ pub fn router(config: Config) -> Router {
         .route("/api/hlin/stage-activity", get(stage_activity))
         .route("/api/events", get(events))
         .route("/api/module/whoami", get(whoami))
+        .route("/api/module/feed", get(feed))
+        .route("/api/module/feed/{id}", get(feed_counts))
         .route("/ui/{*path}", get(crate::modules::asset))
         .with_state(state)
 }
@@ -116,6 +118,31 @@ async fn whoami(State(config): State<Arc<Config>>, headers: HeaderMap) -> Respon
             "platform": config.name,
         }))
         .into_response(),
+        Err(refusal) => refusal.into_response(),
+    }
+}
+
+/// A feed for this platform's module to stream through the shell
+/// (see [`crate::feed`]). Behind identity like every other read here.
+async fn feed(
+    State(config): State<Arc<Config>>,
+    headers: HeaderMap,
+    Query(asked): Query<crate::feed::Asked>,
+) -> Response {
+    match identify(&config, &headers) {
+        Ok(_) => crate::feed::stream(asked),
+        Err(refusal) => refusal.into_response(),
+    }
+}
+
+/// What a named feed has written, and whether its connection is open.
+async fn feed_counts(
+    State(config): State<Arc<Config>>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    match identify(&config, &headers) {
+        Ok(_) => crate::feed::counts(&id),
         Err(refusal) => refusal.into_response(),
     }
 }

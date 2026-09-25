@@ -34,6 +34,7 @@ use axum::response::{IntoResponse, Response};
 use futures::StreamExt;
 use hlin_identity::{BoundRequest, normalise_path};
 use hlin_manifest::Access;
+use std::time::{Duration, Instant};
 
 use crate::identity::{Author, Caller, Carried, Viewer};
 use crate::modules::ModuleLimits;
@@ -45,6 +46,10 @@ pub const REFUSAL_HEADER: &str = "x-hlin-refusal";
 
 /// The header carrying the key a module minted for one attempt at a write.
 pub const IDEMPOTENCY_HEADER: &str = "idempotency-key";
+
+/// The header by which the page asks for a streamed answer, and the shell
+/// says it is giving one (specification HLIN-S-0007, *Streaming*).
+pub use hlin_stream::streamed::STREAM_HEADER;
 
 /// The request headers a module may send its platform.
 ///
@@ -147,6 +152,7 @@ pub async fn carry(State(state): State<AppState>, request: Request) -> Response 
 async fn carried(state: &AppState, request: Request) -> Result<Response, Response> {
     let (mut parts, body) = request.into_parts();
     let access = access_of(&parts.method);
+    let streamed = parts.headers.contains_key(STREAM_HEADER);
 
     // 1. The caller. Only the shell's own page may use this route: a module
     // cannot reach it (it has no network), and nothing else should be able to
@@ -182,6 +188,15 @@ async fn carried(state: &AppState, request: Request) -> Result<Response, Respons
         )
         .into_response());
     };
+    // A stream is a read only: a write's answer is a decision, not a feed.
+    if streamed && access == Access::Write {
+        return Err(Refusal::new(
+            "method",
+            StatusCode::METHOD_NOT_ALLOWED,
+            "only a read may be streamed",
+        )
+        .into_response());
+    }
 
     // 5. Writes.
     let idempotency_key = match access {
@@ -240,16 +255,33 @@ async fn carried(state: &AppState, request: Request) -> Result<Response, Respons
     // Sent once. A platform that failed to answer a write may or may not have
     // acted on it, and only the module, with the person's say-so and the same
     // key, may try again.
-    let answer = match outgoing.send().await {
-        Ok(answer) => answer,
-        Err(error) if error.is_timeout() => {
-            return Err(Refusal::new(
-                "timeout",
-                StatusCode::GATEWAY_TIMEOUT,
-                format!("`{platform_id}` did not answer in time"),
-            )
-            .into_response());
+    //
+    // A whole answer is bounded by the client's timeout, which covers the
+    // body too. A stream's may take as long as the platform keeps sending, so
+    // the upstream timeout covers only its status and headers, and its
+    // idleness and rate bound it after that. `reqwest` has no way to lift a
+    // client's timeout for one request but to set a longer one; the longest
+    // there is ends in tokio's far future.
+    let timed_out = || {
+        Refusal::new(
+            "timeout",
+            StatusCode::GATEWAY_TIMEOUT,
+            format!("`{platform_id}` did not answer in time"),
+        )
+        .into_response()
+    };
+    let sent = if streamed {
+        let headers_by = state.config.timings.upstream_timeout();
+        match tokio::time::timeout(headers_by, outgoing.timeout(Duration::MAX).send()).await {
+            Ok(sent) => sent,
+            Err(_) => return Err(timed_out()),
         }
+    } else {
+        outgoing.send().await
+    };
+    let answer = match sent {
+        Ok(answer) => answer,
+        Err(error) if error.is_timeout() => return Err(timed_out()),
         Err(error) => {
             tracing::debug!(platform = platform_id, %error, "a module request could not reach its platform");
             return Err(
@@ -272,9 +304,9 @@ async fn carried(state: &AppState, request: Request) -> Result<Response, Respons
         );
     }
 
-    // Streamed responses (HLIN-T-0068) branch here: the same status and
-    // headers, with the body passed through as it arrives under the streaming
-    // limits instead of read whole under `response_bytes`.
+    if streamed {
+        return Ok(deliver_streamed(answer, &limits, &platform_id));
+    }
     deliver_whole(answer, &limits, &platform_id)
         .await
         .map_err(IntoResponse::into_response)
@@ -567,6 +599,17 @@ async fn credential(
     })
 }
 
+/// The headers of a platform's answer a module may see.
+fn passed_back(answer: &reqwest::Response) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    for name in RESPONSE_HEADERS {
+        if let Some(value) = answer.headers().get(name) {
+            headers.insert(HeaderName::from_static(name), value.clone());
+        }
+    }
+    headers
+}
+
 /// Step 8: the platform's answer, whole, with only the headers a module may
 /// see.
 async fn deliver_whole(
@@ -575,12 +618,7 @@ async fn deliver_whole(
     platform_id: &str,
 ) -> Result<Response, Refusal> {
     let status = answer.status();
-    let mut headers = HeaderMap::new();
-    for name in RESPONSE_HEADERS {
-        if let Some(value) = answer.headers().get(name) {
-            headers.insert(HeaderName::from_static(name), value.clone());
-        }
-    }
+    let headers = passed_back(&answer);
 
     let body = crate::bounded::read_bounded(answer, limits.response_bytes)
         .await
@@ -597,6 +635,131 @@ async fn deliver_whole(
     *response.status_mut() = status;
     *response.headers_mut() = headers;
     Ok(response)
+}
+
+/// Step 8, streamed: the platform's status and headers now, and its body as
+/// it arrives, framed (see [`hlin_stream::streamed`]).
+///
+/// `response_bytes` does not apply: a stream is bounded by how fast and how
+/// long, not how much. Nothing is read ahead of the page either. The body is
+/// pulled from the platform only as the connection to the page takes it, so a
+/// module that stops granting credit stops the page reading, which stops this,
+/// which stops the platform: backpressure end to end, and nothing buffered
+/// here beyond the piece in hand.
+///
+/// Every stream this ends, it ends with an end frame saying why. Dropping the
+/// platform's body is what drops its connection, whether this ended it or
+/// the page went away.
+fn deliver_streamed(
+    answer: reqwest::Response,
+    limits: &ModuleLimits,
+    platform_id: &str,
+) -> Response {
+    let status = answer.status();
+    let mut headers = passed_back(&answer);
+    headers.insert(
+        HeaderName::from_static(STREAM_HEADER),
+        HeaderValue::from_static("framed"),
+    );
+
+    let flow = Flow {
+        upstream: Box::pin(answer.bytes_stream()),
+        idle: Duration::from_secs(limits.stream_idle_seconds),
+        bucket: Bucket::new(limits.stream_bytes_per_second, Instant::now()),
+        platform: platform_id.to_string(),
+    };
+    let body = futures::stream::unfold(Some(flow), |flow| async move {
+        let (frame, next) = flow?.next_frame().await;
+        Some((
+            Ok::<_, std::convert::Infallible>(bytes::Bytes::from(frame)),
+            next,
+        ))
+    });
+
+    let mut response = Response::new(Body::from_stream(body));
+    *response.status_mut() = status;
+    *response.headers_mut() = headers;
+    response
+}
+
+/// A platform's streamed body on its way to the page.
+struct Flow {
+    upstream: std::pin::Pin<Box<dyn futures::Stream<Item = reqwest::Result<bytes::Bytes>> + Send>>,
+    idle: Duration,
+    bucket: Bucket,
+    platform: String,
+}
+
+impl Flow {
+    /// The next frame, and the flow if there is more after it.
+    ///
+    /// Idleness is timed only while the page is waiting for this: the clock
+    /// starts when the next piece is asked for, so a platform held up by a
+    /// module that is not reading is not idle. And `timeout` looks at the body
+    /// before its clock, so a piece that arrived while nobody was asking is
+    /// taken however long ago the clock ran out.
+    async fn next_frame(mut self) -> (Vec<u8>, Option<Self>) {
+        use hlin_stream::streamed::{Ended, data, end};
+        match tokio::time::timeout(self.idle, self.upstream.next()).await {
+            Ok(Some(Ok(piece))) => {
+                if self.bucket.take(piece.len(), Instant::now()) {
+                    (data(&piece), Some(self))
+                } else {
+                    tracing::debug!(
+                        platform = self.platform,
+                        "a module stream went over its rate"
+                    );
+                    (end(Ended::Rate), None)
+                }
+            }
+            Ok(None) => (end(Ended::Finished), None),
+            Ok(Some(Err(error))) => {
+                tracing::debug!(platform = self.platform, %error, "a module stream broke off");
+                (end(Ended::Unreachable), None)
+            }
+            Err(_) => {
+                tracing::debug!(platform = self.platform, "a module stream went quiet");
+                (end(Ended::Idle), None)
+            }
+        }
+    }
+}
+
+/// `stream_bytes_per_second`, as a bucket holding one second's allowance.
+///
+/// A bucket rather than a count per calendar second, so a burst straddling
+/// the turn of a second is judged as the one burst it is; and a second's
+/// worth rather than more, so a platform cannot save up. A stream held up by
+/// a module that stopped reading resumes with at most a second's allowance,
+/// which is about what the connections between had buffered for it.
+struct Bucket {
+    per_second: f64,
+    tokens: f64,
+    at: Instant,
+}
+
+impl Bucket {
+    fn new(per_second: usize, at: Instant) -> Self {
+        let per_second = per_second as f64;
+        Self {
+            per_second,
+            tokens: per_second,
+            at,
+        }
+    }
+
+    /// Whether `bytes` more may pass at `now`, taking them if so.
+    fn take(&mut self, bytes: usize, now: Instant) -> bool {
+        let elapsed = now.saturating_duration_since(self.at).as_secs_f64();
+        self.tokens = (self.tokens + elapsed * self.per_second).min(self.per_second);
+        self.at = now;
+        let bytes = bytes as f64;
+        if bytes > self.tokens {
+            return false;
+        }
+        self.tokens -= bytes;
+        true
+    }
 }
 
 /// A path in normal form, percent-encoded once, as it goes on the wire.
@@ -650,5 +813,27 @@ mod tests {
         }
         assert_eq!(access_of(&Method::OPTIONS), None);
         assert_eq!(access_of(&Method::TRACE), None);
+    }
+    #[test]
+    fn a_bucket_lets_a_seconds_worth_through_and_no_more() {
+        let start = Instant::now();
+        let mut bucket = Bucket::new(1000, start);
+        assert!(bucket.take(600, start));
+        assert!(bucket.take(400, start));
+        assert!(!bucket.take(1, start));
+        // Half a second refills half.
+        let later = start + Duration::from_millis(500);
+        assert!(bucket.take(500, later));
+        assert!(!bucket.take(1, later));
+    }
+
+    #[test]
+    fn a_bucket_saves_up_no_more_than_a_second() {
+        let start = Instant::now();
+        let mut bucket = Bucket::new(1000, start);
+        assert!(bucket.take(1000, start));
+        let much_later = start + Duration::from_secs(60);
+        assert!(!bucket.take(1001, much_later));
+        assert!(bucket.take(1000, much_later));
     }
 }

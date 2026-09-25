@@ -662,6 +662,136 @@ pub fn keeps_state(bytes: usize, state_bytes: u64) -> bool {
     bytes as u64 <= state_bytes
 }
 
+// -- Streams -------------------------------------------------------------------
+
+/// Module streams a page served over HTTP/1.1 holds open at once
+/// (*Streaming*, *Connections*).
+///
+/// A browser opens about six connections to one origin over HTTP/1.1, and
+/// every stream holds one for as long as it runs. Four leaves the shell's own
+/// event stream and an ordinary request or two room to move.
+pub const PAGE_STREAMS_HTTP1: usize = 4;
+
+/// Module streams a page served over HTTP/2 or later holds open at once,
+/// where every request shares one connection.
+pub const PAGE_STREAMS_MULTIPLEXED: usize = 32;
+
+/// How many module streams this page may hold open, from the protocol its
+/// own navigation was served over (`nextHopProtocol`).
+///
+/// Anything but a protocol known to multiplex gets the HTTP/1.1 cap,
+/// including an empty string, which is what a browser reports when it will
+/// not say: guessing wrong that way costs a module a stream, and guessing
+/// wrong the other way stalls the whole page.
+pub fn page_stream_cap(next_hop_protocol: &str) -> usize {
+    let protocol = next_hop_protocol.trim().to_ascii_lowercase();
+    if protocol.starts_with("h2") || protocol.starts_with("h3") {
+        PAGE_STREAMS_MULTIPLEXED
+    } else {
+        PAGE_STREAMS_HTTP1
+    }
+}
+
+/// Whether one more stream may open: within its frame's `streams` and within
+/// the page's cap. Past either it is refused `too_many`.
+pub fn admits_stream(
+    open_in_frame: usize,
+    frame_streams: u32,
+    open_on_page: usize,
+    page_cap: usize,
+) -> bool {
+    open_in_frame < frame_streams as usize && open_on_page < page_cap
+}
+
+/// Why a stream ended, as the module is told, from why the shell said it
+/// ended. `None` is a stream that finished.
+///
+/// A reason the page does not know is still a stream that failed, and the
+/// nearest thing the module can act on is that the platform could not be
+/// followed to the end.
+pub fn end_error(ended: hlin_stream::streamed::Ended) -> Option<hlin_bridge::EndError> {
+    use hlin_bridge::EndError;
+    use hlin_stream::streamed::Ended;
+    match ended {
+        Ended::Finished => None,
+        Ended::Idle => Some(EndError::Idle),
+        Ended::Rate => Some(EndError::Rate),
+        Ended::Unreachable | Ended::Unrecognised => Some(EndError::Unreachable),
+    }
+}
+
+/// A streamed body between the page's reads and the module's `pull`s.
+///
+/// The page sends only what the module has asked for (credit), in order, a
+/// piece split where the credit runs out, and reads more from the network
+/// only once what it holds is sent and there is credit left. So what it holds
+/// is never more than one read, and a module that stops pulling stops the
+/// page reading.
+#[derive(Debug, Default)]
+pub struct Outbox {
+    credit: u64,
+    held: std::collections::VecDeque<Vec<u8>>,
+    seq: u64,
+    delivered: u64,
+}
+
+impl Outbox {
+    /// Nothing held, and no credit.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The module asked for `bytes` more.
+    pub fn grant(&mut self, bytes: u64) {
+        self.credit = self.credit.saturating_add(bytes);
+    }
+
+    /// The page read this from the network.
+    pub fn hold(&mut self, bytes: Vec<u8>) {
+        if !bytes.is_empty() {
+            self.held.push_back(bytes);
+        }
+    }
+
+    /// The next `chunk` to send, with its `seq`, if there is anything held
+    /// and any credit to send it with.
+    pub fn next_chunk(&mut self) -> Option<(u64, Vec<u8>)> {
+        if self.credit == 0 {
+            return None;
+        }
+        let front = self.held.front_mut()?;
+        let take = usize::try_from(self.credit)
+            .unwrap_or(usize::MAX)
+            .min(front.len());
+        let chunk = if take == front.len() {
+            self.held.pop_front()?
+        } else {
+            let rest = front.split_off(take);
+            std::mem::replace(front, rest)
+        };
+        self.credit -= chunk.len() as u64;
+        self.delivered += chunk.len() as u64;
+        let seq = self.seq;
+        self.seq += 1;
+        Some((seq, chunk))
+    }
+
+    /// Whether the page should read more: nothing held, and credit to spend.
+    pub fn wants_more(&self) -> bool {
+        self.held.is_empty() && self.credit > 0
+    }
+
+    /// Whether everything read has been sent.
+    pub fn is_empty(&self) -> bool {
+        self.held.is_empty()
+    }
+
+    /// How many bytes have been sent to the module.
+    pub fn delivered(&self) -> u64 {
+        self.delivered
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1201,5 +1331,78 @@ mod tests {
         assert!(keeps_state(0, 64 * 1024));
         assert!(keeps_state(64 * 1024, 64 * 1024));
         assert!(!keeps_state(64 * 1024 + 1, 64 * 1024));
+    }
+
+    // -- Streams --
+
+    #[test]
+    fn the_page_holds_more_streams_only_over_a_protocol_that_multiplexes() {
+        assert_eq!(page_stream_cap("http/1.1"), PAGE_STREAMS_HTTP1);
+        assert_eq!(page_stream_cap("http/1.0"), PAGE_STREAMS_HTTP1);
+        assert_eq!(page_stream_cap("h2"), PAGE_STREAMS_MULTIPLEXED);
+        assert_eq!(page_stream_cap("h3"), PAGE_STREAMS_MULTIPLEXED);
+        assert_eq!(page_stream_cap("h3-29"), PAGE_STREAMS_MULTIPLEXED);
+        // A browser that will not say is treated as the worst case.
+        assert_eq!(page_stream_cap(""), PAGE_STREAMS_HTTP1);
+        assert_eq!((PAGE_STREAMS_HTTP1, PAGE_STREAMS_MULTIPLEXED), (4, 32));
+    }
+
+    #[test]
+    fn a_stream_opens_only_within_its_frames_limit_and_the_pages() {
+        assert!(admits_stream(0, 2, 0, 4));
+        assert!(admits_stream(1, 2, 3, 4));
+        assert!(!admits_stream(2, 2, 2, 4), "the frame's own limit");
+        assert!(!admits_stream(0, 2, 4, 4), "the page's cap");
+        assert!(!admits_stream(0, 0, 0, 4), "streams switched off");
+    }
+
+    #[test]
+    fn a_stream_is_ended_for_the_module_as_the_shell_ended_it() {
+        use hlin_bridge::EndError;
+        use hlin_stream::streamed::Ended;
+        assert_eq!(end_error(Ended::Finished), None);
+        assert_eq!(end_error(Ended::Idle), Some(EndError::Idle));
+        assert_eq!(end_error(Ended::Rate), Some(EndError::Rate));
+        assert_eq!(end_error(Ended::Unreachable), Some(EndError::Unreachable));
+        assert_eq!(end_error(Ended::Unrecognised), Some(EndError::Unreachable));
+    }
+
+    #[test]
+    fn nothing_is_sent_to_a_module_that_has_not_asked() {
+        let mut outbox = Outbox::new();
+        outbox.hold(b"data: one\n\n".to_vec());
+        assert_eq!(outbox.next_chunk(), None);
+        assert!(!outbox.wants_more(), "and nothing more is read");
+        assert_eq!(outbox.delivered(), 0);
+    }
+
+    #[test]
+    fn a_module_is_sent_exactly_what_it_asked_for_in_order() {
+        let mut outbox = Outbox::new();
+        outbox.grant(4);
+        assert!(outbox.wants_more());
+        outbox.hold(b"abcdef".to_vec());
+        outbox.hold(b"gh".to_vec());
+
+        assert_eq!(outbox.next_chunk(), Some((0, b"abcd".to_vec())));
+        assert_eq!(outbox.next_chunk(), None, "credit spent");
+        assert!(!outbox.wants_more());
+
+        outbox.grant(100);
+        assert_eq!(outbox.next_chunk(), Some((1, b"ef".to_vec())));
+        assert_eq!(outbox.next_chunk(), Some((2, b"gh".to_vec())));
+        assert_eq!(outbox.next_chunk(), None, "nothing held");
+        assert!(outbox.is_empty());
+        assert!(outbox.wants_more(), "credit left, so read more");
+        assert_eq!(outbox.delivered(), 8);
+    }
+
+    #[test]
+    fn credit_adds_up_and_does_not_overflow() {
+        let mut outbox = Outbox::new();
+        outbox.grant(u64::MAX);
+        outbox.grant(u64::MAX);
+        outbox.hold(vec![1; 10]);
+        assert_eq!(outbox.next_chunk(), Some((0, vec![1; 10])));
     }
 }
