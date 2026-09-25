@@ -4,14 +4,14 @@ level: task
 title: "Serve module assets from the shell's origin, confined by their own CSP"
 short_code: "HLIN-T-0064"
 created_at: 2026-09-25T00:01:01.398244+00:00
-updated_at: 2026-09-25T00:23:24.637588+00:00
+updated_at: 2026-09-25T00:33:23.988304+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0011
 
 Slice 4 of [[HLIN-I-0011]]. [[HLIN-S-0007]] *Assets*, *The module CSP* and
 *The shell page's CSP*.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -120,3 +122,12 @@ Left over:
   change off `AppState` while the request proxy (HLIN-T-0065) is in flight.
   Worth doing there, where it matters more.
 - Queries on `/m/` URLs are dropped rather than forwarded.
+
+### 2026-09-24 — merged, one follow-up
+
+Reviewed and merged onto main (`5d489cf`); `angreal check all` and
+`angreal test all` pass there. Follow-up carried by [[HLIN-T-0065]]: the shared
+client follows redirects, so a redirected asset is fetched before it is
+refused. The request proxy needs a no-redirect client for a sharper reason (a
+redirect would carry the viewer's identity header to an undeclared address),
+and this route should switch to it when that lands.
