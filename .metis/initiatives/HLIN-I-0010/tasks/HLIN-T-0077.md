@@ -4,14 +4,14 @@ level: task
 title: "Walk two people through the collaborative demo, in two browsers"
 short_code: "HLIN-T-0077"
 created_at: 2026-09-25T00:39:04.954126+00:00
-updated_at: 2026-09-25T02:19:28.548103+00:00
+updated_at: 2026-09-25T02:28:55.909802+00:00
 parent: HLIN-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: true
@@ -27,6 +27,8 @@ initiative_id: HLIN-I-0010
 ## Objective
 
 Task 8 of [[HLIN-I-0010]]: the initiative's exit criterion, asserted.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
