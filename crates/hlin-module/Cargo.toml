@@ -1,0 +1,25 @@
+[package]
+name = "hlin-module"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The SDK for a Leptos module hosted by Hlin: the bridge to the shell, so a module does not know it is in a frame"
+keywords = ["hlin", "leptos", "iframe", "module", "wasm"]
+categories = ["web-programming", "wasm"]
+
+[dependencies]
+hlin-bridge = { workspace = true, features = ["js"] }
+leptos = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures = "0.3"
+# A module is single-threaded, but Leptos asks for `Send + Sync` of anything
+# put in context or captured by a view. This is how a handle holding `Rc`s
+# gets there honestly: it panics if it ever does cross a thread.
+send_wrapper = "0.6"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "CssStyleDeclaration", "MessageEvent", "EventTarget", "Event", "Crypto"] }
+wasm-bindgen = "0.2"
+js-sys = "0.3"

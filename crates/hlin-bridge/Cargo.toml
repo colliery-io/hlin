@@ -1,0 +1,26 @@
+[package]
+name = "hlin-bridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The Hlin module bridge on the wire: every message between a module's frame and the shell's page"
+keywords = ["hlin", "iframe", "postmessage", "leptos"]
+categories = ["web-programming", "wasm"]
+
+[features]
+# Converting a message to and from the JavaScript object `postMessage`
+# carries, with its bytes as a transferable `ArrayBuffer`. Off by default so
+# anything that only needs the shapes does not compile `js-sys`.
+js = ["dep:js-sys", "dep:wasm-bindgen"]
+
+[dependencies]
+# Only for the list of bridge majors, which is why the contract machinery
+# (hashing, semver, the canonical form) is left off.
+hlin-manifest = { path = "../hlin-manifest", version = "0.0.1", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }

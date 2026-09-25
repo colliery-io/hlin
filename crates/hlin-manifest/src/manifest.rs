@@ -25,15 +25,7 @@ pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 /// The well-known path, relative to a platform's base, where its manifest lives.
 pub const WELL_KNOWN_PATH: &str = ".well-known/hlin.json";
 
-/// The bridge majors this shell can host a module on (specification
-/// HLIN-S-0007, *Versioning*).
-///
-/// Here rather than in the shell because both ends of the bridge read it: the
-/// shell to refuse a module it cannot speak to, and a module's SDK to say which
-/// major it speaks. One list means the two cannot disagree about what `1`
-/// means. A major leaves this list only after a deprecation window with a named
-/// successor, the way a panel does.
-pub const SUPPORTED_BRIDGE_MAJORS: &[u32] = &[1];
+pub use crate::bridge::SUPPORTED_BRIDGE_MAJORS;
 
 /// A platform's manifest.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

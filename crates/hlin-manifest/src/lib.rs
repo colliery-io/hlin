@@ -66,6 +66,10 @@
 pub mod envelope;
 pub mod envelope_validate;
 
+// Which bridge majors exist. Always available, because a module's SDK reads it
+// and should not compile the contract machinery to learn one number.
+pub mod bridge;
+
 // What is promised: the manifest, its fingerprint, and the diff that enforces
 // it. Behind the `contract` feature, which is on by default because the shell
 // needs every bit of it. A consumer that only draws turns it off and stops
@@ -88,6 +92,7 @@ pub mod validate;
 #[cfg(all(test, feature = "contract"))]
 mod tests;
 
+pub use bridge::SUPPORTED_BRIDGE_MAJORS;
 pub use envelope::Envelope;
 pub use envelope_validate::{EnvelopeDefect, parse_envelope};
 
@@ -100,8 +105,7 @@ pub use errors::{ParseError, parse, parse_str};
 #[cfg(feature = "contract")]
 pub use manifest::{
     Access, DataDecl, Lifecycle, LifecycleStatus, Manifest, ModuleUi, NavigationEntry, Panel,
-    ParamDecl, Platform, Routes, SUPPORTED_BRIDGE_MAJORS, SUPPORTED_SCHEMA_VERSION,
-    WELL_KNOWN_PATH,
+    ParamDecl, Platform, Routes, SUPPORTED_SCHEMA_VERSION, WELL_KNOWN_PATH,
 };
 #[cfg(feature = "contract")]
 pub use validate::{
