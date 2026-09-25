@@ -384,13 +384,8 @@ impl Compressed {
         let Ok(Some(best)) = tokio::task::spawn_blocking(move || key.1.best(&raw)).await else {
             return;
         };
-        tracing::debug!(
-            encoding = key.1.token(),
-            bytes = body.len(),
-            compressed = best.len(),
-            ms = started.elapsed().as_millis() as u64,
-            "compressed a file at its best"
-        );
+        let ms = started.elapsed().as_millis() as u64;
+        let (bytes, quick_bytes, best_bytes) = (body.len(), quick.len(), best.len());
         // Brotli's best is not always smaller, on a small and repetitive
         // file; whichever is, is kept as final.
         let best = if best.len() < quick.len() {
@@ -399,6 +394,17 @@ impl Compressed {
             quick
         };
         self.keep(key, best, true);
+        let held = self.held();
+        tracing::debug!(
+            encoding = key.1.token(),
+            bytes,
+            quick = quick_bytes,
+            best = best_bytes,
+            ms,
+            kept_bytes = held.bytes,
+            kept_files = held.entries,
+            "compressed a file at its best"
+        );
     }
 
     /// Compress every file of the shell's own frontend at its best, in the
@@ -540,9 +546,12 @@ pub async fn compress(
     next: Next,
 ) -> Response {
     let accepted = Encoding::accepted(request.headers());
+    // A `HEAD` has no body to compress, only a length that would be wrong.
+    let get = request.method() == axum::http::Method::GET;
     let mut response = next.run(request).await;
 
     if cache.budget == 0
+        || !get
         || response.status() != StatusCode::OK
         || response.headers().contains_key(header::CONTENT_ENCODING)
         || !compressible(response.headers())
