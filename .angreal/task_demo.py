@@ -357,6 +357,11 @@ def _wait_for_panels(seconds=30):
     return False
 
 
+# Whether this `demo up` builds the browser's WebAssembly optimised. Set by
+# `demo up --release`; read by every build step that runs Trunk.
+RELEASE = False
+
+
 # -- up, down, status -----------------------------------------------------
 
 
@@ -376,6 +381,12 @@ def _wait_for_panels(seconds=30):
         starts the checklist (8083) and feed (8084) platforms rather than the
         sample platforms, and signs in as Alice to publish a surface with both
         side by side, which is what Alice lands on.
+
+        `--release` builds the browser's WebAssembly (the frontend and every
+        module) optimised, which is what a deployment serves and what any
+        measurement of load time or size should use. The shell and platform
+        binaries stay debug builds: this demo signs in with `dev`, which a
+        release shell refuses.
 
         `--with twenty` starts the widget platforms listed in `WIDGETS`
         (8201 upward), each its own process, after building their modules
@@ -400,7 +411,16 @@ def _wait_for_panels(seconds=30):
     takes_value=True,
     help="which shell configuration to run: demo, aurora, gallery, live, collab or twenty",
 )
-def demo_up(with_=None):
+@angreal.argument(
+    name="release",
+    long="release",
+    takes_value=False,
+    is_flag=True,
+    help="build the frontend and modules optimised, as a deployment would",
+)
+def demo_up(with_=None, release=False):
+    global RELEASE
+    RELEASE = bool(release)
     flavour = with_ or "demo"
     if flavour not in CONFIGS:
         print(f"no configuration called `{flavour}`. One of: {', '.join(CONFIGS)}")
@@ -436,7 +456,7 @@ def demo_up(with_=None):
             return 1
 
     print(f"building {frontend}", flush=True)
-    if subprocess.run(["trunk", "build"], cwd=os.path.join(cwd, "examples", frontend)).returncode:
+    if subprocess.run(_trunk(), cwd=os.path.join(cwd, "examples", frontend)).returncode:
         print(
             "The frontend did not build.\n"
             "  cargo install trunk\n"
@@ -683,7 +703,7 @@ def _build_modules():
     for platform in COLLAB_PLATFORMS:
         print(f"building {platform['name']}'s module", flush=True)
         where = os.path.join(cwd, platform["module"])
-        if subprocess.run(["trunk", "build"], cwd=where).returncode != 0:
+        if subprocess.run(_trunk(), cwd=where).returncode != 0:
             print(
                 f"{platform['name']}'s module did not build.\n"
                 "  cargo install trunk\n"
@@ -886,6 +906,7 @@ def _module_fingerprint(widget):
     import hashlib
 
     digest = hashlib.sha256()
+    digest.update(b"release" if RELEASE else b"debug")
     roots = [_widget_module(widget)] + [os.path.join(cwd, path) for path in MODULE_INPUTS]
     for root in roots:
         paths = [root] if os.path.isfile(root) else []
@@ -907,6 +928,11 @@ def _module_is_current(widget, fingerprint):
     except OSError:
         return False
     return stamped == fingerprint and os.path.isfile(os.path.join(dist, "index.html"))
+
+
+def _trunk():
+    """`trunk build`, optimised when `demo up --release` asked for it."""
+    return ["trunk", "build"] + (["--release"] if RELEASE else [])
 
 
 def _build_widget_modules():
@@ -932,7 +958,10 @@ def _build_widget_modules():
     print(f"building {len(stale)} widget modules: {names}", flush=True)
     packages = [flag for w in stale for flag in ("-p", f"hlin-widget-{w['name']}-module")]
     compiled = subprocess.run(
-        ["cargo", "build", "--target", "wasm32-unknown-unknown"] + packages, cwd=cwd
+        ["cargo", "build", "--target", "wasm32-unknown-unknown"]
+        + (["--release"] if RELEASE else [])
+        + packages,
+        cwd=cwd,
     )
     if compiled.returncode != 0:
         print("The widget modules did not compile.\n  rustup target add wasm32-unknown-unknown")
@@ -944,7 +973,7 @@ def _build_widget_modules():
         log_path = os.path.join(LOGS, f"module-{widget['name']}.log")
         log = open(log_path, "w")
         process = subprocess.Popen(
-            ["trunk", "build"],
+            _trunk(),
             cwd=_widget_module(widget),
             stdout=log,
             stderr=subprocess.STDOUT,

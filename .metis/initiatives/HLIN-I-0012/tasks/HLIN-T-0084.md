@@ -61,3 +61,26 @@ and proof that twenty independent platforms fail independently.
 ### 2026-09-24
 
 Created when [[HLIN-I-0012]] was decomposed. Not started.
+
+### 2026-09-25 — measure release builds
+
+The owner: measure with release builds, to be accurate. `angreal demo up
+--release` now builds the browser's WebAssembly optimised (the frontend and
+every module); the build profile is part of each module's fingerprint, so
+switching profiles rebuilds. Shell and platform binaries stay debug, because
+the twenty flavour signs in with `dev`, which a release shell refuses; they
+serve bytes and are not what the browser pays for.
+
+First numbers, three widgets, on the T-0080 branch:
+
+| | Debug | Release |
+|---|---|---|
+| Module wasm, each | 2.71–3.08 MB (0.62–0.68 MB gzip) | 0.55–0.61 MB (0.18–0.19 MB gzip) |
+| Shell frontend wasm | 8.18 MB | 1.89 MB |
+| Three widgets `ready`, fresh browser context | about 1.2 s | 1.03 s |
+| Cold module build, three widgets | 16.8 s | 23.3 s |
+
+Twenty release modules should be about 11–12 MB uncompressed, 3.7 MB gzipped,
+if the other seventeen are similar. Whether the shell and the platforms
+compress what they serve is worth checking in this task: the asset proxy
+passes bytes through as the platform sent them.
