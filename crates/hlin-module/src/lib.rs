@@ -19,7 +19,9 @@
 //! use leptos::prelude::*;
 //!
 //! fn main() {
-//!     leptos::task::spawn_local(async {
+//!     // `wasm_bindgen_futures`, not `leptos::task::spawn_local`: nothing is
+//!     // mounted yet, so Leptos has no executor to spawn onto and would panic.
+//!     wasm_bindgen_futures::spawn_local(async {
 //!         // Waits for the shell's `init`.
 //!         let module = connect().await;
 //!         let context = module.context();
