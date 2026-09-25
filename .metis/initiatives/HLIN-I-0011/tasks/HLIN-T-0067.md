@@ -4,14 +4,14 @@ level: task
 title: "Give modules the surface's context, relay what changed, and keep a surface within its frame budget"
 short_code: "HLIN-T-0067"
 created_at: 2026-09-25T00:01:05.391426+00:00
-updated_at: 2026-09-25T01:36:20.769316+00:00
+updated_at: 2026-09-25T02:18:14.981725+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: HLIN-I-0011
 Slice 7 of [[HLIN-I-0011]]. [[HLIN-S-0007]] `context`, `theme`,
 `visibility`, `changed` (both ways), `set-param`, `set-range`, `navigate`,
 `notice`, and *Budget*.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

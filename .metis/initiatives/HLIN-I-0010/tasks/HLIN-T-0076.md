@@ -4,14 +4,14 @@ level: task
 title: "Bring up the collaborative demo with both platforms side by side"
 short_code: "HLIN-T-0076"
 created_at: 2026-09-25T00:39:03.968325+00:00
-updated_at: 2026-09-25T00:54:23.845883+00:00
+updated_at: 2026-09-25T02:19:04.391405+00:00
 parent: HLIN-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -32,12 +32,14 @@ Task 7 of [[HLIN-I-0010]].
 
 ## Acceptance Criteria
 
-- [ ] `angreal demo up --with collab` builds both modules, starts Postgres,
+## Acceptance Criteria
+
+- [x] `angreal demo up --with collab` builds both modules, starts Postgres,
       Dex, the checklist, the feed and the shell; `demo down` stops them
 - [x] `demo/hlin-collab.toml` configures both platforms on `hlin-token`
-- [ ] A published layout with the checklist and the feed side by side, which
+- [x] A published layout with the checklist and the feed side by side, which
       is what a person lands on after signing in (met for Alice, who publishes
-      it; not for anyone else, see the question below)
+      it; others open it by its link, as the owner decided on 2026-09-24)
 - [x] README's collaborative demo section describes the story
 
 ## Implementation Notes
@@ -113,3 +115,9 @@ empty one of their own, and reaches published surfaces by link or gallery.
 Carol open it by its link, which the README already says. The "what a person
 lands on" criterion is met as decided, not as first written. Still open: the
 module build step, which waits on [[HLIN-T-0074]] and [[HLIN-T-0075]].
+
+### 2026-09-24 — done
+
+`demo up --with collab` builds both modules ([[HLIN-T-0074]], [[HLIN-T-0075]]),
+and the collab browser suite passes 9 of 9 on main with them themed by the
+shell. Every criterion is met, the landing one as decided.
