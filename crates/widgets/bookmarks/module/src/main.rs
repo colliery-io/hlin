@@ -46,7 +46,9 @@ fn main() {
                     .json(&serde_json::json!({ "url": link, "title": named }))
                     .expect("strings serialise"),
                 move |happened| {
-                    if happened {
+                    // Cleared only if it still says what was sent: anything
+                    // typed while the link was on its way is kept.
+                    if happened && url.get_untracked() == link && title.get_untracked() == named {
                         url.set(String::new());
                         title.set(String::new());
                     }

@@ -24,6 +24,9 @@ struct Timer {
     finished: u32,
 }
 
+/// How long a focus is, shown on the face while nothing is running.
+const FOCUS_MS: i64 = 25 * 60 * 1000;
+
 /// `MM:SS`, rounding up, so a phase shows `25:00` as it starts and `00:00`
 /// only once it is over.
 fn clock(left_ms: i64) -> String {
@@ -72,10 +75,12 @@ fn main() {
                 }
             };
             let over = move || has_phase && !paused && left() <= 0;
-            let gone = move || {
-                let whole = length_ms.max(1);
-                ((whole - left().max(0)) * 100 / whole).clamp(0, 100)
+            // Idle, the ring is empty and the face says how long a focus is.
+            let gone = move || match length_ms {
+                0 => 0,
+                whole => ((whole - left().max(0)) * 100 / whole).clamp(0, 100),
             };
+            let face = move || clock(if has_phase { left() } else { FOCUS_MS });
             let words = {
                 let phase = phase.clone();
                 move || match (phase.as_str(), paused, over()) {
@@ -97,7 +102,7 @@ fn main() {
                         class:pomodoro__ring--break=phase == "break"
                         style=move || format!("--share: {}%", gone())
                     >
-                        <span class="pomodoro__left" data-left=move || left().max(0)>{move || clock(left())}</span>
+                        <span class="pomodoro__left" data-left=move || left().max(0)>{face}</span>
                     </div>
                     <div class="pomodoro__side">
                         <p class="pomodoro__words">{words}</p>

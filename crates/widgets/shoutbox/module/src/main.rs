@@ -49,7 +49,9 @@ fn main() {
                     .json(&serde_json::json!({ "text": text }))
                     .expect("a string serialises"),
                 move |happened| {
-                    if happened {
+                    // Cleared only if it still says what was sent: anything
+                    // typed while the shout was on its way is kept.
+                    if happened && draft.get_untracked() == text {
                         draft.set(String::new());
                     }
                 },
