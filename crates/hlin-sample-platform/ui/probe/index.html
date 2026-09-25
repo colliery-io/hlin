@@ -13,7 +13,13 @@
     <meta charset="utf-8" />
     <title>Module probe</title>
     <style>
-      body { margin: 0; padding: 8px 10px; font: 13px/1.5 system-ui, sans-serif; }
+      /* The system's own colours, opaque: legible on whatever panel the frame
+         sits in, until the shell sends a theme to follow. */
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0; padding: 8px 10px; font: 13px/1.5 system-ui, sans-serif;
+        background: Canvas; color: CanvasText; min-height: 100vh; box-sizing: border-box;
+      }
       p { margin: 0 0 4px; }
       .label { color: #868e96; }
       button { font: inherit; font-size: 12px; margin: 4px 4px 0 0; }
