@@ -4,14 +4,14 @@ level: task
 title: "Widgets eighteen to twenty"
 short_code: "HLIN-T-0083"
 created_at: 2026-09-25T02:43:03.009423+00:00
-updated_at: 2026-09-25T11:20:45.256028+00:00
+updated_at: 2026-09-25T12:01:31.704009+00:00
 parent: HLIN-I-0012
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -32,12 +32,14 @@ Task 4 of [[HLIN-I-0012]]: `deploys`, `converter`, `meetings`.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [x] Three widget crates, following the rules below and [[HLIN-T-0080]]
 - [x] `deploys` streams its log to its module over the bridge
       ([[HLIN-T-0068]]), the first real use of streaming
 - [x] `converter` works entirely inside its module and makes no requests,
       and declares no fallback
-- [ ] Each added to the list; "Twenty" now has twenty (these three are on the
+- [x] Each added to the list; "Twenty" now has twenty (these three are on the
       list; twenty once the other two widget tasks merge)
 - [x] Server tests; the twenty flavour's browser test passes (with the six on
       this branch; with all twenty after the merge)

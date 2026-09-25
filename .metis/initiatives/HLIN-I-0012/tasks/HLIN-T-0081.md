@@ -4,14 +4,14 @@ level: task
 title: "Widgets four to ten"
 short_code: "HLIN-T-0081"
 created_at: 2026-09-25T02:43:00.802485+00:00
-updated_at: 2026-09-25T15:30:00.000000+00:00
+updated_at: 2026-09-25T12:01:31.001209+00:00
 parent: HLIN-I-0012
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0012
 
 Task 2 of [[HLIN-I-0012]]: `notes`, `dice`, `stopwatch`, `quote`,
 `sparkline`, `kanban`, `status`, as described in the initiative's table.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

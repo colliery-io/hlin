@@ -84,3 +84,20 @@ Twenty release modules should be about 11–12 MB uncompressed, 3.7 MB gzipped,
 if the other seventeen are similar. Whether the shell and the platforms
 compress what they serve is worth checking in this task: the asset proxy
 passes bytes through as the platform sent them.
+
+### 2026-09-25 — "ready" is not "something to look at"
+
+With all twenty merged, `angreal e2e twenty` reports "20 widgets ready in
+3622 ms" (release builds), and passes 6 of 6. But its screenshots taken at
+that moment show the frames empty. A probe that screenshotted the surface at
+intervals found the top six widgets fully drawn by 1.5 s, and every mounted
+frame's DOM holding real content from 500 ms, so the widgets are fine. The
+empty shots are the test photographing the instant the shell marks the last
+panel `ready`, before the frames paint; the full-page shot does not composite
+sandboxed frames reliably.
+
+For this task that means two numbers, not one: time to every in-view widget's
+`ready` (the handshake), and time to its first content (its DOM holding more
+than "Loading…"). The second is what a person experiences. Screenshots should
+be taken after first content, and the full-page shot replaced by scrolled
+viewport shots.
