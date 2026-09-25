@@ -4,14 +4,14 @@ level: task
 title: "An SDK so a Leptos module does not know it is in a frame"
 short_code: "HLIN-T-0069"
 created_at: 2026-09-25T00:01:07.895454+00:00
-updated_at: 2026-09-25T00:33:38.259244+00:00
+updated_at: 2026-09-25T00:53:58.774384+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0011
 
 Slice 9 of [[HLIN-I-0011]]. NFR-1.2 of [[HLIN-S-0007]]: a module built with
 the SDK needs no bridge code of its own.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

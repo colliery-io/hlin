@@ -4,14 +4,14 @@ level: task
 title: "The checklist platform: lists, members and their rules"
 short_code: "HLIN-T-0072"
 created_at: 2026-09-25T00:38:59.633507+00:00
-updated_at: 2026-09-25T00:39:42.665143+00:00
+updated_at: 2026-09-25T00:53:59.694564+00:00
 parent: HLIN-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0010
 
 Task 3 of [[HLIN-I-0010]]: the server half of the checklist, a reference
 a platform team can copy. Its module is [[HLIN-T-0074]].
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

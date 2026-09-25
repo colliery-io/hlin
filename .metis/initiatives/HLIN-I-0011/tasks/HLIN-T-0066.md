@@ -4,14 +4,14 @@ level: task
 title: "Mount a module in a sandboxed frame, and keep its panel's state honest"
 short_code: "HLIN-T-0066"
 created_at: 2026-09-25T00:01:03.997781+00:00
-updated_at: 2026-09-25T00:01:03.997781+00:00
+updated_at: 2026-09-25T00:54:23.822829+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: HLIN-I-0011
 Slice 6 of [[HLIN-I-0011]]. [[HLIN-S-0007]] *Frames*, the envelope,
 `init`/`ready`/`heartbeat`, *Panel states* and *Fallback*. The parent end of
 the bridge, in `hlin-ui`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

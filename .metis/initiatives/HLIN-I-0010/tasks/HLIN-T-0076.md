@@ -4,14 +4,14 @@ level: task
 title: "Bring up the collaborative demo with both platforms side by side"
 short_code: "HLIN-T-0076"
 created_at: 2026-09-25T00:39:03.968325+00:00
-updated_at: 2026-09-25T00:39:03.968325+00:00
+updated_at: 2026-09-25T00:54:23.845883+00:00
 parent: HLIN-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: HLIN-I-0010
 ## Objective
 
 Task 7 of [[HLIN-I-0010]].
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

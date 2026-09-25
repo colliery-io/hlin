@@ -4,14 +4,14 @@ level: task
 title: "The feed platform: posts, and who may write them"
 short_code: "HLIN-T-0073"
 created_at: 2026-09-25T00:39:00.624391+00:00
-updated_at: 2026-09-25T00:39:43.398538+00:00
+updated_at: 2026-09-25T00:54:00.549335+00:00
 parent: HLIN-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0010
 
 Task 4 of [[HLIN-I-0010]]: the server half of the feed. Its module is
 [[HLIN-T-0075]].
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
