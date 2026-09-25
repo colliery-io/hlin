@@ -1,0 +1,30 @@
+[package]
+name = "hlin-widget-oncall"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Widget 16 of twenty: who is on call this week"
+publish = false
+
+[[bin]]
+name = "hlin-widget-oncall"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_widget_oncall"
+path = "src/lib.rs"
+
+[dependencies]
+hlin-widget-support = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+hlin-widget-support = { workspace = true, features = ["testing"] }

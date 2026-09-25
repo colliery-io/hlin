@@ -184,4 +184,32 @@ test.describe('twenty widgets on one surface', () => {
 
     stayed();
   });
+
+  test('a shout reaches a second browser without a reload', async ({ browser }) => {
+    const first = await (await browser.newContext()).newPage();
+    const second = await (await browser.newContext()).newPage();
+    await openSurface(first, surface, panels);
+    await openSurface(second, surface, panels);
+    const firstStayed = forbidReloads(first, 'the first browser');
+    const secondStayed = forbidReloads(second, 'the second browser');
+
+    // Words nobody has said before, so the check cannot pass on an old shout.
+    const words = `Anyone for coffee? ${Date.now()}`;
+    const here = inside(widget(first, 'shoutbox', 'shoutbox'));
+    const there = inside(widget(second, 'shoutbox', 'shoutbox'));
+    await widget(first, 'shoutbox', 'shoutbox').scrollIntoViewIfNeeded();
+    await widget(second, 'shoutbox', 'shoutbox').scrollIntoViewIfNeeded();
+    await here.getByRole('textbox', { name: 'Say something' }).fill(words);
+    await here.getByRole('button', { name: 'Send' }).click();
+    const mine = here.locator('li.shoutbox__shout', { hasText: words });
+    await expect(mine).toHaveClass(/shoutbox__shout--mine/);
+    await expect(here.getByRole('textbox', { name: 'Say something' })).toHaveValue('');
+    await propagated('a shout reaches the second browser', (options) =>
+      expect(there.locator('li.shoutbox__shout', { hasText: words })).toBeVisible(options),
+    );
+    await shot(second, 212, 'twenty-shout-in-step');
+
+    firstStayed();
+    secondStayed();
+  });
 });

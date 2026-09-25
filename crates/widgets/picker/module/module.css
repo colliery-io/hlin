@@ -1,0 +1,49 @@
+/* The picker's own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.picker__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--hlin-border, #2a3340);
+  background: var(--hlin-surface, #0f1217);
+}
+
+.picker__name {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--hlin-accent, #7fb2ff);
+}
+
+.picker__people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.picker__person {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hlin-border, #2a3340);
+  font-size: 12px;
+}
+
+.picker__person--me {
+  font-weight: 600;
+}
+
+.picker__person--picked {
+  border-color: var(--hlin-accent, #7fb2ff);
+}
+
+/* Sat out: still in the team, not in the draw. */
+.picker__person--out {
+  color: var(--hlin-faint, #5d6673);
+  text-decoration: line-through;
+}

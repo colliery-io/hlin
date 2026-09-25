@@ -1,0 +1,32 @@
+[package]
+name = "hlin-widget-picker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Widget 17 of twenty: pick someone at random from the people who use it"
+publish = false
+
+[[bin]]
+name = "hlin-widget-picker"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_widget_picker"
+path = "src/lib.rs"
+
+[dependencies]
+hlin-widget-support = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+# Where a pick comes from: the operating system, as for the shell's keys.
+getrandom = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+hlin-widget-support = { workspace = true, features = ["testing"] }

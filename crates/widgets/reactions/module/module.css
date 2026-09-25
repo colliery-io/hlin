@@ -1,0 +1,47 @@
+/* The reactions' own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.reactions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.reactions__pill {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--hlin-border, #2a3340);
+  background: var(--hlin-surface, #0f1217);
+  color: var(--hlin-text, #e6e9ee);
+  cursor: pointer;
+}
+
+.reactions__pill:hover:not(:disabled) {
+  border-color: var(--hlin-dim, #8b95a3);
+}
+
+.reactions__pill:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.reactions__pill--mine {
+  border-color: var(--hlin-accent, #7fb2ff);
+  box-shadow: inset 0 0 0 1px var(--hlin-accent, #7fb2ff);
+}
+
+.reactions__emoji {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.reactions__count {
+  min-width: 2ch;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

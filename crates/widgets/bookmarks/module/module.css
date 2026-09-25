@@ -1,0 +1,58 @@
+/* The bookmarks' own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.bookmarks__list {
+  gap: 2px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.bookmarks__link {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--hlin-border, #2a3340);
+}
+
+.bookmarks__link a {
+  color: var(--hlin-accent, #7fb2ff);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmarks__link a:hover {
+  text-decoration: underline;
+}
+
+.bookmarks__host {
+  flex: 1;
+  color: var(--hlin-faint, #5d6673);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bookmarks__remove {
+  font: inherit;
+  border: none;
+  background: none;
+  color: var(--hlin-dim, #8b95a3);
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.bookmarks__remove:hover:not(:disabled) {
+  color: var(--hlin-bad, #f06464);
+}
+
+.bookmarks__add {
+  display: grid;
+  grid-template-columns: 3fr 2fr auto;
+  gap: 6px;
+}
+
+.bookmarks__add .w-input {
+  min-width: 0;
+}

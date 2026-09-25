@@ -1,0 +1,63 @@
+/* The focus timer's own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.pomodoro {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* How far the phase has gone is set inline as `--share`, which the module
+ * CSP allows: styles are the one thing it lets be inline. The ring fills
+ * with the accent in a focus and the good colour in a break. */
+.pomodoro__ring {
+  --fill: var(--hlin-accent, #7fb2ff);
+  flex: none;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(
+    var(--fill) var(--share, 0%),
+    var(--hlin-border, #2a3340) var(--share, 0%)
+  );
+}
+
+.pomodoro__ring--break {
+  --fill: var(--hlin-good, #5cc98b);
+}
+
+/* The face, cut out of the ring. */
+.pomodoro__ring::before {
+  content: "";
+  grid-area: 1 / 1;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  background: var(--hlin-raised, #161a21);
+}
+
+.pomodoro__left {
+  grid-area: 1 / 1;
+  z-index: 1;
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pomodoro__side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pomodoro__words {
+  margin: 0;
+  font-weight: 600;
+}
+
+.pomodoro__tomatoes {
+  color: var(--hlin-bad, #f06464);
+  letter-spacing: 2px;
+}

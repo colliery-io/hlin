@@ -1640,6 +1640,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-widget-bookmarks"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-bookmarks-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hlin-widget-clock"
 version = "0.0.1"
 dependencies = [
@@ -1772,6 +1795,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-widget-oncall"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-oncall-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-picker"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "getrandom 0.3.4",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-picker-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hlin-widget-poll"
 version = "0.0.1"
 dependencies = [
@@ -1795,6 +1867,79 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-widget-pomodoro"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-pomodoro-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "js-sys",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-reactions"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-reactions-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-shoutbox"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-shoutbox-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "js-sys",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hlin-widget-support"
 version = "0.0.1"
 dependencies = [
@@ -1812,6 +1957,30 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "hlin-widget-weather"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-weather-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

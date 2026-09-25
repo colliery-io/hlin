@@ -1,0 +1,67 @@
+/* The on-call rota's own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.oncall__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.oncall__who {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.oncall__name {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.oncall__below {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--hlin-border, #2a3340);
+}
+
+.oncall__queue {
+  gap: 2px;
+}
+
+.oncall__next {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.oncall__roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 4px;
+}
+
+.oncall__person {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hlin-border, #2a3340);
+  color: var(--hlin-dim, #8b95a3);
+  font-size: 12px;
+}
+
+.oncall__person--on {
+  border-color: var(--hlin-good, #5cc98b);
+  color: var(--hlin-text, #e6e9ee);
+}
+
+.oncall__today {
+  align-self: flex-start;
+}

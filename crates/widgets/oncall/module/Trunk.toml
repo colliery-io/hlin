@@ -1,0 +1,14 @@
+# Builds the oncall's module into `dist/`, which the widget serves under its
+# `assets` prefix. The same three differences from a Trunk site of its own as
+# the sample feed's module (see crates/hlin-sample-feed/module/Trunk.toml): a
+# relative `public_url`, the loader as a file (`boot.js`) rather than an
+# inline script the module CSP would refuse, and hashes on, so the widget can
+# mark them `immutable`. Every widget's is this file, unchanged.
+[build]
+minify = "never"
+public_url = "./"
+pattern_script = "<script type=\"module\" src=\"{base}boot.js\" data-js=\"{base}{js}\" data-wasm=\"{base}{wasm}\"></script>"
+
+# The wasm-bindgen CLI must match the wasm-bindgen crate exactly.
+[tools]
+wasm_bindgen = "0.2.126"

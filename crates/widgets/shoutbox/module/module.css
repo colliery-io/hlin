@@ -1,0 +1,66 @@
+/* The shoutbox's own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+/* Newest first in the document, laid out bottom up: the latest shout sits
+ * just above the line you type on, and the log scrolls up into the past. */
+.shoutbox__log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 4px;
+  height: 170px;
+  overflow-y: auto;
+}
+
+.shoutbox__empty {
+  margin: auto;
+}
+
+.shoutbox__shout {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border-left: 2px solid var(--hlin-border, #2a3340);
+}
+
+.shoutbox__shout--mine {
+  border-left-color: var(--hlin-accent, #7fb2ff);
+  background: var(--hlin-surface, #0f1217);
+}
+
+.shoutbox__who {
+  font-weight: 600;
+}
+
+.shoutbox__text {
+  overflow-wrap: anywhere;
+}
+
+.shoutbox__when {
+  color: var(--hlin-faint, #5d6673);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.shoutbox__take-back {
+  font: inherit;
+  border: none;
+  background: none;
+  color: var(--hlin-dim, #8b95a3);
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.shoutbox__take-back:hover:not(:disabled) {
+  color: var(--hlin-bad, #f06464);
+}
+
+.shoutbox__input {
+  flex: 1;
+  min-width: 0;
+}

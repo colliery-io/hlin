@@ -1,0 +1,59 @@
+/* The weather's own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.weather__now {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.weather__reading {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.weather__units {
+  align-self: flex-start;
+}
+
+.weather__glyph {
+  color: var(--hlin-dim, #8b95a3);
+}
+
+.weather__glyph--big {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.weather__glyph--sunny {
+  color: var(--hlin-warn, #e0b341);
+}
+
+.weather__glyph--rain,
+.weather__glyph--snow {
+  color: var(--hlin-accent, #7fb2ff);
+}
+
+.weather__hours {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  border-top: 1px solid var(--hlin-border, #2a3340);
+  border-bottom: 1px solid var(--hlin-border, #2a3340);
+}
+
+.weather__hour {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather__other {
+  padding: 2px 8px;
+  font-size: 12px;
+}
