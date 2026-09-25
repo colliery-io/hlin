@@ -226,16 +226,28 @@ def e2e_test(headed=False, filter=None):
     help="show the browser rather than running it headless",
 )
 def e2e_signin(headed=False):
-    if not _npm_available():
+    if not _collab_ready():
         return 1
+
+    argv = ["npx", "playwright", "test", "signin.spec.js", "collab.spec.js", "collab-modules.spec.js"]
+    if headed:
+        argv.append("--headed")
+
+    return _playwright(argv)
+
+
+def _collab_ready():
+    """Whether the collaborative demo is up for a suite that signs people in."""
+    if not _npm_available():
+        return False
 
     if not _installed():
         print("Playwright is not installed here. Run `angreal e2e install` first.", flush=True)
-        return 1
+        return False
 
     if not _demo_running():
         print(f"Nothing is answering at {SHELL}. Start it with `angreal demo up --with collab`.", flush=True)
-        return 1
+        return False
 
     # Checked here rather than left to the spec, which skips itself against a
     # shell that does not sign people in: a run that skipped everything would
@@ -246,9 +258,48 @@ def e2e_signin(headed=False):
             "demo with `angreal demo up --with collab`.",
             flush=True,
         )
+        return False
+
+    return True
+
+
+@e2e()
+@angreal.command(
+    name="walkthrough",
+    about="two people in two browsers, against the collaborative demo",
+    tool=angreal.ToolDescription(
+        """
+        Walk the collaborative demo's story with Alice and Bob signed in
+        through Dex in two browsers at once: Alice adds an item and Bob's open
+        page shows it without a reload; Bob crosses it off and Alice's shows
+        it crossed. Bob is refused an edit of Alice's post, and Carol reads
+        the feed but is refused a post and the team list, each in the
+        platform's words. Prints how long each change took to reach the other
+        browser, and writes a screenshot per step.
+
+        ## When to use
+        - After `angreal demo up --with collab`
+        - After changing the change relay, the surface stream, or either
+          collaborative platform or its module
+
+        Creates sessions, and an item and a post named for the run in the
+        platforms' memory, which `demo down` forgets.
+        """,
+        risk_level="safe",
+    ),
+)
+@angreal.argument(
+    name="headed",
+    long="headed",
+    takes_value=False,
+    is_flag=True,
+    help="show the browsers rather than running them headless",
+)
+def e2e_walkthrough(headed=False):
+    if not _collab_ready():
         return 1
 
-    argv = ["npx", "playwright", "test", "signin.spec.js", "collab.spec.js", "collab-modules.spec.js"]
+    argv = ["npx", "playwright", "test", "walkthrough.spec.js"]
     if headed:
         argv.append("--headed")
 

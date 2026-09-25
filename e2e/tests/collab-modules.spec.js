@@ -16,8 +16,7 @@
 // feed but her post is refused, in the feed's words.
 //
 // Not claimed here: that Bob's open page follows Alice's change without a
-// reload. That needs the shell to relay `changed` between browsers, and is
-// HLIN-T-0077's to assert.
+// reload. walkthrough.spec.js asserts that, with both browsers open at once.
 //
 // The platforms keep their state in memory for as long as the demo runs, so
 // everything written here is named for this run, and a second run finds its

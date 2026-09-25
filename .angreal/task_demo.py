@@ -498,7 +498,7 @@ def demo_up(with_=None):
         print(f"\nHlin is running at {SHELL}, signing people in through Dex.")
         print("Sign in as alice@example.com, bob@example.com or carol@elsewhere.org;")
         print("the password is `password`.")
-        print("`angreal e2e signin` proves it in a browser.")
+        print("`angreal e2e signin` proves it in a browser; `angreal e2e walkthrough`, in two.")
         print("`angreal demo down` stops everything.")
         return 0
 

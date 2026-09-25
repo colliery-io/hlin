@@ -430,6 +430,7 @@ decide for themselves who may do what:
 ```bash
 angreal demo up --with collab   # Postgres, Dex, both platforms and their modules, the shell on `oidc`
 angreal e2e signin              # signs in through Dex's form; adds, ticks and posts as Alice, Bob and Carol
+angreal e2e walkthrough         # Alice and Bob in two browsers at once; Carol in a third
 ```
 
 Open `http://127.0.0.1:8080` — `127.0.0.1`, not `localhost`, because the
@@ -464,16 +465,21 @@ The story so far:
   words. Carol reads the posts but is refused when she posts, and the
   checklist refuses her the team list — each platform's decision, in its own
   words, shown rather than hidden.
-- **Not yet:** a change reaching another person's open page without a reload,
-  which needs the shell to relay what a module announces. A first-time Bob or
-  Carol lands on an empty surface of their own and opens The team by its link.
+- **Live across browsers.** A change reaches everyone else's open page
+  without a reload: the platform says so on its event stream, the shell
+  relays it down each surface's stream, and each module fetches again. Sign in
+  as Alice and as Bob in two browsers; Alice adds an item and Bob sees it,
+  Bob crosses it off and Alice sees it crossed. `angreal e2e walkthrough`
+  does exactly that, and prints how long each change took to arrive.
+- A first-time Bob or Carol lands on an empty surface of their own and opens
+  The team by its link.
 
 Dex is configured by `demo/dex.yaml` and the shell by `demo/hlin-collab.toml`.
 Its issuer is plain http on loopback, which only a debug build of the shell
 accepts. `up` generates the client secret and hands it to both through
 `HLIN_DEMO_OIDC_SECRET`, unless that is already set. `angreal demo down` stops
 the platforms and Dex too. `angreal e2e test` expects the standard demo and says so if pointed at
-this one; `angreal e2e signin` expects this one.
+this one; `angreal e2e signin` and `angreal e2e walkthrough` expect this one.
 
 ### Seeing it in a real design system
 
