@@ -20,6 +20,16 @@ html:root {
   --ice: var(--hlin-accent, #7fb2ff);
   --bad: var(--hlin-bad, #f06464);
   --ok: var(--hlin-good, #4bd07f);
+  /* Aurora draws fields, second-level panels and soft lines with these, so
+     an unmapped one stays dark on a light surface. */
+  --inset: var(--hlin-surface, #0a0c10);
+  --panel-2: var(--hlin-raised, #1b2029);
+  --border-soft: var(--hlin-border, #1c222b);
+  --border-fainter: var(--hlin-border, #181d25);
+  --edge: var(--hlin-border, #2a3340);
+  --fg-2: var(--hlin-text, #c9ced6);
+  --fainter: var(--hlin-faint, #474f5b);
+  --on-accent: var(--hlin-on-accent, #0b0e13);
 }
 
 .feed {
