@@ -11,7 +11,7 @@ archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -50,14 +50,14 @@ Two questions, one for the owner:
 
 ## Acceptance Criteria
 
-- [ ] Owner's answer to the first question recorded, and implemented
-- [ ] A platform that returns is noticed and its modules refetch without a
+- [x] Owner's answer to the first question recorded, and implemented
+- [x] A platform that returns is noticed and its modules refetch without a
       reload or a click
-- [ ] Widgets (via `hlin-widget-module`) show a way to try again when a load
+- [x] Widgets (via `hlin-widget-module`) show a way to try again when a load
       fails, and retry on their own on `changed`
-- [ ] The twenty measurement's kill-and-restart run shows the panel degrade
+- [x] The twenty measurement's kill-and-restart run shows the panel degrade
       and recover by itself; recorded in [[HLIN-I-0012]]'s results
-- [ ] `angreal check all`, `angreal test all`, browser suites pass
+- [x] `angreal check all`, `angreal test all`, browser suites pass
 
 ## Status Updates
 
@@ -72,3 +72,34 @@ Yes, from the shell's own refusals. After a few consecutive `unreachable` or
 produced), that platform's panels go `stale`; the first success clears it.
 When the platform's event stream reconnects, its modules are told to refetch,
 so recovery needs no click.
+
+### 2026-09-25 — done
+
+- **Stale from the shell's own refusals.** N = 3
+  (`bridge::REFUSALS_UNTIL_STALE`): one gesture can cost two requests (a
+  write and the read after it), so two in a row can be one moment's blip;
+  three is at least two separate attempts, and it matches the three missed
+  heartbeats before `unavailable`. `bridge::Reach` counts, per platform, the
+  `X-Hlin-Refusal` `unreachable`/`timeout` answers from `/p/`; any answer
+  from the platform itself clears it; other refusals, and requests that
+  never reached the shell, do neither. `frame::reached` republishes that
+  platform's panels when it crosses; `Host::view` shows a `ready` module as
+  `stale` while its platform is down.
+- **Recovery.** `streams.rs` counts a stream's returns (`Listening::returned`);
+  `live.rs` sends every panel of a returned platform a `changed` from
+  `platform` with no selections, which makes running modules refetch and
+  remounts one given up on. The shell now resubscribes after 1 s, doubling
+  to the old 30 s while it keeps failing (`events::RESUBSCRIBE_FIRST`); at a
+  flat 30 s a restart could go unnoticed for half a minute. Tested in
+  `crates/hlin/tests/events.rs`.
+- **Widgets.** `hlin-widget-module`: a read that could not reach the platform
+  is `Loaded::Failed`, drawn with *Try again*; reads retry on `changed` as
+  before.
+- **Spec.** HLIN-S-0007 *Panel states* (the rule, N and why, the return),
+  `changed`, and the request proxy's retry note.
+- **Measured** (twenty-measure, release): after the kill, a roll and one
+  *Try again* on the open page, and the panel is `stale` 0.19 s after the
+  kill; no other panel moves. After `demo restart dice` (0.29 s), nobody
+  clicking: the open page is `ready` with its table 4.8 s later, and a page
+  opened while it was down (fallen back) is `ready` at 4.8 s too. Recorded
+  in HLIN-I-0012's results. Checks as in HLIN-T-0085.

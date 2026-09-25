@@ -125,7 +125,7 @@ details, and how each number is taken, are in the task.
 | All twenty modules' assets | 12.53 MB as sent, 3.98 MB gzipped; **nothing is compressed** | |
 | JS heap | 15.1 MB (19.0 MB after a scroll) | |
 | Browser resident memory | 526 MB with the surface open, 615 MB after a scroll; 276 MB for an empty page | |
-| Frames mounted while scrolling | 12 settled; **18 at the peak** | budget is 12 |
+| Frames mounted while scrolling | 12 settled; **18 at the peak**, 12 since [[HLIN-T-0085]] | budget is 12 |
 | A counter bump, one browser to another | 77 ms | |
 
 **Proofs.** A scrolled-away converter keeps its value and a stopwatch keeps
@@ -137,6 +137,17 @@ falls back to Hlin-drawn data. But a page already open keeps that panel
 heartbeat never reaches the platform. After a restart nothing recovers by
 itself (by design: on the platform's next change, or when a person asks);
 asked, the panel is back in 0.85 s.
+
+**Since, on 2026-09-25** (same machine and runner, three runs). With a frame
+counted until it has left the document and the SDK answering `suspend` at
+once ([[HLIN-T-0085]]), the peak while scrolling is **12** in every run, and
+the test asserts it. With a platform's reach counted and its stream's return
+treated as a change ([[HLIN-T-0087]]): after dice is killed, a roll and one
+*Try again* on the open page make three `unreachable` answers in a row, and
+the panel is `stale` 0.19 s after the kill; nothing else moves. After `demo
+restart dice`, with nobody touching anything, the open page's panel is
+`ready` with its table drawn 4.8 s later, and the page opened while it was
+down (fallen back) remounts its module and is `ready` at the same moment.
 
 **Does twenty fit the bet in [[HLIN-A-0014]]?** In time, yes, with room: a
 twenty-widget surface draws its first screen in 0.6 s locally and under 2 s

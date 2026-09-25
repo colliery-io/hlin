@@ -11,7 +11,7 @@ archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -37,15 +37,15 @@ hook, so every such frame waits out the whole deadline.
 
 ## Acceptance Criteria
 
-- [ ] A frame counts against the budget from mount until it is removed from
+- [x] A frame counts against the budget from mount until it is removed from
       the document, including while it is being suspended
-- [ ] The SDK answers `suspend` at once with an empty `state` when the module
+- [x] The SDK answers `suspend` at once with an empty `state` when the module
       registered no hook, so a module that keeps nothing costs no wait
-- [ ] The twenty measurement's peak mounted-frame count is at most 12 while
+- [x] The twenty measurement's peak mounted-frame count is at most 12 while
       scrolling top to bottom and back; the test asserts the peak, not the
       settled count
-- [ ] Still true: no frame in view is ever unmounted
-- [ ] `angreal check all`, `angreal test all`, `angreal e2e twenty` and the
+- [x] Still true: no frame in view is ever unmounted
+- [x] `angreal check all`, `angreal test all`, `angreal e2e twenty` and the
       standard suite pass
 
 ## Implementation Notes
@@ -58,3 +58,26 @@ hook, so every such frame waits out the whole deadline.
 ### 2026-09-25
 
 Created from [[HLIN-T-0084]]'s findings. Not started.
+
+### 2026-09-25 — done
+
+- **Budget.** `bridge::over_budget` counts every frame in the document; one
+  already being suspended (`Mounted::leaving`) is counted but not chosen
+  again. New `bridge::room_for`: at the budget, a frame is not mounted until
+  room is made. `frame::attach` marks the host `waiting` and lets the chosen
+  frame go (`let_go`: `suspend`, or at once if it cannot hear); when a frame
+  leaves the document (`detach`, `unmount`) `mount_waiting` mounts whatever
+  waited, those in view first. A frame in view is mounted past twelve only
+  when nothing out of view can go. A page (navigation entry) is never
+  counted and never waits.
+- **SDK.** `hlin-module` answers `suspend` at once with `state { blob: null }`
+  when there is no hook or it keeps nothing.
+- **Spec.** HLIN-S-0007 *Budget* and `state` say both.
+- **Measured** (`angreal e2e twenty-measure`, release, three runs): peak
+  **12** in every run (was 18), settled 12; the test now asserts the peak.
+  Nothing in view was unmounted. Cold ready 577 ms, warm 532 ms (unchanged).
+- `angreal check all`, `angreal test all` (1021 passed), `angreal ui build`,
+  standard suite `--with aurora` (76 passed, 28 skipped), `angreal e2e
+  signin` (9), `angreal e2e twenty` (6; one run of three failed once on "a
+  shout reaches a second browser", passing on both reruns) and
+  `twenty-measure` (4) pass.
