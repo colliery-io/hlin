@@ -31,6 +31,14 @@
 //!   `nosniff`, so a browser cannot decide a stylesheet is a script.
 //! - **Confined.** Every response under `/m/`, refusals included, carries the
 //!   module CSP, naming this shell's origin explicitly rather than `'self'`.
+//! - **Readable from the frame.** Every response also carries
+//!   `Access-Control-Allow-Origin: *`. The frame's origin is opaque, so to the
+//!   browser each of its own assets is cross-origin: a module script, a
+//!   `modulepreload` and the `fetch` that loads a `.wasm` are all CORS
+//!   requests from origin `null`, and without this header every Trunk-built
+//!   module fails before its first line runs. `*` gives nothing away: these
+//!   are files the shell fetched without a credential and serves without a
+//!   session, to anyone who asks for them by URL.
 //!
 //! # Statuses, and what the frame host makes of them
 //!
@@ -351,6 +359,10 @@ fn confine(mut response: Response, shell: &str, platform: Option<&str>) -> Respo
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
     );
     response
 }

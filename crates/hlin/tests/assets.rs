@@ -628,6 +628,38 @@ async fn every_answer_under_m_carries_the_module_csp_with_the_shells_origin() {
 }
 
 #[tokio::test]
+async fn a_frame_whose_origin_is_opaque_may_read_its_own_assets() {
+    // A sandboxed frame's origin is `null`, so its module script and the fetch
+    // of its `.wasm` are cross-origin CORS requests, refused without this.
+    let (app, _) = shell().await;
+
+    for path in [
+        "/m/checklist/ui/items/index.html",
+        "/m/checklist/ui/items/app.wasm",
+    ] {
+        let answered = get(
+            &app,
+            Request::get(path)
+                .header(header::ORIGIN, "null")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(answered.status, StatusCode::OK, "{path}");
+        assert_eq!(
+            answered.header(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some("*"),
+            "{path}"
+        );
+        assert_eq!(
+            answered.header(header::ACCESS_CONTROL_ALLOW_CREDENTIALS),
+            None,
+            "nothing about a session is ever shared: {path}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn an_unknown_platform_is_refused_under_a_policy_that_allows_nothing() {
     let (app, _) = shell().await;
 
