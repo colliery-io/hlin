@@ -205,6 +205,9 @@ test.describe('a component that moves the whole surface', () => {
 
     // No preset is in force any more: the surface is on a range somebody
     // dragged, and the picker says so rather than still claiming an hour.
+    // The picker is there to say it, because the brushed panel declares
+    // `time_range`; a surface without one carries no picker at all.
+    await expect(page.locator('.bar .picker')).toBeVisible();
     await expect(page.locator('.bar button.active')).toHaveCount(0);
 
     // And the panel is still drawing, on the new window. A range that emptied

@@ -728,6 +728,22 @@ where
     let composing = move || mode.get() == Mode::Composing;
     let editable = move || draft.with(|draft| draft.editable());
 
+    // Whether the bar carries the time controls (HLIN-T-0078): only while the
+    // surface is on screen and something on it declares `time_range`. Absent
+    // rather than disabled otherwise, for the same reason Edit is on a
+    // read-only shell. The range itself is kept while they are gone — the
+    // picker's signals are not touched, and modules are still told it — so a
+    // time-driven panel added back resumes the range that was in force.
+    //
+    // A page counts as wanting none. A navigation entry declares nothing about
+    // time, and the module it opens is told the surface's range as `context`
+    // either way; controls the page cannot be shown to use are the same noise
+    // on a page as on a surface of lists.
+    let wants_time = Memo::new(move |_| {
+        open.with(Option::is_none)
+            && draft.with(|draft| catalog.with(|catalog| draft.wants_time(catalog)))
+    });
+
     let styling = drawer.stylesheet();
 
     // Taken here, before the pack is moved into the closures that draw with it,
@@ -752,20 +768,22 @@ where
             <strong>"Hlin"</strong>
             <span class="tagline">{move || draft.with(|draft| draft.title().to_string())}</span>
 
-            <div class="picker">
-                {PRESETS.into_iter().map(|(label, seconds)| {
-                    let active = move || custom.get().is_none() && chosen_range.get() == seconds;
-                    view! {
-                        <button class:active=active on:click=move |_| apply_preset(seconds)>
-                            {label}
-                        </button>
-                    }
-                }).collect_view()}
-                <CustomRange on_apply=move |range| {
-                    set_custom.set(Some(range));
-                    apply_range(range);
-                } />
-            </div>
+            <Show when=move || wants_time.get()>
+                <div class="picker">
+                    {PRESETS.into_iter().map(|(label, seconds)| {
+                        let active = move || custom.get().is_none() && chosen_range.get() == seconds;
+                        view! {
+                            <button class:active=active on:click=move |_| apply_preset(seconds)>
+                                {label}
+                            </button>
+                        }
+                    }).collect_view()}
+                    <CustomRange on_apply=move |range| {
+                        set_custom.set(Some(range));
+                        apply_range(range);
+                    } />
+                </div>
+            </Show>
 
             <span class="applied" class:pending=move || !surface.with(SurfaceState::applied)>
                 {move || if surface.with(SurfaceState::applied) { "applied" } else { "applying…" }}

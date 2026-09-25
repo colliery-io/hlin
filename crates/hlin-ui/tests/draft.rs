@@ -277,3 +277,135 @@ fn retitling_the_layout_to_the_same_thing_is_not_a_change() {
     assert!(draft.dirty());
     assert_eq!(draft.title(), "Overnight");
 }
+
+// -- Whether the surface wants the time controls (HLIN-T-0078) --------------
+
+/// A catalogue of two platforms: `orebank`, whose `throughput` answers to the
+/// time range and whose `ledger` does not, and `checklist`, whose `items` panel
+/// is a module that declares it anyway.
+fn catalog() -> Vec<hlin_stream::layout::CatalogPlatform> {
+    serde_json::from_value(serde_json::json!([
+        {
+            "id": "orebank",
+            "name": "Orebank",
+            "reachable": true,
+            "panels": [
+                {
+                    "key": "throughput",
+                    "reference": "orebank/throughput",
+                    "title": "Throughput",
+                    "kind": "timeseries",
+                    "envelope": "timeseries",
+                    "params": ["time_range"]
+                },
+                {
+                    "key": "ledger",
+                    "reference": "orebank/ledger",
+                    "title": "Ledger",
+                    "kind": "table",
+                    "envelope": "table",
+                    "params": ["select"]
+                }
+            ]
+        },
+        {
+            "id": "checklist",
+            "name": "Checklist",
+            "reachable": true,
+            "panels": [
+                {
+                    "key": "items",
+                    "reference": "checklist/items",
+                    "title": "Items",
+                    "ui": { "entry": "/ui/items/index.html", "bridge": 1 },
+                    "params": ["time_range"]
+                },
+                {
+                    "key": "feed",
+                    "reference": "checklist/feed",
+                    "title": "Feed",
+                    "ui": { "entry": "/ui/feed/index.html", "bridge": 1 }
+                }
+            ]
+        }
+    ]))
+    .expect("the catalogue parses")
+}
+
+fn instance(id: &str, platform: &str, key: &str) -> PanelInstanceDocument {
+    PanelInstanceDocument {
+        id: Some(id.to_string()),
+        ..PanelInstanceDocument::new(platform, key, Placement::default())
+    }
+}
+
+#[test]
+fn a_surface_with_nothing_that_uses_time_does_not_want_the_controls() {
+    let draft = LayoutDraft::of(stored(vec![
+        instance("a", "orebank", "ledger"),
+        instance("b", "checklist", "feed"),
+    ]));
+    assert!(!draft.wants_time(&catalog()));
+    assert!(
+        !LayoutDraft::of(stored(vec![])).wants_time(&catalog()),
+        "an empty surface has nothing to drive"
+    );
+}
+
+#[test]
+fn one_panel_declaring_time_range_is_enough() {
+    let draft = LayoutDraft::of(stored(vec![
+        instance("a", "orebank", "ledger"),
+        instance("b", "orebank", "throughput"),
+    ]));
+    assert!(draft.wants_time(&catalog()));
+}
+
+#[test]
+fn a_module_panel_declaring_time_range_counts_as_much_as_a_drawn_one() {
+    let draft = LayoutDraft::of(stored(vec![instance("a", "checklist", "items")]));
+    assert!(
+        draft.wants_time(&catalog()),
+        "whoever draws the panel, it asked for the range"
+    );
+}
+
+#[test]
+fn adding_a_time_driven_panel_wants_the_controls_and_removing_the_last_does_not() {
+    let mut draft = LayoutDraft::of(stored(vec![instance("a", "checklist", "feed")]));
+    assert!(!draft.wants_time(&catalog()));
+
+    draft.add("orebank", "throughput");
+    assert!(draft.wants_time(&catalog()));
+
+    // A panel added in Edit has no identity until the shell answers; give it
+    // the one the shell would, so it can be removed by name.
+    let mut document = draft.document().clone();
+    let added = document
+        .panels
+        .iter()
+        .position(|panel| panel.panel_key == "throughput")
+        .expect("the panel was added");
+    document.panels[added].id = Some("t".to_string());
+    let mut draft = LayoutDraft::of(document);
+    assert!(draft.wants_time(&catalog()));
+
+    draft.remove("t");
+    assert!(
+        !draft.wants_time(&catalog()),
+        "the last time-driven panel is gone, and the controls with it"
+    );
+}
+
+#[test]
+fn a_panel_the_catalogue_does_not_know_wants_nothing() {
+    let draft = LayoutDraft::of(stored(vec![
+        instance("a", "gone", "throughput"),
+        instance("b", "orebank", "retired"),
+    ]));
+    assert!(!draft.wants_time(&catalog()));
+    assert!(
+        !LayoutDraft::of(stored(vec![instance("a", "orebank", "throughput")])).wants_time(&[]),
+        "before the catalogue has answered, nothing can be shown to want time"
+    );
+}

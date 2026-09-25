@@ -11,6 +11,7 @@
 const { test, expect } = require('@playwright/test');
 const {
   shot,
+  shotOf,
   freshLayout,
   discardLayout,
   openSurface,
@@ -46,6 +47,9 @@ test.describe('a person composes a surface', () => {
 
     await expect(page.locator('.empty')).toContainText('Nothing on this surface yet');
     await expect(page.locator('section.panel')).toHaveCount(0);
+
+    // Nothing on it answers to a time range, so there are no time controls.
+    await expect(page.locator('.bar .picker')).toHaveCount(0);
 
     await shot(page, 1, 'empty-surface');
   });
@@ -362,5 +366,66 @@ test.describe('a person composes a surface', () => {
     expect((await placementOf(page.locator('section.panel').first())).y).toBe(0);
 
     await shot(page, 13, 'panel-removed');
+  });
+});
+
+// The time controls are there only while something on the surface wants them
+// (HLIN-T-0078): a panel whose platform declares `time_range`, whoever draws
+// it. Otherwise they are absent, and the range they were showing is kept, so a
+// time-driven panel added back picks up where the surface left off.
+test.describe('the time controls follow the panels that want them', () => {
+  let layoutId;
+
+  test.beforeAll(async ({ request }) => {
+    layoutId = await freshLayout(request, 'Time controls');
+    const current = await (await request.get(`/api/layouts/${layoutId}`)).json();
+    current.panels = [
+      // Declares `time_range`.
+      { platform_id: 'orebank', panel_key: 'throughput', position: { x: 0, y: 0, w: 6, h: 6 } },
+      // Declares nothing about time.
+      { platform_id: 'orebank', panel_key: 'queue-depth', position: { x: 6, y: 0, w: 6, h: 6 } },
+    ];
+    const written = await request.put(`/api/layouts/${layoutId}`, { data: current });
+    expect(written.ok()).toBeTruthy();
+  });
+
+  test.afterAll(async ({ request }) => {
+    await discardLayout(request, layoutId);
+  });
+
+  test('shown while a time-driven panel is on the surface, gone with the last, back with the next', async ({
+    page,
+  }) => {
+    await openSurface(page, layoutId);
+    const throughput = page.locator('section.panel[data-panel="orebank/throughput"]');
+    const presets = page.locator('.bar .picker > button');
+
+    await expect(presets).toHaveCount(4);
+    await expect(page.locator('.bar .custom input')).toHaveCount(2);
+    await presets.filter({ hasText: '6h' }).click();
+    await expect(presets.filter({ hasText: '6h' })).toHaveClass(/active/);
+    await expect(page.locator('.bar .applied')).toHaveText('applied', { timeout: 30_000 });
+    await shotOf(page.locator('header.bar'), 14, 'standard-bar');
+
+    // Removing the only panel that wants a range takes the controls with it.
+    await page.locator('button.mode').click();
+    await throughput.locator('button.drop').click();
+    await expect(throughput).toHaveCount(0);
+    await expect(page.locator('.bar .picker')).toHaveCount(0);
+    await settled(page);
+    await shot(page, 15, 'time-controls-gone');
+
+    // Adding one back brings them back, still on the range that was chosen.
+    // By its exact title: other throughput panels declare no range.
+    await page.locator('.catalog section.platform', { hasText: 'Orebank' })
+      .locator('button.offer .offer-title', { hasText: /^Throughput$/ }).click();
+    await expect(throughput).toHaveCount(1);
+    await expect(page.locator('.bar .picker')).toBeVisible();
+    await expect(presets.filter({ hasText: '6h' })).toHaveClass(/active/);
+    await expect(page.locator('section.panel[data-state="ready"]')).toHaveCount(2, {
+      timeout: 60_000,
+    });
+    await settled(page);
+    await shot(page, 16, 'time-controls-back');
   });
 });

@@ -17,7 +17,7 @@
 // collab-modules.spec.js then changes things through the modules.
 
 const { test, expect } = require('@playwright/test');
-const { shot } = require('./helpers');
+const { shot, shotOf } = require('./helpers');
 
 const PASSWORD = 'password';
 
@@ -82,6 +82,13 @@ test.describe('the collaborative surface', () => {
     expect(Number(await checklist(page).getAttribute('data-y'))).toBe(
       Number(await feed(page).getAttribute('data-y')),
     );
+    // A checklist and a feed: nothing on this surface answers to a time
+    // range, so the bar carries no time controls at all (HLIN-T-0078).
+    // Absent, not disabled: no presets, no date fields, no Apply.
+    await expect(page.locator('.bar .picker')).toHaveCount(0);
+    await expect(page.locator('.bar .custom')).toHaveCount(0);
+    await expect(page.locator('.bar button', { hasText: /^(15m|1h|6h|24h|Apply)$/ })).toHaveCount(0);
+    await shotOf(page.locator('header.bar'), 96, 'collab-bar');
     await shot(page, 97, 'collab-alice');
     await alice.close();
 

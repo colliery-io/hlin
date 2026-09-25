@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use hlin_stream::layout::{LayoutDocument, PanelInstanceDocument, Placement};
+use hlin_stream::layout::{CatalogPlatform, LayoutDocument, PanelInstanceDocument, Placement};
 
 use crate::grid;
 
@@ -231,6 +231,33 @@ impl LayoutDraft {
                 Some((id, panel.selections.clone()))
             })
             .collect()
+    }
+
+    /// Whether anything on it responds to the surface's time range.
+    ///
+    /// True when at least one panel's catalogue entry declares `time_range`,
+    /// whoever draws it: the shell, a pack's component, or the platform's own
+    /// module. It is what decides whether the bar carries the time controls at
+    /// all (HLIN-T-0078), because controls that move nothing on screen are
+    /// noise, and on a surface of lists and feeds they were most of the bar.
+    ///
+    /// A panel whose platform is not in the catalogue — not heard of yet, or
+    /// no longer declaring it — counts for nothing: it cannot be shown to want
+    /// a range, and the controls appear the moment the catalogue says it does.
+    pub fn wants_time(&self, catalog: &[CatalogPlatform]) -> bool {
+        self.document.panels.iter().any(|instance| {
+            catalog
+                .iter()
+                .filter(|platform| platform.id == instance.platform_id)
+                .flat_map(|platform| &platform.panels)
+                .filter(|panel| panel.key == instance.panel_key)
+                .any(|panel| {
+                    panel
+                        .params
+                        .iter()
+                        .any(|param| param == hlin_manifest::params::TIME_RANGE)
+                })
+        })
     }
 
     // -- Inside -----------------------------------------------------------

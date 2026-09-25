@@ -20,6 +20,14 @@ async function shot(page, order, name) {
   return file;
 }
 
+/** Capture one element, such as the bar, named as [`shot`] names a page. */
+async function shotOf(locator, order, name) {
+  fs.mkdirSync(SHOTS, { recursive: true });
+  const file = path.join(SHOTS, `${String(order).padStart(2, '0')}-${name}.png`);
+  await locator.screenshot({ path: file });
+  return file;
+}
+
 /**
  * A layout of this test's own, through the shell's API.
  *
@@ -144,6 +152,7 @@ async function drewSomething(panel) {
 module.exports = {
   SHOTS,
   shot,
+  shotOf,
   freshLayout,
   discardLayout,
   openSurface,
