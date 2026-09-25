@@ -4,14 +4,14 @@ level: task
 title: "Warn in a debug build when a module holds the main thread too long"
 short_code: "HLIN-T-0090"
 created_at: 2026-09-25T18:44:43.115834+00:00
-updated_at: 2026-09-25T22:10:00.000000+00:00
+updated_at: 2026-09-25T21:45:26.474410+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -31,6 +31,8 @@ page outside full Chromium, and put the duty on modules not to block their
 main thread ([[HLIN-S-0007]] *Open Questions*, [[HLIN-A-0014]] *Negative*).
 A duty nobody is told about is not a duty. The SDK should tell a module's
 author, in development, when their module does it.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
