@@ -209,11 +209,7 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
     let assets = config.frontend.clone();
     let app = if assets.is_dir() {
         tracing::info!("serving the frontend from {}", assets.display());
-        let index = assets.join("index.html");
-        router(state).fallback_service(
-            tower_http::services::ServeDir::new(&assets)
-                .fallback(tower_http::services::ServeFile::new(index)),
-        )
+        hlin::server::with_frontend(router(state), &assets, &config)
     } else {
         tracing::warn!(
             "no frontend bundle at {}; the API is up but there is nothing to look at. \

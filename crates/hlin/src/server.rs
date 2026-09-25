@@ -78,6 +78,11 @@ pub fn router(state: AppState) -> Router {
                 .delete(crate::layouts::remove),
         )
         .route("/api/layouts/{id}/fork", post(crate::layouts::fork))
+        // Module assets. `/m` and `/m/` are routed only so they are refused
+        // here rather than answered with the frontend's index by the fallback.
+        .route("/m", get(crate::modules::assets::serve))
+        .route("/m/", get(crate::modules::assets::serve))
+        .route("/m/{*asset}", get(crate::modules::assets::serve))
         // Empty unless the shell authenticates people itself. A shell told who
         // everyone is by a proxy has nothing to offer on `/auth/login`, and a
         // route that exists and cannot work is worse than one that does not.
@@ -92,6 +97,35 @@ pub fn router(state: AppState) -> Router {
             crate::visitor::assign,
         ))
         .with_state(state)
+}
+
+/// The shell's own frontend, served with the shell page's CSP.
+///
+/// Every path no route claims gets the bundle's file, or its `index.html` so
+/// the frontend's own routing can answer. The page's CSP goes on all of them
+/// because any of them can be the page a person loads.
+pub fn with_frontend(router: Router, assets: &std::path::Path, config: &Config) -> Router {
+    let csp =
+        axum::http::HeaderValue::from_str(&crate::modules::assets::page_csp(&config.origin()))
+            .expect("an origin is a valid header value");
+
+    let frontend = Router::new()
+        .fallback_service(tower_http::services::ServeDir::new(assets).fallback(
+            tower_http::services::ServeFile::new(assets.join("index.html")),
+        ))
+        .layer(axum::middleware::map_response(
+            move |mut response: axum::response::Response| {
+                let csp = csp.clone();
+                async move {
+                    response
+                        .headers_mut()
+                        .insert(axum::http::header::CONTENT_SECURITY_POLICY, csp);
+                    response
+                }
+            },
+        ));
+
+    router.fallback_service(frontend)
 }
 
 async fn health() -> Json<serde_json::Value> {

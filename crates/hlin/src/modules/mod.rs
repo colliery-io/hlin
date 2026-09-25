@@ -5,6 +5,8 @@
 //! `/p/`. This module holds what those share: the limits every module runs
 //! within.
 
+pub mod assets;
+
 use serde::{Deserialize, Serialize};
 
 /// The bounds a module runs within (HLIN-S-0007, *Limits*).
