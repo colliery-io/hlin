@@ -761,8 +761,8 @@ test.describe('twenty widgets, measured', () => {
     for (const page of pages) await page.context().close();
   });
 
-  test(`killing ${VICTIM}'s platform degrades its panel alone, and it recovers`, async ({ browser }) => {
-    test.setTimeout(180_000);
+  test(`killing ${VICTIM}'s platform degrades its panel alone, and it recovers by itself`, async ({ browser }) => {
+    test.setTimeout(240_000);
     const context = await browser.newContext();
     await context.addInitScript(instrument);
     const page = await context.newPage();
@@ -776,17 +776,26 @@ test.describe('twenty widgets, measured', () => {
     console.log(`  killed ${VICTIM} (pid ${pid})`);
 
     // The open page. Its module is already running in the browser and
-    // answers the shell's heartbeat whatever its platform is doing, so the
-    // panel stays `ready` (the heartbeat is between the page and the frame;
-    // nothing in it reaches the platform). What changes is what the module
-    // can fetch, and it says so in its own words. Watched past the
-    // registry's two missed polls, ten seconds apart, so the shell has
-    // noticed too; what the panel went through is recorded, not assumed.
-    const roll = inside(widget(page, VICTIM)).getByRole('button', { name: 'Roll' });
+    // answers the shell's heartbeat whatever its platform is doing; what the
+    // page sees is the shell refusing its requests as `unreachable`. A roll is
+    // two (the write, and the read after it), and the module says so in its
+    // own words and offers to try again; trying is the third in a row, and
+    // the panel goes `stale` (HLIN-S-0007, *Panel states*).
+    const victim = widget(page, VICTIM);
+    const roll = inside(victim).getByRole('button', { name: 'Roll' });
     await roll.click();
-    await expect(inside(widget(page, VICTIM)).locator('.w-problem'), 'the roll is refused in words').toBeVisible({
+    await expect(inside(victim).locator('.w-problem').first(), 'the roll is refused in words').toBeVisible({
       timeout: 15_000,
     });
+    const again = inside(victim).locator('.w-failed').getByRole('button', { name: 'Try again' });
+    await expect(again, 'a read that failed offers to try again').toBeVisible({ timeout: 15_000 });
+    await again.click();
+    await expect(victim, 'three refusals running: stale').toHaveAttribute('data-module', 'stale', { timeout: 15_000 });
+    const staleAt = await page.evaluate(() => performance.timeOrigin + performance.now());
+
+    // Watched past the registry's two missed polls, ten seconds apart, so the
+    // shell has noticed too; what the panel went through is recorded, not
+    // assumed.
     await page.waitForTimeout(25_000);
     await shot(page, 230, 'twenty-one-platform-killed');
     const counter = inside(widget(page, 'counter'));
@@ -796,12 +805,14 @@ test.describe('twenty widgets, measured', () => {
     const states = await page.evaluate(() => window.__hlin.states);
     const afterKill = states.filter(([, , , at]) => at >= killedAt);
     const others = afterKill.filter(([name, module]) => !name.startsWith(`${VICTIM}/`) && module !== 'ready');
-    const victim = afterKill.filter(([name]) => name.startsWith(`${VICTIM}/`));
     expect(others, 'no other panel left `ready`').toEqual([]);
+    await expect(victim, 'still stale while its platform is away').toHaveAttribute('data-module', 'stale');
     const openPage = {
-      victimStates: victim.map(([, module, state, at]) => [module, state, Math.round(at - killedAt)]),
-      victimNow: await widget(page, VICTIM).getAttribute('data-module'),
-      victimSays: (await inside(widget(page, VICTIM)).locator('main').innerText().catch(() => '')).slice(0, 200),
+      victimStates: afterKill
+        .filter(([name]) => name.startsWith(`${VICTIM}/`))
+        .map(([, module, state, at]) => [module, state, Math.round(at - killedAt)]),
+      staleAfterKillMs: Math.round(staleAt - killedAt),
+      victimSays: (await inside(victim).locator('main').innerText().catch(() => '')).slice(0, 200),
     };
 
     // A page opened while it is down: the module's entry cannot be fetched,
@@ -819,49 +830,42 @@ test.describe('twenty widgets, measured', () => {
       data: await widget(fresh, VICTIM).getAttribute('data-state'),
     };
 
-    // Started again. A panel given up on stays as it is until its platform
-    // says something changed, or a person asks (HLIN-S-0007, *Panel
-    // states*): the shell does not retry in a loop, and nothing changes on a
-    // dice table nobody rolls. So it is watched for a while, to say whether
-    // anything brings it back by itself, and then asked.
+    // Started again, and nobody touches anything. The shell's subscription
+    // to the platform's event stream comes back, which it takes as a change
+    // to every one of the platform's panels: the open page's module fetches
+    // again, and its first answer clears `stale`; the page opened while it
+    // was down mounts its module again. Neither needs a click or a reload.
     const restartedAt = Date.now();
     execFileSync('angreal', ['demo', 'restart', VICTIM], { cwd: ROOT, stdio: 'inherit' });
-    let byItself = true;
-    try {
-      await expect(widget(fresh, VICTIM)).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
-    } catch {
-      byItself = false;
-    }
-    const whileWaiting = {
-      freshPage: await widget(fresh, VICTIM).getAttribute('data-module'),
-      openPageSays: (await inside(widget(page, VICTIM)).locator('main').innerText().catch(() => '')).slice(0, 120),
-    };
-    const askedAt = Date.now();
-    if (!byItself) {
-      await widget(fresh, VICTIM).getByRole('button', { name: 'Try the module again' }).click();
-    }
-    await expect(widget(fresh, VICTIM), 'it recovers').toHaveAttribute('data-module', 'ready', { timeout: READY });
+    const up = Date.now();
+    const BY_ITSELF = 60_000;
+    await expect(victim, 'the open page recovers by itself').toHaveAttribute('data-module', 'ready', {
+      timeout: BY_ITSELF,
+    });
+    await expect(roll, 'and draws its table again').toBeVisible({ timeout: 15_000 });
+    const openPageBack = Date.now() - up;
+    await expect(widget(fresh, VICTIM), 'the page opened while it was down recovers by itself').toHaveAttribute(
+      'data-module',
+      'ready',
+      { timeout: BY_ITSELF },
+    );
     await expect.poll(() => firstContent(fresh, VICTIM), { timeout: READY }).not.toBeNull();
-    const recovered = Date.now() - askedAt;
+    const freshPageBack = Date.now() - up;
     await shot(fresh, 232, 'twenty-one-platform-recovered');
 
-    // A roll there is the platform's change, which the open page's module
-    // hears and fetches again on: that is what brings it back.
-    const rolledAt = Date.now();
-    await inside(widget(fresh, VICTIM)).getByRole('button', { name: 'Roll' }).click();
-    await expect(roll, 'the open page is back after a change').toBeVisible({ timeout: 15_000 });
-    const openPageBack = Date.now() - rolledAt;
+    // And it works: a roll on the open page happens.
     await roll.click();
     await page.waitForTimeout(1000);
-    await expect(inside(widget(page, VICTIM)).locator('.w-problem'), 'the open page rolls again').toHaveCount(0);
+    await expect(inside(victim).locator('.w-problem'), 'the open page rolls again').toHaveCount(0);
 
     results.claims.kill = {
       openPage,
       freshPageWhileDown: freshDown,
-      afterRestart: { byItselfWithin20s: byItself, ...whileWaiting },
-      recoveredAfterAskingMs: recovered,
-      openPageBackAfterARollMs: openPageBack,
-      sinceRestartMs: Date.now() - restartedAt,
+      afterRestart: {
+        restartTookMs: up - restartedAt,
+        openPageBackMs: openPageBack,
+        freshPageBackMs: freshPageBack,
+      },
     };
     console.log(`  ${JSON.stringify(results.claims.kill, null, 2)}`);
     await context.close();

@@ -135,6 +135,25 @@ impl LiveSurface {
         })
     }
 
+    /// A change naming every panel the platform offers, and no selections, so
+    /// every instance of each: what a platform that went away and came back
+    /// might have changed.
+    async fn every_panel_of(&self, platform_id: &str) -> Vec<Changed> {
+        let views = self.registry.views().await;
+        views
+            .get(platform_id)
+            .map(|view| {
+                view.accepted_panels()
+                    .iter()
+                    .map(|panel| Changed {
+                        panel: panel.key.clone(),
+                        selections: Default::default(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Subscribe to this surface's frames.
     pub fn subscribe(&self) -> broadcast::Receiver<Frame> {
         self.frames.subscribe()
@@ -328,6 +347,9 @@ impl LiveSurface {
             // What to tell the browser once the surface is let go.
             let mut told = Vec::new();
 
+            // Platforms whose stream came back since the last tick.
+            let mut returned = Vec::new();
+
             // Anything the platforms said since the last tick, and whether each
             // is still connected. Drained rather than awaited: this loop has a
             // beat of its own and an event only moves a moment, so there is
@@ -339,6 +361,11 @@ impl LiveSurface {
                     // follows the socket rather than the manifest.
                     let up = *held.connected.borrow_and_update();
                     surface.streaming_from(&held.platform_id, up);
+
+                    if held.returned.has_changed().unwrap_or(false) {
+                        held.returned.borrow_and_update();
+                        returned.push(held.platform_id.clone());
+                    }
 
                     loop {
                         match held.events.try_recv() {
@@ -363,6 +390,30 @@ impl LiveSurface {
                             Err(_) => break,
                         }
                     }
+                }
+            }
+
+            // A platform whose stream came back was away, and may have
+            // changed anything meanwhile with nobody hearing: every panel of
+            // it counts as changed. Its modules fetch again, and one given up
+            // on as unreachable is mounted again, without anyone having to
+            // ask (HLIN-S-0007, *Panel states*).
+            for platform_id in returned {
+                tracing::info!(
+                    platform = platform_id,
+                    "events are back; telling its panels they may have changed"
+                );
+                for changed in self.every_panel_of(&platform_id).await {
+                    self.surface
+                        .lock()
+                        .await
+                        .changed(&platform_id, &changed, Utc::now());
+                    told.extend(self.changed_frame(
+                        &platform_id,
+                        &changed,
+                        ChangeOrigin::Platform,
+                        None,
+                    ));
                 }
             }
 

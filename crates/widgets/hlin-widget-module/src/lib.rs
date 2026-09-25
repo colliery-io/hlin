@@ -11,7 +11,10 @@
 //! - [`Widget::load`]: fetch from the widget's own platform now, and again
 //!   whenever the shell's context changes, the shell relays a `changed` for
 //!   this panel (the platform's stream, or another of its modules), or this
-//!   module wrote something. Only the latest answer is shown.
+//!   module wrote something. Only the latest answer is shown. A read that
+//!   could not reach the platform offers *Try again*, and is tried again by
+//!   itself on the next `changed`, which the shell also sends when the
+//!   platform's event stream comes back ([[HLIN-T-0087]]).
 //! - [`Widget::send`]: a write as an `Attempt`, so a network failure offers
 //!   *Try again* with the same idempotency key; `changed` announced after one
 //!   that happened; the data fetched again either way, so nothing is shown
@@ -57,6 +60,9 @@ where
         let ready = module.clone();
         leptos::mount::mount_to_body(move || {
             let widget = Widget::new(module, panel);
+            // For `loaded_view`'s *Try again*, which is drawn wherever the
+            // widget draws its data.
+            provide_context(widget);
             view! {
                 <style>{STYLE}</style>
                 <main class="widget">
@@ -78,6 +84,10 @@ pub enum Loaded<T> {
     Ready(T),
     /// Why there is nothing to show, in words for a person.
     Refused(String),
+    /// The platform could not be reached, in words for a person. Trying
+    /// again may work: [`loaded_view`] offers it, and the next `changed`
+    /// does it anyway.
+    Failed(String),
 }
 
 impl<T> Loaded<T> {
@@ -169,6 +179,7 @@ impl Widget {
                 if latest.get_value() != mine {
                     return;
                 }
+                let again = worth_retrying(&reply);
                 loaded.set(match outcome(reply) {
                     Ok(answer) => match answer.json::<T>() {
                         Ok(value) => Loaded::Ready(value),
@@ -177,6 +188,7 @@ impl Widget {
                                 .to_string(),
                         ),
                     },
+                    Err(words) if again => Loaded::Failed(words),
                     Err(words) => Loaded::Refused(words),
                 });
             });
@@ -200,6 +212,11 @@ impl Widget {
             let reply = attempt.send().await;
             done(widget.settle(reply, attempt));
         });
+    }
+
+    /// Fetch everything [`Widget::load`]ed again, now.
+    pub fn reload(&self) {
+        self.reloads.update(|count| *count += 1);
     }
 
     fn retry(self, attempt: Attempt) {
@@ -259,7 +276,8 @@ fn ProblemNotice(widget: Widget) -> impl IntoView {
 }
 
 /// Draw `loaded`: a quiet line while loading, the refusal in its words, or
-/// `draw` with the answer.
+/// `draw` with the answer. A read that could not reach the platform says so
+/// and offers *Try again*.
 pub fn loaded_view<T, V>(
     loaded: ReadSignal<Loaded<T>>,
     draw: impl Fn(T) -> V + Send + Sync + 'static,
@@ -268,9 +286,26 @@ where
     T: Clone + Send + Sync + 'static,
     V: IntoView + 'static,
 {
+    let widget = use_context::<Widget>();
     move || match loaded.get() {
         Loaded::Loading => view! { <p class="w-quiet">"Loading…"</p> }.into_any(),
         Loaded::Refused(words) => view! { <p class="w-refusal">{words}</p> }.into_any(),
+        Loaded::Failed(words) => {
+            let again = widget.map(|widget| {
+                view! {
+                    <button class="w-button" on:click=move |_| widget.reload()>
+                        "Try again"
+                    </button>
+                }
+            });
+            view! {
+                <div class="w-problem w-failed" role="status">
+                    <p>{words}</p>
+                    {again}
+                </div>
+            }
+            .into_any()
+        }
         Loaded::Ready(value) => draw(value).into_any(),
     }
 }

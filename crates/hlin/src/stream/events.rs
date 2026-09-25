@@ -37,7 +37,7 @@ const CHANGED: &str = "changed";
 /// there is nothing in it that could be one person's.
 const SHELL_PRINCIPAL: &str = "hlin:shell";
 
-/// How long to wait before subscribing again after a stream ends.
+/// The longest the shell waits before subscribing again after a stream ends.
 ///
 /// A constant rather than the panel retry schedule, because the two are about
 /// different things: a panel backs off so a struggling platform is not asked
@@ -46,6 +46,17 @@ const SHELL_PRINCIPAL: &str = "hlin:shell";
 /// cadence throughout, so there is nothing a viewer can see going wrong while
 /// this waits.
 pub const RESUBSCRIBE_AFTER: Duration = Duration::from_secs(30);
+
+/// The first wait before subscribing again, doubled after every attempt that
+/// does not hold, up to [`RESUBSCRIBE_AFTER`].
+///
+/// Short, because a stream coming back is how an open page learns its
+/// platform has returned: the platform's modules are told to fetch again
+/// (HLIN-S-0007, *Panel states*), and a platform restarted in a moment should
+/// not leave them showing an error for half a minute ([[HLIN-T-0087]]). A
+/// stream that held for [`RESUBSCRIBE_AFTER`] or more starts again from here;
+/// one that keeps falling over is soon at the ceiling.
+pub const RESUBSCRIBE_FIRST: Duration = Duration::from_secs(1);
 
 /// How long the shell will wait for anything at all before calling the
 /// connection dead.

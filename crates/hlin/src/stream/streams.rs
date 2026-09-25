@@ -101,6 +101,8 @@ struct Running {
     /// Whether the platform is connected, watchable so a surface learns the
     /// moment it changes rather than on its next tick.
     connected: tokio::sync::watch::Sender<bool>,
+    /// How many times the stream has come back after ending.
+    returned: tokio::sync::watch::Sender<u64>,
     held: Arc<Mutex<Held>>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -124,6 +126,12 @@ pub struct Listening {
     pub events: broadcast::Receiver<Changed>,
     /// Whether the platform is connected, as it changes.
     pub connected: tokio::sync::watch::Receiver<bool>,
+    /// How many times the stream has connected again after ending, as it
+    /// changes. A platform that went away and came back may have missed
+    /// telling anyone what changed meanwhile, so its modules fetch again
+    /// (HLIN-S-0007, *Panel states*). A surface that starts listening hears
+    /// only the returns after it did.
+    pub returned: tokio::sync::watch::Receiver<u64>,
     /// Kept so the registry can count who is still interested.
     _interest: Arc<Interest>,
     /// Where to report that this listener has gone.
@@ -234,6 +242,7 @@ impl Streams {
                 platform_id: platform_id.to_string(),
                 events: held.events.subscribe(),
                 connected: held.connected.subscribe(),
+                returned: held.returned.subscribe(),
                 _interest: interest.clone(),
                 home: Arc::downgrade(self),
             };
@@ -241,6 +250,7 @@ impl Streams {
 
         let (events, receiving) = broadcast::channel(BACKLOG);
         let (connected, watching) = tokio::sync::watch::channel(false);
+        let (returned, returns) = tokio::sync::watch::channel(0);
         let held = Arc::new(Mutex::new(Held::default()));
 
         let task = tokio::spawn(follow_forever(
@@ -250,6 +260,7 @@ impl Streams {
             headers,
             events.clone(),
             connected.clone(),
+            returned.clone(),
             held.clone(),
         ));
 
@@ -264,6 +275,7 @@ impl Streams {
                 Running {
                     events,
                     connected,
+                    returned,
                     held,
                     task,
                 },
@@ -274,6 +286,7 @@ impl Streams {
             platform_id: platform_id.to_string(),
             events: receiving,
             connected: watching,
+            returned: returns,
             _interest: interest,
             home: Arc::downgrade(self),
         }
@@ -341,6 +354,7 @@ async fn follow_forever(
     headers: Vec<(String, String)>,
     events: broadcast::Sender<Changed>,
     connected: tokio::sync::watch::Sender<bool>,
+    returned: tokio::sync::watch::Sender<u64>,
     held: Arc<Mutex<Held>>,
 ) {
     // The subscriber speaks mpsc, because one connection has one reader. The
@@ -365,8 +379,16 @@ async fn follow_forever(
     let noting = tokio::spawn({
         let held = held.clone();
         async move {
+            // Whether an attempt has ended since the stream was last up: the
+            // next connection is then a return, not the first.
+            let mut ended = false;
             while watching_connection.changed().await.is_ok() {
                 let up = *watching_connection.borrow_and_update();
+                if !up {
+                    ended = true;
+                } else if std::mem::take(&mut ended) {
+                    returned.send_modify(|count| *count += 1);
+                }
                 let mut held = held.lock().await;
                 held.connected = up;
                 if up {
@@ -379,9 +401,12 @@ async fn follow_forever(
         }
     });
 
+    let mut wait = events::RESUBSCRIBE_FIRST;
     loop {
+        let began = tokio::time::Instant::now();
         let ended =
             events::follow(&client, &url, &headers, &tell, events::SILENCE, &connected).await;
+        let held_up = *connected.borrow() && began.elapsed() >= events::RESUBSCRIBE_AFTER;
         let _ = connected.send(false);
 
         {
@@ -404,6 +429,10 @@ async fn follow_forever(
             platform = platform_id,
             "not receiving events, polling instead: {ended}"
         );
-        tokio::time::sleep(events::RESUBSCRIBE_AFTER).await;
+        if held_up {
+            wait = events::RESUBSCRIBE_FIRST;
+        }
+        tokio::time::sleep(wait).await;
+        wait = (wait * 2).min(events::RESUBSCRIBE_AFTER);
     }
 }

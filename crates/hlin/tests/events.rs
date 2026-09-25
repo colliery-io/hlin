@@ -301,3 +301,56 @@ async fn an_endless_event_is_refused_rather_than_held() {
     assert_eq!(ended, Ended::TooMuch);
     assert!(heard.is_empty());
 }
+
+/// A platform that closes its first stream and holds its second: a platform
+/// restarted, as the shell sees it.
+async fn restarting() -> String {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        let mut first = true;
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut scratch = [0u8; 2048];
+            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut scratch).await;
+            let head = "HTTP/1.1 200 OK\r\n\
+                        content-type: text/event-stream\r\n\
+                        transfer-encoding: chunked\r\n\r\n";
+            let _ = socket.write_all(head.as_bytes()).await;
+            if std::mem::take(&mut first) {
+                let _ = socket.write_all(b"0\r\n\r\n").await;
+            } else {
+                held.push(socket);
+            }
+        }
+    });
+    base
+}
+
+#[tokio::test]
+async fn a_stream_that_comes_back_says_so_and_its_first_connection_does_not() {
+    let streams = std::sync::Arc::new(hlin::stream::streams::Streams::new());
+    let base = restarting().await;
+    let mut listening = streams
+        .listen(
+            "dice",
+            &format!("{base}/api/events"),
+            Vec::new(),
+            reqwest::Client::new(),
+        )
+        .await;
+
+    // Connected, closed, and back after the first short wait: one return,
+    // soon, rather than after the ceiling.
+    tokio::time::timeout(
+        events::RESUBSCRIBE_FIRST * 5,
+        listening.returned.wait_for(|returns| *returns >= 1),
+    )
+    .await
+    .expect("the stream came back within a few seconds")
+    .unwrap();
+    assert_eq!(*listening.returned.borrow(), 1);
+    assert!(*listening.connected.borrow());
+}

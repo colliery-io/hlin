@@ -343,6 +343,61 @@ pub fn entry_cause(status: u16) -> Option<Cause> {
     }
 }
 
+// -- A platform's reach ------------------------------------------------------
+
+/// Consecutive `unreachable` or `timeout` refusals from `/p/` for one
+/// platform before its panels are `stale` (*Panel states*).
+///
+/// Three, as for missed heartbeats. One gesture can cost two: a write, and
+/// the read a module makes after it whatever happened. So two in a row can be
+/// one moment's blip, a platform restarting between two requests; three is at
+/// least two separate attempts failing the same way. Being wrong is cheap
+/// either way: `stale` only dims a panel, and the platform's next answer
+/// clears it.
+pub const REFUSALS_UNTIL_STALE: u32 = 3;
+
+/// Whether one platform is answering, as the page sees it from the answers
+/// to its modules' requests (*Panel states*).
+///
+/// Only the shell's own refusals count, the codes it wrote because it could
+/// not reach the platform, never anything the platform said: a platform that
+/// answers at all, with any status, is there. Refusals of other kinds (a rule,
+/// a limit) say nothing either way.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Reach {
+    /// `unreachable` or `timeout`, in a row.
+    refused: u32,
+}
+
+impl Reach {
+    /// One answer from `/p/` for this platform: `None` when the platform
+    /// answered, or the shell's refusal.
+    pub fn answered(&mut self, refusal: Option<Refusal>) {
+        match refusal {
+            None => self.refused = 0,
+            Some(Refusal::Unreachable | Refusal::Timeout) => {
+                self.refused = self.refused.saturating_add(1);
+            }
+            Some(_) => {}
+        }
+    }
+
+    /// Whether the platform's panels are `stale` for it.
+    pub fn down(&self) -> bool {
+        self.refused >= REFUSALS_UNTIL_STALE
+    }
+}
+
+/// A module panel's state, with its platform's reach: a `ready` module whose
+/// platform is not answering is `stale`. The module is alive, but what it
+/// shows can no longer be brought up to date.
+pub fn with_reach(state: PanelState, platform_down: bool) -> PanelState {
+    match state {
+        PanelState::Ready if platform_down => PanelState::Stale,
+        state => state,
+    }
+}
+
 // -- Limits ------------------------------------------------------------------
 
 /// What one frame may still do (*Limits*): how many messages a second, and how
@@ -1428,6 +1483,50 @@ mod tests {
         let mut frames = frames;
         frames.push(mounted("below", false, false, 5.0));
         assert_eq!(over_budget(&frames, FRAME_BUDGET), ["below"]);
+    }
+
+    // -- A platform's reach --
+
+    #[test]
+    fn a_platform_the_shell_cannot_reach_three_times_running_dims_its_panels() {
+        let mut reach = Reach::default();
+        reach.answered(Some(Refusal::Unreachable));
+        reach.answered(Some(Refusal::Timeout));
+        assert!(!reach.down(), "two can be one gesture's blip");
+        reach.answered(Some(Refusal::Unreachable));
+        assert!(reach.down());
+        assert_eq!(
+            with_reach(PanelState::Ready, reach.down()),
+            PanelState::Stale
+        );
+        assert_eq!(
+            with_reach(PanelState::Loading, reach.down()),
+            PanelState::Loading,
+            "only a module that is running is dimmed"
+        );
+
+        reach.answered(Some(Refusal::ReadOnly));
+        assert!(reach.down(), "a rule says nothing about the platform");
+        reach.answered(None);
+        assert!(!reach.down(), "the platform's first answer clears it");
+        assert_eq!(
+            with_reach(PanelState::Ready, reach.down()),
+            PanelState::Ready
+        );
+    }
+
+    #[test]
+    fn only_refusals_in_a_row_count() {
+        let mut reach = Reach::default();
+        for _ in 0..5 {
+            reach.answered(Some(Refusal::Unreachable));
+            reach.answered(Some(Refusal::Unreachable));
+            reach.answered(None);
+        }
+        assert!(!reach.down());
+        reach.answered(Some(Refusal::TooMany));
+        reach.answered(Some(Refusal::NotSignedIn));
+        assert!(!reach.down());
     }
 
     #[test]

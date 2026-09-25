@@ -174,6 +174,10 @@ struct Host {
     told_theme: Option<Theme>,
     /// What the module asked to have shown in its panel's frame.
     notice: Option<ModuleNotice>,
+    /// The shell has not been able to reach the module's platform for
+    /// [`bridge::REFUSALS_UNTIL_STALE`] answers running, so a `ready` module
+    /// shows `stale`.
+    platform_down: bool,
     observers: Vec<web_sys::IntersectionObserver>,
     /// Kept alive for as long as the observers and the frame can call them.
     _callbacks: Vec<Closure<dyn FnMut(js_sys::Array)>>,
@@ -182,7 +186,7 @@ struct Host {
 
 impl Host {
     fn view(&self) -> ModuleView {
-        let state = self.liveness.state();
+        let state = bridge::with_reach(self.liveness.state(), self.platform_down);
         ModuleView {
             state,
             fallen_back: bridge::falls_back(state, self.mount.declares_data),
@@ -245,6 +249,8 @@ struct Page {
     /// Modules given up on as unreachable, by instance, with their platform
     /// and panel: remounted on that panel's next change from the platform.
     given_up: BTreeMap<String, (String, String)>,
+    /// Whether each platform is answering its modules' requests, by platform.
+    reach: BTreeMap<String, bridge::Reach>,
     /// Streamed responses being read, by a number of the page's own: a
     /// module's `fetch` id is only unique within its own mounting.
     flows: BTreeMap<u64, Flow>,
@@ -590,6 +596,10 @@ pub fn host(container: web_sys::Element, mount: Mount, title: String) {
         let mut page = page.borrow_mut();
         page.serial += 1;
         let serial = page.serial;
+        let platform_down = page
+            .reach
+            .get(&mount.platform)
+            .is_some_and(bridge::Reach::down);
         page.hosts.insert(
             instance.clone(),
             Host {
@@ -612,6 +622,7 @@ pub fn host(container: web_sys::Element, mount: Mount, title: String) {
                 told: None,
                 told_theme: None,
                 notice: None,
+                platform_down,
                 observers,
                 _callbacks: vec![near, within],
                 _onload: None,
@@ -1300,6 +1311,8 @@ enum Then {
 
 /// A `fetch` the page will make.
 struct Carriage {
+    /// The platform asked, whose reach the answer tells of.
+    platform: String,
     serial: u64,
     re: String,
     address: String,
@@ -1589,6 +1602,7 @@ fn admit_fetch(host: &mut Host, re: String, fetch: hlin_bridge::Fetch, room: Str
         );
     }
     Then::Carry(Carriage {
+        platform: host.mount.platform.clone(),
         serial: host.serial,
         re,
         address,
@@ -1617,6 +1631,7 @@ fn refused(refusal: Refusal, reason: &str) -> Response {
 /// and a write only when a person asks.
 async fn carry(instance: String, carriage: Carriage) {
     let Carriage {
+        platform,
         serial,
         re,
         address,
@@ -1625,7 +1640,11 @@ async fn carry(instance: String, carriage: Carriage) {
 
     let answer = match request_for(&instance, &address, &mut fetch, None) {
         Ok(request) => match request.send().await {
-            Ok(response) => whole(response).await,
+            Ok(response) => {
+                let answer = whole(response).await;
+                reached(&platform, answer.refusal);
+                answer
+            }
             Err(_) => refused(Refusal::Unreachable, "the shell could not be reached"),
         },
         Err(_) => refused(Refusal::Unreachable, "the request could not be made"),
@@ -1642,6 +1661,52 @@ async fn carry(instance: String, carriage: Carriage) {
     });
     if current.is_some() {
         post(&instance, Some(re), ShellMessage::Response(answer));
+    }
+}
+
+/// The shell answered a request to `/p/` for this platform: the platform's
+/// own answer (`None`), or the shell's refusal.
+///
+/// Only answers the shell gave count. A request that never reached the shell
+/// says nothing about the platform, and the shell being gone is the surface's
+/// stream's to notice. When the platform's panels cross into or out of
+/// `stale` for it, every one of them on this page is republished.
+fn reached(platform: &str, refusal: Option<Refusal>) {
+    let moved = PAGE.with(|page| {
+        let mut page = page.borrow_mut();
+        let reach = page.reach.entry(platform.to_string()).or_default();
+        let before = reach.down();
+        reach.answered(refusal);
+        let down = reach.down();
+        if down == before {
+            return None;
+        }
+        let views: Vec<(String, ModuleView)> = page
+            .hosts
+            .iter_mut()
+            .filter(|(_, host)| host.mount.platform == platform)
+            .map(|(id, host)| {
+                host.platform_down = down;
+                (id.clone(), host.view())
+            })
+            .collect();
+        Some((down, views))
+    });
+    let Some((down, views)) = moved else {
+        return;
+    };
+    // On the console, where an operator looks, and a browser test can see
+    // when the page decided.
+    if down {
+        leptos::logging::log!(
+            "platform {platform}: the shell could not reach it {} times running; its panels are stale",
+            bridge::REFUSALS_UNTIL_STALE
+        );
+    } else {
+        leptos::logging::log!("platform {platform}: answering again");
+    }
+    for (id, view) in views {
+        publish(&id, view);
     }
 }
 
@@ -1829,6 +1894,7 @@ enum Step {
 /// stops being able to send: nothing buffers without bound anywhere.
 async fn carry_stream(instance: String, carriage: Carriage, id: u64, signal: web_sys::AbortSignal) {
     let Carriage {
+        platform,
         serial,
         re,
         address,
@@ -1858,12 +1924,14 @@ async fn carry_stream(instance: String, carriage: Carriage, id: u64, signal: web
         // platform, and said so whole.
         Ok(response) if response.headers().get(STREAM_HEADER).is_none() => {
             let answer = whole(response).await;
+            reached(&platform, answer.refusal);
             if !gone() {
                 post(&instance, Some(re), ShellMessage::Response(answer));
             }
         }
         Ok(response) => {
             let (status, headers, _) = answered(&response);
+            reached(&platform, None);
             if !gone() {
                 post(
                     &instance,

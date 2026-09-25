@@ -372,7 +372,12 @@ when another module of the same platform says it wrote something:
 ```
 
 `from` is `platform` (its event stream, [[HLIN-A-0011]]) or `module`. A
-module refetches if it cares.
+module refetches if it cares. The shell also sends one from `platform`, for
+each of the platform's panels and with no selections, when the platform's
+event stream connects again after ending (see *Panel states*): a module that
+could not fetch while its platform was away refetches on it, as the widgets
+built on `hlin-widget-module` do. A module should treat a `changed` as a
+reason to try again what failed, not only to refresh what it has.
 
 **`visibility`**: `{ "visible": false }` when the panel scrolls out of view or
 the tab is hidden, so a module can stop timers and animation.
@@ -604,7 +609,9 @@ with the session cookie, as any request from the shell page. The shell:
    viewer's.
 
 The shell retries nothing here. A module may retry a read; the SDK retries a
-write only when a person asks, with the same key.
+write only when a person asks, with the same key. The widgets' kit
+(`hlin-widget-module`) offers *Try again* for a read that could not reach
+the platform, and tries it again by itself on the next `changed`.
 
 ### Refusals
 
@@ -637,6 +644,7 @@ derives it from what a module draws.
 | Frame created, no `ready` yet | `loading` |
 | `ready` received, bridge major matches | `ready` |
 | One heartbeat not echoed within 2 seconds | `stale`: the frame stays, dimmed |
+| `ready`, and the shell's last 3 answers from `/p/` for its platform were `unreachable` or `timeout` | `stale`: the frame stays, dimmed |
 | Three heartbeats in a row not echoed (about 6 seconds) | `unavailable (unreachable)` |
 | No `ready` within 10 seconds of the frame loading | `unavailable (unreachable)` |
 | Entry document or asset unreachable, 5xx, or timed out | `unavailable (unreachable)` |
@@ -652,6 +660,37 @@ tight enough that a module blocking its main thread for a long task will show
 that blocks for seconds is one a person would notice anyway. `unreachable`
 recovers only by remounting, which the shell does on the next platform
 `changed` event or when a person asks, not in a loop.
+
+**A module alive, its platform not.** The heartbeat is between the page and
+the frame, so a module whose platform has gone keeps answering it, and would
+stay `ready` while it can fetch nothing. So the page also counts the answers
+to its modules' requests, per platform. After 3 consecutive `unreachable` or
+`timeout` refusals from `/p/` for one platform, that platform's `ready`
+panels on the page are `stale`; the first answer the platform itself gives,
+whatever its status, clears it. Only refusals the shell wrote count (the
+`X-Hlin-Refusal` codes above, which say the shell could not reach the
+platform), never what the platform said, so the platform still decides
+everything about its own answers ([[HLIN-A-0013]]). Other refusals (a rule, a
+limit) neither count nor clear, and a request that never reached the shell
+says nothing about the platform. Decided by the owner on 2026-09-25
+([[HLIN-T-0087]]).
+
+Three rather than one: a single gesture can cost two requests, a write and
+the read a module makes after it, so two in a row can be one moment's blip,
+such as a platform restarting between them; three is at least two separate
+attempts failing the same way. It matches the three missed heartbeats before
+`unavailable`, and being wrong is cheap either way: `stale` only dims.
+
+**A platform that returns.** When the shell's subscription to a platform's
+event stream connects again after ending, the platform may have changed
+anything meanwhile with nobody told. The shell sends every surface holding
+that platform's modules a `changed` from `platform`, with no selections, for
+every panel the platform offers. Its running modules refetch, which clears
+`stale` on the first answer, and a module given up on as `unreachable` is
+mounted again, so a platform restarted recovers on an open page without a
+reload or a click. The shell subscribes again one second after a stream ends,
+doubling to at most 30 seconds while it keeps failing, and from one second
+again after a stream that held.
 
 `forbidden` is not derived here. A platform that refuses a viewer refuses
 their module's requests, and the module shows it. `forbidden` still applies
