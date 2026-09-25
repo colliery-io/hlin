@@ -4,14 +4,14 @@ level: task
 title: "With no public_url, use the origin a request arrived on"
 short_code: "HLIN-T-0079"
 created_at: 2026-09-25T02:21:48.753355+00:00
-updated_at: 2026-09-25T11:20:42.704887+00:00
+updated_at: 2026-09-25T11:40:20.652005+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: true
@@ -38,6 +38,8 @@ With no `public_url` configured, the shell uses the origin the request
 arrived on (its `Host`, with the scheme the shell is served over). A
 configured `public_url` always wins. Agreed by the owner on 2026-09-24, to be
 done after the wave running HLIN-T-0068, HLIN-T-0070 and HLIN-T-0077.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
