@@ -14,7 +14,7 @@ tags:
   - "#phase/active"
 
 
-exit_criteria_met: false
+exit_criteria_met: true
 initiative_id: HLIN-I-0011
 ---
 
@@ -43,17 +43,17 @@ done after the wave running HLIN-T-0068, HLIN-T-0070 and HLIN-T-0077.
 
 ## Acceptance Criteria
 
-- [ ] With no `public_url`, the module CSP, the page's `frame-src` and the
+- [x] With no `public_url`, the module CSP, the page's `frame-src` and the
       request proxy's `Origin` check use the request's own origin
-- [ ] With `public_url` set (or `oidc`'s), behaviour is unchanged
-- [ ] The request proxy still requires `Sec-Fetch-Site: same-origin`, so a
+- [x] With `public_url` set (or `oidc`'s), behaviour is unchanged
+- [x] The request proxy still requires `Sec-Fetch-Site: same-origin`, so a
       request cannot choose its own origin to pass the check
-- [ ] Tests: `localhost` and `127.0.0.1` both work unconfigured; a configured
+- [x] Tests: `localhost` and `127.0.0.1` both work unconfigured; a configured
       `public_url` refuses a request whose `Origin` differs; a spoofed `Host`
       gains nothing a same-origin browser request would not already have
-- [ ] The workaround `public_url` lines in `demo/*.toml` are removed or kept
+- [x] The workaround `public_url` lines in `demo/*.toml` are removed or kept
       with a comment saying why
-- [ ] `angreal check all`, `angreal test all`, both e2e flavours pass
+- [x] `angreal check all`, `angreal test all`, both e2e flavours pass
 
 ## Implementation Notes
 
@@ -69,3 +69,35 @@ done after the wave running HLIN-T-0068, HLIN-T-0070 and HLIN-T-0077.
 ### 2026-09-24
 
 Created. Queued after the current wave.
+
+### 2026-09-25
+
+Done. `Config::origin()` is now only the configured origin (`public_url`, else
+`oidc`'s), as an `Option`; `Config::origin_for(headers)` resolves one
+request's, and the module CSP, the page's `frame-src` (now built per request in
+`with_frontend`), the request proxy's step 1 and the `changed` relay all use
+it. Spec HLIN-S-0007 has a new *The shell's origin* section with the reasoning.
+
+Decisions:
+
+- **Scheme** is always `http` when unconfigured: the shell serves plain http
+  itself. `X-Forwarded-Proto` and relatives are not read, because nothing
+  unconfigured says which proxy may be believed; a shell behind TLS sets
+  `public_url`.
+- **Host** is used only when it is plainly a host and port (alphanumerics,
+  `.-:[]`), since it goes into a CSP header; otherwise, or when absent,
+  `http://localhost:{port}` as before.
+- **Spoofed Host** gains nothing: read only when unconfigured; a policy built
+  from it goes back only to whoever chose it; the proxy and relay still need
+  `Sec-Fetch-Site: same-origin`. Noted: a host name somebody else points at the
+  shell (DNS rebinding) is a page the browser treats as the shell's, which
+  could already call its API; an exposed shell sets `public_url`.
+- **Demo configs**: the HLIN-T-0066 workaround is removed from `hlin`,
+  `aurora`, `gallery`, `live` and `twenty` (separate commit), with a comment
+  saying why there is none. `collab` keeps its `public_url`: it is `oidc`'s,
+  which the redirect URI needs.
+
+Verified: `angreal check all`; `angreal test all` (819 passed, 3 ignored);
+e2e standard against `--with aurora` at `http://127.0.0.1:8080` (53 passed,
+20 skipped) and again with `HLIN_URL=http://localhost:8080` (53 passed, 20
+skipped); `angreal e2e signin` against `--with collab` (9 passed).
