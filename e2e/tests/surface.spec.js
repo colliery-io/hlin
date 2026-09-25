@@ -406,6 +406,9 @@ test.describe('the time controls follow the panels that want them', () => {
     await expect(presets.filter({ hasText: '6h' })).toHaveClass(/active/);
     await expect(page.locator('.bar .applied')).toHaveText('applied', { timeout: 30_000 });
     await shotOf(page.locator('header.bar'), 14, 'standard-bar');
+    await expect(page.locator('section.panel[data-state="ready"]')).toHaveCount(2, {
+      timeout: 60_000,
+    });
 
     // Removing the only panel that wants a range takes the controls with it.
     await page.locator('button.mode').click();
@@ -427,5 +430,18 @@ test.describe('the time controls follow the panels that want them', () => {
     });
     await settled(page);
     await shot(page, 16, 'time-controls-back');
+  });
+
+  test('a page carries no time controls, and the surface behind it keeps its own', async ({ page }) => {
+    await openSurface(page, layoutId);
+    await expect(page.locator('.bar .picker')).toBeVisible();
+
+    // A navigation entry declares nothing about time, so its page shows none.
+    await page.locator('nav.pages a[data-page="orebank/module-page"]').click();
+    await expect(page.locator('.stage')).toBeHidden();
+    await expect(page.locator('.bar .picker')).toHaveCount(0);
+
+    await page.locator('nav.pages a.surface-link').click();
+    await expect(page.locator('.bar .picker')).toBeVisible();
   });
 });

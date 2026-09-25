@@ -14,7 +14,7 @@ tags:
   - "#phase/active"
 
 
-exit_criteria_met: false
+exit_criteria_met: true
 initiative_id: HLIN-I-0011
 ---
 
@@ -40,17 +40,17 @@ does. Otherwise they are absent, not disabled.
 
 ## Acceptance Criteria
 
-- [ ] The picker is hidden on a surface where no panel declares `time_range`,
+- [x] The picker is hidden on a surface where no panel declares `time_range`,
       and shown as soon as one is added in Edit (and hidden again when the
       last is removed)
-- [ ] A module panel that declares `time_range` counts, and still receives the
+- [x] A module panel that declares `time_range` counts, and still receives the
       time range in `context`
-- [ ] A surface's stored time range is kept while the picker is hidden, so
+- [x] A surface's stored time range is kept while the picker is hidden, so
       adding a time-driven panel back resumes where it was
-- [ ] Browser tests: the collab surface shows no time controls; the standard
+- [x] Browser tests: the collab surface shows no time controls; the standard
       demo surface shows them; adding and removing a time-driven panel shows
       and hides them
-- [ ] `angreal check all`, `angreal test all`, `angreal ui build`, and both
+- [x] `angreal check all`, `angreal test all`, `angreal ui build`, and both
       e2e flavours pass
 
 ## Implementation Notes
@@ -67,3 +67,30 @@ does. Otherwise they are absent, not disabled.
 ### 2026-09-24
 
 Created from the owner's request. Not started; queued behind HLIN-T-0070.
+
+### 2026-09-24 (implemented)
+
+Built on `2717acb` (HLIN-T-0070 merged).
+
+- `LayoutDraft::wants_time(catalog)` (`crates/hlin-ui/src/draft.rs`) is the
+  decision: true when any panel's catalogue entry lists `time_range` in its
+  `params`, whoever draws it. A panel the catalogue does not know counts for
+  nothing, so before the catalogue answers the controls are absent and
+  appear once it does.
+- `app.rs` wraps the picker (presets, date fields, Apply) in a `Show` on a
+  memo of that, so it is absent, not disabled. The `applied` indicator
+  stays: it also covers per-panel selections.
+- Stored range kept: the picker's signals are untouched while hidden, the
+  surface is still asked for that range, and modules are still told it as
+  `context`; a time-driven panel added back resumes it (browser-tested with
+  6h).
+- Decision, pages: a page shows no time controls. A navigation entry declares
+  nothing about time; the page's module is still told the surface's range as
+  `context`. Back on the surface they return.
+
+Checks: `angreal check all` clean; `angreal test all` 728 passed;
+`angreal ui build` ok. Browser: standard (`--with aurora`, `angreal e2e test`)
+47 passed, 18 skipped; collab (`--with collab`) `angreal e2e signin` 9 passed,
+`angreal e2e walkthrough` 3 passed. New: collab bar has no time controls;
+empty surface has none; add/remove/re-add a time-driven panel in Edit shows,
+hides and restores them with the chosen preset; a page hides them.
