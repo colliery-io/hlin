@@ -128,6 +128,28 @@ details, and how each number is taken, are in the task.
 | Frames mounted while scrolling | 12 settled; **18 at the peak**, 12 since [[HLIN-T-0085]] | budget is 12 |
 | A counter bump, one browser to another | 77 ms | |
 
+**Since: compression, `wasm-opt`, and the warm re-download**
+([[HLIN-T-0086]], [[HLIN-T-0088]]). The shell now compresses module assets
+and its own frontend (brotli or gzip), release builds run `wasm-opt -Oz`,
+and kanban's wasm is no longer fetched again on every visit (a fifteen-digit
+Trunk hash was taken for no hash, and served `no-cache` with no validator).
+Re-measured the same way:
+
+| | Before ([[HLIN-T-0084]]) | After |
+|---|---|---|
+| Cold bytes, first screen (9 frames) | 7.73 MB (modules 5.69, shell 2.02) | **2.27 MB** (modules 1.70, shell 0.56) |
+| Every module asset once (20 modules), as sent | 12.53 MB | **2.00 MB** (11.32 MB uncompressed) |
+| Shell frontend, as sent | 2.01 MB | **0.54 MB** (1.78 MB uncompressed) |
+| Warm bytes, first screen | 0.72 MB | **0.05 MB** |
+| Cold, navigation → six drawn (first content), loopback | 588 ms | 817 ms (see below) |
+| Cold over 50 Mbit/s, 40 ms → six drawn | 1,749 ms | **1,373 ms** |
+| Warm → six drawn | 535 ms | 537 ms |
+
+Loopback is slower because the demo's shell is a debug binary compressing
+as it goes (brotli there is about ten times slower than optimised: 223 ms
+against 22 ms for the frontend's wasm); over a real link the smaller bytes
+win by 380 ms. Details in [[HLIN-T-0086]].
+
 **Proofs.** A scrolled-away converter keeps its value and a stopwatch keeps
 running; a half-written note was lost until the notes module was given a
 `suspend` hook, and now keeps its draft. Killing one widget's platform moves
