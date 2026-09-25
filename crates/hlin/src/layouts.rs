@@ -115,7 +115,7 @@ pub async fn catalog(State(state): State<AppState>) -> Json<Vec<CatalogPlatform>
             panels: view
                 .accepted_panels()
                 .into_iter()
-                .map(|panel| catalog_panel(&view.config.id, panel))
+                .filter_map(|panel| catalog_panel(&view.config.id, panel))
                 .collect(),
         })
         .collect();
@@ -127,30 +127,34 @@ pub async fn catalog(State(state): State<AppState>) -> Json<Vec<CatalogPlatform>
 ///
 /// One function rather than two similar ones, so an operator's view of a panel
 /// and a composer's view of it cannot drift apart.
-pub fn catalog_panel(platform_id: &str, panel: &hlin_manifest::Panel) -> CatalogPanel {
-    CatalogPanel {
+///
+/// `None` for a panel the shell cannot draw itself, which is one drawn only by
+/// its platform's module; the registry does not offer those yet.
+pub fn catalog_panel(platform_id: &str, panel: &hlin_manifest::Panel) -> Option<CatalogPanel> {
+    let drawn = panel.drawn_by_shell()?;
+    Some(CatalogPanel {
         key: panel.key.clone(),
         reference: format!("{platform_id}/{}", panel.key),
         title: panel.title.clone(),
         description: panel.description.clone(),
-        kind: panel.kind.clone(),
+        kind: drawn.kind.to_string(),
         refresh_ms: panel.refresh_ms,
         component: panel.component.clone(),
         pushed: panel.pushed,
-        envelope: panel.envelope.clone(),
+        envelope: drawn.envelope.to_string(),
         params: panel
             .params
             .iter()
             .map(|declaration| declaration.param.clone())
             .collect(),
         controls: panel.params.iter().filter_map(control_for).collect(),
-        available_kinds: hlin_view::Kind::accepting(&panel.envelope)
+        available_kinds: hlin_view::Kind::accepting(drawn.envelope)
             .into_iter()
             .map(|kind| kind.name().to_string())
             .collect(),
         deprecated: panel.lifecycle.is_deprecated(),
         successor: panel.lifecycle.successor.clone(),
-    }
+    })
 }
 
 /// A parameter declaration, as a control the viewer can set.

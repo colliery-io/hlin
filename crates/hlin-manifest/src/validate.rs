@@ -14,9 +14,12 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::manifest::{LifecycleStatus, Manifest, Panel, SUPPORTED_SCHEMA_VERSION};
+use crate::manifest::{
+    Access, LifecycleStatus, Manifest, ModuleUi, Panel, SUPPORTED_BRIDGE_MAJORS,
+    SUPPORTED_SCHEMA_VERSION,
+};
 use crate::params::{self, ParamDefect};
-use crate::path::{self, PathDefect};
+use crate::path::{self, PathDefect, PrefixDefect};
 
 /// Why a manifest cannot be used at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +90,19 @@ pub enum PanelDefect {
         /// Which field.
         field: &'static str,
     },
+    /// The panel declared neither a module nor data, so nothing can draw it.
+    NothingToDraw,
+    /// The panel declared part of what the shell needs to draw it, but not
+    /// all. `kind`, `envelope` and `data` come together or not at all: a
+    /// module's fallback that is missing a piece is not a fallback.
+    MissingField {
+        /// The first field missing.
+        field: &'static str,
+    },
+    /// The panel is drawn only by its module, and the module cannot be hosted.
+    /// A panel that also declares data is not rejected for this; it is drawn by
+    /// the shell instead (see [`PanelOutcome::module`]).
+    Module(ModuleDefect),
     /// The data endpoint could not be resolved against the platform base.
     InvalidDataPath {
         /// The path as declared.
@@ -132,6 +148,13 @@ impl fmt::Display for PanelDefect {
                 write!(formatter, "panel key `{key}` is declared more than once")
             }
             Self::EmptyField { field } => write!(formatter, "`{field}` is empty"),
+            Self::NothingToDraw => formatter
+                .write_str("a panel must declare `ui`, or `kind`, `envelope` and `data`, or both"),
+            Self::MissingField { field } => write!(
+                formatter,
+                "`{field}` is missing; `kind`, `envelope` and `data` are declared together"
+            ),
+            Self::Module(defect) => write!(formatter, "module: {defect}"),
             Self::InvalidDataPath { declared, defect } => {
                 write!(formatter, "data path `{declared}`: {defect}")
             }
@@ -167,6 +190,69 @@ impl fmt::Display for PanelDefect {
     }
 }
 
+/// Why a declared module cannot be hosted.
+///
+/// A module is refused on its own, apart from what it belongs to. A panel that
+/// also declares data is still drawn, by the shell; a navigation entry is still
+/// a link. Only a panel with nothing else to draw it goes with its module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModuleDefect {
+    /// The platform declared no usable `assets` prefix, so there is nowhere
+    /// the shell may load a module's code from.
+    NoAssets,
+    /// The entry is not a usable path.
+    InvalidEntry {
+        /// The entry as declared.
+        declared: String,
+        /// Why it was rejected.
+        defect: PrefixDefect,
+    },
+    /// The entry does not fall under the platform's `assets` prefix, so the
+    /// shell would not serve it.
+    EntryOutsideAssets {
+        /// The entry as declared.
+        entry: String,
+        /// The platform's assets prefix.
+        assets: String,
+    },
+    /// The module speaks a bridge major this shell does not.
+    UnsupportedBridge {
+        /// The major the module declared.
+        declared: u32,
+        /// The majors this shell supports.
+        supported: Vec<u32>,
+    },
+}
+
+impl fmt::Display for ModuleDefect {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoAssets => {
+                formatter.write_str("`ui` needs the platform to declare a usable `assets` prefix")
+            }
+            Self::InvalidEntry { declared, defect } => {
+                write!(formatter, "entry `{declared}`: {defect}")
+            }
+            Self::EntryOutsideAssets { entry, assets } => write!(
+                formatter,
+                "entry `{entry}` does not fall under the assets prefix `{assets}`"
+            ),
+            Self::UnsupportedBridge {
+                declared,
+                supported,
+            } => {
+                let supported: Vec<String> =
+                    supported.iter().map(|major| major.to_string()).collect();
+                write!(
+                    formatter,
+                    "bridge major {declared} is not supported; this shell supports {}",
+                    supported.join(", ")
+                )
+            }
+        }
+    }
+}
+
 /// What became of one declared panel.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PanelOutcome {
@@ -177,6 +263,13 @@ pub struct PanelOutcome {
     pub key: String,
     /// Why it was rejected, if it was.
     pub defect: Option<PanelDefect>,
+    /// Why its module cannot be hosted, if it declares one that cannot.
+    ///
+    /// Set whether or not the panel itself was rejected. A panel that also
+    /// declares data is accepted with this set, and the shell draws it: that
+    /// is the fallback the specification promises for a malformed module
+    /// (HLIN-S-0007, *Fallback*).
+    pub module: Option<ModuleDefect>,
 }
 
 impl PanelOutcome {
@@ -210,6 +303,44 @@ pub struct Validation {
     /// takes an entire platform offline — which would make this feature more
     /// dangerous to adopt than to skip, and is exactly backwards.
     pub unusable_events: Option<PathDefect>,
+
+    /// Set when an `assets` prefix was declared and cannot be used.
+    ///
+    /// Informational for the reason `unusable_events` is: without assets the
+    /// platform's modules cannot be hosted, and each one says so in its own
+    /// outcome, but its data panels and its links are exactly as good as they
+    /// were.
+    pub unusable_assets: Option<PrefixDefect>,
+
+    /// Every declared route prefix that cannot be used. The shell forwards
+    /// nothing under one of these; the platform's other prefixes still work.
+    pub unusable_routes: Vec<UnusableRoute>,
+
+    /// Every navigation entry whose module cannot be hosted. The entry itself
+    /// stays, as a link to its `path`.
+    pub rejected_navigation_modules: Vec<RejectedNavigationModule>,
+}
+
+/// A route prefix that cannot be used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnusableRoute {
+    /// Whether it was declared for reads or writes.
+    pub access: Access,
+    /// The prefix as declared.
+    pub prefix: String,
+    /// Why it was rejected.
+    pub defect: PrefixDefect,
+}
+
+/// A navigation entry's module that cannot be hosted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RejectedNavigationModule {
+    /// Position in the manifest's `navigation` array.
+    pub index: usize,
+    /// The entry's path, which is how a person would find it.
+    pub path: String,
+    /// Why its module was rejected.
+    pub defect: ModuleDefect,
 }
 
 impl Validation {
@@ -257,15 +388,95 @@ pub fn validate(manifest: &Manifest, expected_platform_id: &str) -> Validation {
             panels: Vec::new(),
             newer_schema_version,
             unusable_events: None,
+            unusable_assets: None,
+            unusable_routes: Vec::new(),
+            rejected_navigation_modules: Vec::new(),
         };
     }
 
+    let (assets, unusable_assets) = match manifest.assets.as_deref() {
+        None => (None, None),
+        Some(declared) => match path::check_prefix(declared) {
+            Ok(()) => (Some(declared), None),
+            Err(defect) => (None, Some(defect)),
+        },
+    };
+
+    let rejected_navigation_modules = manifest
+        .navigation
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            let defect = module_defect(entry.ui.as_ref()?, assets)?;
+            Some(RejectedNavigationModule {
+                index,
+                path: entry.path.clone(),
+                defect,
+            })
+        })
+        .collect();
+
     Validation {
         document: None,
-        panels: panel_outcomes(manifest),
+        panels: panel_outcomes(manifest, assets),
         newer_schema_version,
         unusable_events: unusable_events(manifest),
+        unusable_assets,
+        unusable_routes: unusable_routes(manifest),
+        rejected_navigation_modules,
     }
+}
+
+/// Every route prefix that cannot be used, in declaration order, reads first.
+///
+/// Informational rather than a document defect, for the reason an unusable
+/// event stream is: a platform that gets one prefix wrong loses that prefix,
+/// not its dashboards.
+fn unusable_routes(manifest: &Manifest) -> Vec<UnusableRoute> {
+    let Some(routes) = &manifest.routes else {
+        return Vec::new();
+    };
+    Access::ALL
+        .into_iter()
+        .flat_map(|access| {
+            routes.prefixes(access).iter().filter_map(move |prefix| {
+                path::check_prefix(prefix)
+                    .err()
+                    .map(|defect| UnusableRoute {
+                        access,
+                        prefix: prefix.clone(),
+                        defect,
+                    })
+            })
+        })
+        .collect()
+}
+
+/// Why a declared module cannot be hosted, given the platform's usable assets
+/// prefix, if it has one.
+fn module_defect(ui: &ModuleUi, assets: Option<&str>) -> Option<ModuleDefect> {
+    let Some(assets) = assets else {
+        return Some(ModuleDefect::NoAssets);
+    };
+    if let Err(defect) = path::check_file(&ui.entry) {
+        return Some(ModuleDefect::InvalidEntry {
+            declared: ui.entry.clone(),
+            defect,
+        });
+    }
+    if !path::falls_under(assets, &ui.entry) {
+        return Some(ModuleDefect::EntryOutsideAssets {
+            entry: ui.entry.clone(),
+            assets: assets.to_string(),
+        });
+    }
+    if !SUPPORTED_BRIDGE_MAJORS.contains(&ui.bridge) {
+        return Some(ModuleDefect::UnsupportedBridge {
+            declared: ui.bridge,
+            supported: SUPPORTED_BRIDGE_MAJORS.to_vec(),
+        });
+    }
+    None
 }
 
 /// Whether a declared event stream can be resolved against the platform base.
@@ -305,7 +516,7 @@ fn document_defect(manifest: &Manifest, expected_platform_id: &str) -> Option<Do
     None
 }
 
-fn panel_outcomes(manifest: &Manifest) -> Vec<PanelOutcome> {
+fn panel_outcomes(manifest: &Manifest, assets: Option<&str>) -> Vec<PanelOutcome> {
     let mut claims: BTreeMap<&str, usize> = BTreeMap::new();
     for panel in &manifest.panels {
         *claims.entry(panel.key.as_str()).or_insert(0) += 1;
@@ -325,23 +536,29 @@ fn panel_outcomes(manifest: &Manifest) -> Vec<PanelOutcome> {
             let contested = claims
                 .get(panel.key.as_str())
                 .is_some_and(|count| *count > 1);
+            let module = panel.ui.as_ref().and_then(|ui| module_defect(ui, assets));
             let defect = if contested {
                 Some(PanelDefect::DuplicateKey {
                     key: panel.key.clone(),
                 })
             } else {
-                panel_defect(panel, &declared_keys)
+                panel_defect(panel, module.as_ref(), &declared_keys)
             };
             PanelOutcome {
                 index,
                 key: panel.key.clone(),
                 defect,
+                module,
             }
         })
         .collect()
 }
 
-fn panel_defect(panel: &Panel, declared_keys: &[&str]) -> Option<PanelDefect> {
+fn panel_defect(
+    panel: &Panel,
+    module: Option<&ModuleDefect>,
+    declared_keys: &[&str],
+) -> Option<PanelDefect> {
     if !is_valid_key(&panel.key) {
         return Some(PanelDefect::InvalidKey {
             declared: panel.key.clone(),
@@ -350,27 +567,50 @@ fn panel_defect(panel: &Panel, declared_keys: &[&str]) -> Option<PanelDefect> {
     if panel.title.trim().is_empty() {
         return Some(PanelDefect::EmptyField { field: "title" });
     }
-    if panel.kind.trim().is_empty() {
-        return Some(PanelDefect::EmptyField { field: "kind" });
+
+    let data_fields = [
+        ("kind", panel.kind.is_some()),
+        ("envelope", panel.envelope.is_some()),
+        ("data", panel.data.is_some()),
+    ];
+    let declares_data = data_fields.iter().any(|(_, present)| *present);
+    if panel.ui.is_none() && !declares_data {
+        return Some(PanelDefect::NothingToDraw);
     }
-    if panel.envelope.trim().is_empty() {
-        return Some(PanelDefect::EmptyField { field: "envelope" });
-    }
-    if let Err(defect) = path::normalize(&panel.data) {
-        return Some(PanelDefect::InvalidDataPath {
-            declared: panel.data.clone(),
-            defect,
-        });
+    // Past here, a panel without a module declares at least some data, so the
+    // one rule covers both: whatever data is declared is declared whole.
+    if declares_data && let Some((field, _)) = data_fields.iter().find(|(_, present)| !present) {
+        return Some(PanelDefect::MissingField { field });
     }
 
-    // An envelope this shell has never heard of is not rejected here: the
-    // vocabulary grows, and a panel naming a newer envelope should fail when
-    // its data arrives rather than vanish from the picker. What is rejected is
-    // a name the shell knows to be the wrong *kind* of thing.
-    if let Some(crate::envelope::Role::Parameter) = crate::envelope::role(&panel.envelope) {
-        return Some(PanelDefect::NotAPanelEnvelope {
-            declared: panel.envelope.clone(),
-        });
+    if let Some(data) = panel.drawn_by_shell() {
+        if data.kind.trim().is_empty() {
+            return Some(PanelDefect::EmptyField { field: "kind" });
+        }
+        if data.envelope.trim().is_empty() {
+            return Some(PanelDefect::EmptyField { field: "envelope" });
+        }
+        if let Err(defect) = path::normalize(data.data) {
+            return Some(PanelDefect::InvalidDataPath {
+                declared: data.data.to_string(),
+                defect,
+            });
+        }
+
+        // An envelope this shell has never heard of is not rejected here: the
+        // vocabulary grows, and a panel naming a newer envelope should fail
+        // when its data arrives rather than vanish from the picker. What is
+        // rejected is a name the shell knows to be the wrong *kind* of thing.
+        if let Some(crate::envelope::Role::Parameter) = crate::envelope::role(data.envelope) {
+            return Some(PanelDefect::NotAPanelEnvelope {
+                declared: data.envelope.to_string(),
+            });
+        }
+    } else if let Some(defect) = module {
+        // Drawn only by its module, and the module cannot be hosted: there is
+        // nothing left to offer. A panel with data does not come here, because
+        // the shell can still draw it.
+        return Some(PanelDefect::Module(defect.clone()));
     }
 
     let mut seen: Vec<(String, Option<String>)> = Vec::new();

@@ -16,11 +16,20 @@
 //! same reason as `kind`: they are what a platform suggests about presentation
 //! and cadence, not what it promises about data (decisions HLIN-A-0003 and
 //! HLIN-A-0009).
+//!
+//! Modules added four things a consumer can rely on: where a platform's module
+//! code lives (`assets`), which routes its modules may call (`routes`), and for
+//! each module its entry and the bridge major it speaks (`ui`). A layout
+//! holding a module breaks if any of those move, so they are contract too. Each
+//! enters the content only when declared, which is what keeps every manifest
+//! written before modules existed at exactly the fingerprint it always had: a
+//! shell upgrading past this change must not see every platform's contract
+//! move at once.
 
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
-use crate::manifest::{LifecycleStatus, Manifest, Panel};
+use crate::manifest::{Access, LifecycleStatus, Manifest, ModuleUi, Panel, Routes};
 
 /// A manifest's contract fingerprint: SHA-256 over its canonicalised contract
 /// content, hex encoded.
@@ -60,19 +69,85 @@ pub fn contract_content(manifest: &Manifest) -> Value {
         "panels".to_string(),
         Value::Array(panels.into_iter().map(|(_, value)| value).collect()),
     );
+    if let Some(assets) = &manifest.assets {
+        root.insert("assets".to_string(), Value::String(assets.clone()));
+    }
+    if let Some(routes) = &manifest.routes {
+        root.insert("routes".to_string(), routes_contract(routes));
+    }
+
+    // Navigation is not contract, but a navigation entry's module is. Entries
+    // have no key, so each module is identified by the path its entry links
+    // to, and only entries that carry one appear. They are ordered by their
+    // canonical bytes, which begin with the path, so that even two entries
+    // sharing a path order the same however they were written.
+    let mut navigation: Vec<(String, Value)> = manifest
+        .navigation
+        .iter()
+        .filter_map(|entry| {
+            let mut object = Map::new();
+            object.insert("path".to_string(), Value::String(entry.path.clone()));
+            object.insert("ui".to_string(), module_contract(entry.ui.as_ref()?));
+            let value = Value::Object(object);
+            Some((canonicalize(&value), value))
+        })
+        .collect();
+    if !navigation.is_empty() {
+        navigation.sort_by(|left, right| left.0.cmp(&right.0));
+        root.insert(
+            "navigation".to_string(),
+            Value::Array(navigation.into_iter().map(|(_, value)| value).collect()),
+        );
+    }
+
     Value::Object(root)
 }
 
 fn panel_contract(panel: &Panel) -> Value {
     let mut object = Map::new();
     object.insert("key".to_string(), Value::String(panel.key.clone()));
-    object.insert(
-        "envelope".to_string(),
-        Value::String(panel.envelope.clone()),
-    );
-    object.insert("data".to_string(), Value::String(panel.data.clone()));
+    if let Some(envelope) = &panel.envelope {
+        object.insert("envelope".to_string(), Value::String(envelope.clone()));
+    }
+    if let Some(data) = &panel.data {
+        object.insert("data".to_string(), Value::String(data.clone()));
+    }
+    if let Some(ui) = &panel.ui {
+        object.insert("ui".to_string(), module_contract(ui));
+    }
     object.insert("params".to_string(), Value::Array(canonical_params(panel)));
     object.insert("lifecycle".to_string(), lifecycle_contract(panel));
+    Value::Object(object)
+}
+
+/// A module's contract: its entry and its bridge major. Unknown fields are
+/// dropped, as everywhere else.
+fn module_contract(ui: &ModuleUi) -> Value {
+    let mut object = Map::new();
+    object.insert("entry".to_string(), Value::String(ui.entry.clone()));
+    object.insert("bridge".to_string(), Value::from(ui.bridge));
+    Value::Object(object)
+}
+
+/// Route prefixes with both lists materialised, each sorted and without
+/// repeats. The order prefixes are written in, and writing one twice, promise
+/// nothing.
+fn routes_contract(routes: &Routes) -> Value {
+    let mut object = Map::new();
+    for access in Access::ALL {
+        let mut prefixes: Vec<&String> = routes.prefixes(access).iter().collect();
+        prefixes.sort();
+        prefixes.dedup();
+        object.insert(
+            access.as_str().to_string(),
+            Value::Array(
+                prefixes
+                    .into_iter()
+                    .map(|prefix| Value::String(prefix.clone()))
+                    .collect(),
+            ),
+        );
+    }
     Value::Object(object)
 }
 
@@ -117,10 +192,10 @@ fn lifecycle_contract(panel: &Panel) -> Value {
 
 /// Serialise a value to RFC 8785 canonical JSON.
 ///
-/// Contract content is built from strings, booleans, arrays and objects, all of
-/// which canonicalise without ambiguity. The fallible paths in RFC 8785 concern
-/// numbers that cannot be represented, which contract content does not contain,
-/// so this cannot fail in practice; if it somehow did, falling back to ordinary
+/// Contract content is built from strings, booleans, small integers, arrays and
+/// objects, all of which canonicalise without ambiguity. The fallible paths in
+/// RFC 8785 concern numbers that cannot be represented, which contract content
+/// does not contain, so this cannot fail in practice; if it somehow did, falling back to ordinary
 /// serialisation would silently change the fingerprint, so the panic is the
 /// honest outcome.
 pub fn canonicalize(value: &Value) -> String {

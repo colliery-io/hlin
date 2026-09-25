@@ -135,6 +135,46 @@ async fn a_platform_is_known_once_it_has_been_asked() {
 }
 
 #[tokio::test]
+async fn only_panels_the_shell_can_draw_are_offered_until_modules_can_be_mounted() {
+    // A panel drawn only by its platform's module is valid, but this shell
+    // cannot mount modules yet, so offering it would put an empty frame on a
+    // surface. A panel that declares a module *and* data is offered exactly as
+    // it was before it declared the module.
+    let document = hlin_manifest::parse_str(&format!(
+        r#"{{
+          "schema_version": 1,
+          "contract_version": "1.0.0",
+          "platform": {{ "id": "{PLATFORM}", "name": "Orebank" }},
+          "assets": "/ui/",
+          "panels": [
+            {{ "key": "board", "title": "Board",
+               "ui": {{ "entry": "/ui/board/index.html", "bridge": 1 }} }},
+            {{ "key": "throughput", "title": "Throughput",
+               "ui": {{ "entry": "/ui/throughput/index.html", "bridge": 1 }},
+               "kind": "timeseries", "envelope": "series.v1", "data": "api/throughput" }}
+          ],
+          "health": "api/health"
+        }}"#
+    ))
+    .expect("fixture parses");
+    let client = Scripted::new(Fetched::Document(Box::new(document)));
+    let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
+    let registry = build_registry(&config(2), store, client);
+
+    poll(&registry).await;
+
+    let views = registry.views().await;
+    let view = views.get(PLATFORM).expect("configured");
+    let offered: Vec<&str> = view
+        .accepted_panels()
+        .into_iter()
+        .map(|panel| panel.key.as_str())
+        .collect();
+    assert_eq!(offered, ["throughput"]);
+    assert!(view.panel_by_endpoint("api/throughput").is_some());
+}
+
+#[tokio::test]
 async fn a_platform_that_does_not_answer_keeps_the_panels_it_had() {
     // An existing surface must degrade rather than empty out, so the last
     // contract stays in place while the platform is away.

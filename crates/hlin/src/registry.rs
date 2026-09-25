@@ -72,6 +72,13 @@ pub struct PlatformView {
 
 impl PlatformView {
     /// The panels a viewer may put on a surface.
+    ///
+    /// Only panels the shell can draw itself, from `kind`, `envelope` and
+    /// `data`. A panel drawn only by its platform's module is accepted by the
+    /// manifest crate, but this shell does not mount modules yet
+    /// (HLIN-T-0066), and offering a panel nothing can draw would put a
+    /// permanently empty frame on someone's surface. A panel declaring both is
+    /// offered exactly as it was before it declared a module.
     pub fn accepted_panels(&self) -> Vec<&hlin_manifest::Panel> {
         let (Some(manifest), Some(validation)) = (&self.manifest, &self.validation) else {
             return Vec::new();
@@ -85,6 +92,7 @@ impl PlatformView {
             .iter()
             .filter(|outcome| outcome.is_accepted())
             .filter_map(|outcome| manifest.panel(&outcome.key))
+            .filter(|panel| panel.drawn_by_shell().is_some())
             .collect()
     }
 
@@ -104,7 +112,7 @@ impl PlatformView {
     pub fn panel_by_endpoint(&self, endpoint: &str) -> Option<&hlin_manifest::Panel> {
         self.accepted_panels()
             .into_iter()
-            .find(|panel| panel.data == endpoint)
+            .find(|panel| panel.data.as_deref() == Some(endpoint))
     }
 }
 

@@ -25,6 +25,16 @@ pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 /// The well-known path, relative to a platform's base, where its manifest lives.
 pub const WELL_KNOWN_PATH: &str = ".well-known/hlin.json";
 
+/// The bridge majors this shell can host a module on (specification
+/// HLIN-S-0007, *Versioning*).
+///
+/// Here rather than in the shell because both ends of the bridge read it: the
+/// shell to refuse a module it cannot speak to, and a module's SDK to say which
+/// major it speaks. One list means the two cannot disagree about what `1`
+/// means. A major leaves this list only after a deprecation window with a named
+/// successor, the way a panel does.
+pub const SUPPORTED_BRIDGE_MAJORS: &[u32] = &[1];
+
 /// A platform's manifest.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -63,6 +73,31 @@ pub struct Manifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub events: Option<String>,
 
+    /// Where this platform's module assets live, as one prefix relative to the
+    /// platform base: `/ui/` (specification HLIN-S-0007, *Assets*).
+    ///
+    /// The shell serves a module's code from its own origin, fetching it from
+    /// the platform as itself, and only from under this prefix. Declaring it is
+    /// what lets a platform ship modules at all: every `ui.entry` must fall
+    /// under it, and a `ui` on a platform without it is refused.
+    ///
+    /// Contract. A layout holding a module relies on its code being reachable,
+    /// so narrowing or moving the prefix is breaking and widening it is not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assets: Option<String>,
+
+    /// The platform routes its modules may call through the shell, by method
+    /// (specification HLIN-S-0007, *The request proxy*).
+    ///
+    /// One set per platform rather than one per module: the platform authorizes
+    /// every request itself, and does not need protecting from its own module.
+    /// What the prefixes protect is everything the platform did *not* mean to
+    /// expose to a page — its manifest, its health endpoint, its admin routes.
+    ///
+    /// Contract, for the reason `assets` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routes: Option<Routes>,
+
     /// Fields this version of the crate does not know about, preserved so that
     /// re-serialising a manifest does not discard a newer platform's additions.
     #[serde(flatten)]
@@ -88,6 +123,83 @@ pub struct Platform {
     pub extra: BTreeMap<String, Value>,
 }
 
+/// The route prefixes a platform's modules may reach, split by what a request
+/// may do.
+///
+/// `GET` and `HEAD` are reads and need a `read` prefix; `POST`, `PUT`, `PATCH`
+/// and `DELETE` are writes and need a `write` prefix. They are declared apart
+/// because a platform commonly lets a module read far more than it lets it
+/// change, and the shell can then refuse a write before it costs the platform
+/// anything.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Routes {
+    /// Prefixes a module may read under: `/api/`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read: Vec<String>,
+
+    /// Prefixes a module may write under.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub write: Vec<String>,
+
+    /// Unknown fields, preserved.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl Routes {
+    /// The prefixes declared for one kind of request.
+    pub fn prefixes(&self, access: Access) -> &[String] {
+        match access {
+            Access::Read => &self.read,
+            Access::Write => &self.write,
+        }
+    }
+}
+
+/// What a module's request may do to its platform, which decides the route
+/// prefixes it must fall under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Access {
+    /// `GET` and `HEAD`.
+    Read,
+    /// `POST`, `PUT`, `PATCH` and `DELETE`.
+    Write,
+}
+
+impl Access {
+    /// Both, in a stable order.
+    pub const ALL: [Access; 2] = [Access::Read, Access::Write];
+
+    /// The field name under `routes`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Access::Read => "read",
+            Access::Write => "write",
+        }
+    }
+}
+
+/// A UI module a platform ships for a panel or a navigation entry
+/// (decision HLIN-A-0014).
+///
+/// The shell hosts it in a sandboxed frame and speaks to it over the bridge.
+/// Nothing here is code: it says where the code is and which bridge it speaks,
+/// and the shell decides whether and how to load it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModuleUi {
+    /// The module's entry document, relative to the platform base and under
+    /// the platform's `assets` prefix: `/ui/items/index.html`.
+    pub entry: String,
+
+    /// The major version of the bridge this module speaks. The shell refuses a
+    /// major it does not support rather than mount a module it cannot talk to.
+    pub bridge: u32,
+
+    /// Unknown fields, preserved.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
 /// One navigation entry contributed by a platform.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NavigationEntry {
@@ -105,6 +217,15 @@ pub struct NavigationEntry {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub weight: i64,
 
+    /// A module the shell hosts as this entry's page, instead of linking out
+    /// to the platform's own frontend.
+    ///
+    /// An entry with a module keeps its `path`, which is still where the link
+    /// goes when the module cannot be hosted. A module declared wrongly
+    /// therefore costs the page, never the entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<ModuleUi>,
+
     /// Unknown fields, preserved.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -116,10 +237,19 @@ fn is_zero(weight: &i64) -> bool {
 
 /// One panel a platform offers.
 ///
-/// The contract content of a panel is `key`, `envelope`, `data`, `params` and
-/// `lifecycle`. `kind` is the platform's *default* rendering rather than
-/// contract, because a user may switch a panel to any kind that accepts its
-/// envelope (decision HLIN-A-0003).
+/// The contract content of a panel is `key`, `envelope`, `data`, `ui`,
+/// `params` and `lifecycle`. `kind` is the platform's *default* rendering
+/// rather than contract, because a user may switch a panel to any kind that
+/// accepts its envelope (decision HLIN-A-0003).
+///
+/// A panel is drawn one of two ways, or offers both. The shell draws it from
+/// `kind`, `envelope` and `data`; the platform's own module draws it from `ui`.
+/// A panel declaring both is drawn by its module and falls back to the shell's
+/// drawing when the module is unavailable (specification HLIN-S-0007). That is
+/// why the data fields are optional in the type: they are required exactly
+/// when `ui` is absent, which is a rule about one panel, so it is checked by
+/// validation, where getting it wrong rejects that panel alone rather than
+/// failing the parse of the whole manifest.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Panel {
     /// Stable panel identity, unique within the manifest. Layouts reference
@@ -134,7 +264,15 @@ pub struct Panel {
     pub description: Option<String>,
 
     /// Default view kind, named from the shared vocabulary. Not contract.
-    pub kind: String,
+    /// Required unless the panel declares `ui`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+
+    /// The module that draws this panel, when its platform ships one.
+    /// Contract: removing it, moving its entry or changing its bridge major is
+    /// breaking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<ModuleUi>,
 
     /// How often this panel's data is worth refetching, in milliseconds.
     ///
@@ -181,19 +319,23 @@ pub struct Panel {
     /// opinion about it, so a platform and a pack can agree on a component the
     /// shell has never heard of.
     ///
-    /// `kind` stays required and stays a word Hlin knows, which is what makes
-    /// this safe: a pack that does not recognise the component draws the kind
+    /// `kind` stays required wherever the shell draws, and stays a word Hlin
+    /// knows, which is what makes this safe: a pack that does not recognise the component draws the kind
     /// instead, and validation has already proved the kind can draw the
     /// declared envelope. There is no way for naming a component to make a
     /// panel undrawable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
 
-    /// The envelope this panel's data endpoint returns. Contract.
-    pub envelope: String,
+    /// The envelope this panel's data endpoint returns. Contract. Required
+    /// unless the panel declares `ui`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<String>,
 
-    /// Data endpoint, relative to the platform base. Contract.
-    pub data: String,
+    /// Data endpoint, relative to the platform base. Contract. Required unless
+    /// the panel declares `ui`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
 
     /// Shell-level controls this panel responds to.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -363,5 +505,31 @@ impl Manifest {
     /// The panel with this key, if the manifest declares one.
     pub fn panel(&self, key: &str) -> Option<&Panel> {
         self.panels.iter().find(|panel| panel.key == key)
+    }
+}
+
+/// What the shell needs to draw a panel itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DataDecl<'a> {
+    /// Default view kind.
+    pub kind: &'a str,
+    /// The envelope the data endpoint returns.
+    pub envelope: &'a str,
+    /// The data endpoint, relative to the platform base.
+    pub data: &'a str,
+}
+
+impl Panel {
+    /// The panel's data declaration, when it declares all of `kind`, `envelope`
+    /// and `data` — which is to say, when the shell can draw it.
+    ///
+    /// A panel that validation accepted and that answers `None` here is drawn
+    /// only by its module, and has nothing for the shell to fetch.
+    pub fn drawn_by_shell(&self) -> Option<DataDecl<'_>> {
+        Some(DataDecl {
+            kind: self.kind.as_deref()?,
+            envelope: self.envelope.as_deref()?,
+            data: self.data.as_deref()?,
+        })
     }
 }

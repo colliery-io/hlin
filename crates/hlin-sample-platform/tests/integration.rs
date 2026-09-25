@@ -55,7 +55,7 @@ fn the_manifest_covers_the_whole_envelope_vocabulary() {
     let declared: Vec<&str> = document
         .panels
         .iter()
-        .map(|panel| panel.envelope.as_str())
+        .filter_map(|panel| panel.envelope.as_deref())
         .collect();
 
     for envelope in ["scalar.v1", "series.v1", "records.v1", "status.v1"] {

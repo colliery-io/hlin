@@ -186,7 +186,7 @@ async fn platforms(State(state): State<AppState>) -> Json<Vec<PlatformReport>> {
             let panels = view
                 .accepted_panels()
                 .into_iter()
-                .map(|panel| crate::layouts::catalog_panel(&view.config.id, panel))
+                .filter_map(|panel| crate::layouts::catalog_panel(&view.config.id, panel))
                 .collect();
 
             let rejected = view

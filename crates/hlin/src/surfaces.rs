@@ -275,7 +275,15 @@ impl Surfaces {
             // offering one, the panel does not disappear from the surface: it
             // says it is gone, which is the difference between a shell that
             // degrades and one that silently loses a person's work.
-            let Some(declared) = declared else {
+            //
+            // Every accepted panel is one the shell can draw, so `drawn` is
+            // only ever absent here alongside `declared`.
+            let drawn = declared.as_ref().and_then(|declared| {
+                declared
+                    .drawn_by_shell()
+                    .map(|data| (data.data.to_string(), data.envelope.to_string()))
+            });
+            let (Some(declared), Some((data, envelope))) = (declared, drawn) else {
                 instances.push(Instance::retired(
                     panel.id.to_string(),
                     panel.platform_id.clone(),
@@ -288,8 +296,8 @@ impl Surfaces {
                 panel.id.to_string(),
                 panel.platform_id.clone(),
                 panel.panel_key.clone(),
-                declared.data.clone(),
-                declared.envelope.clone(),
+                data,
+                envelope,
             );
             instance.successor.clone_from(&declared.lifecycle.successor);
 
@@ -324,12 +332,15 @@ impl Surfaces {
 
         for view in views.values() {
             for panel in view.accepted_panels() {
+                let Some(drawn) = panel.drawn_by_shell() else {
+                    continue;
+                };
                 let mut instance = Instance::new(
                     format!("{}-{}", view.config.id, panel.key),
                     view.config.id.clone(),
                     panel.key.clone(),
-                    panel.data.clone(),
-                    panel.envelope.clone(),
+                    drawn.data,
+                    drawn.envelope,
                 );
                 instance.successor.clone_from(&panel.lifecycle.successor);
                 instance.refresh = panel

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0.0",
+  "platform": { "id": "checklist", "name": "Checklist", "icon": "check" },
+  "assets": "/ui/",
+  "routes": { "read": ["/api/"], "write": ["/api/"] },
+  "navigation": [
+    { "label": "Lists", "path": "lists", "ui": { "entry": "/ui/lists/index.html", "bridge": 1 } }
+  ],
+  "panels": [
+    {
+      "key": "items",
+      "title": "To do",
+      "ui": { "entry": "/ui/items/index.html", "bridge": 1 },
+      "kind": "table",
+      "envelope": "records.v1",
+      "data": "/panels/items",
+      "params": [
+        { "param": "select", "id": "list", "label": "List", "options": "/options/lists" }
+      ]
+    },
+    {
+      "key": "board",
+      "title": "Board",
+      "ui": { "entry": "/ui/board/index.html", "bridge": 1 }
+    },
+    {
+      "key": "open-count",
+      "title": "Open items",
+      "kind": "stat",
+      "envelope": "scalar.v1",
+      "data": "/panels/open-count"
+    }
+  ],
+  "health": "/health"
+}

@@ -94,13 +94,17 @@ pub use envelope_validate::{EnvelopeDefect, parse_envelope};
 #[cfg(feature = "contract")]
 pub use canonical::{ContractHash, contract_content, contract_hash};
 #[cfg(feature = "contract")]
-pub use diff::{Change, Class, DiffReport, Verdict, classify_diff};
+pub use diff::{Change, Class, DiffReport, ModuleSite, Verdict, classify_diff};
 #[cfg(feature = "contract")]
 pub use errors::{ParseError, parse, parse_str};
 #[cfg(feature = "contract")]
 pub use manifest::{
-    Lifecycle, LifecycleStatus, Manifest, NavigationEntry, Panel, ParamDecl, Platform,
-    SUPPORTED_SCHEMA_VERSION, WELL_KNOWN_PATH,
+    Access, DataDecl, Lifecycle, LifecycleStatus, Manifest, ModuleUi, NavigationEntry, Panel,
+    ParamDecl, Platform, Routes, SUPPORTED_BRIDGE_MAJORS, SUPPORTED_SCHEMA_VERSION,
+    WELL_KNOWN_PATH,
 };
 #[cfg(feature = "contract")]
-pub use validate::{DocumentDefect, PanelDefect, PanelOutcome, Validation, validate};
+pub use validate::{
+    DocumentDefect, ModuleDefect, PanelDefect, PanelOutcome, RejectedNavigationModule,
+    UnusableRoute, Validation, validate,
+};

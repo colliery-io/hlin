@@ -440,7 +440,7 @@ impl LiveSurface {
 
             let promised = view
                 .panel_by_endpoint(&request.endpoint)
-                .map(|panel| panel.envelope.clone());
+                .and_then(|panel| panel.envelope.clone());
 
             (view.config.base_url.clone(), headers, promised)
         };
