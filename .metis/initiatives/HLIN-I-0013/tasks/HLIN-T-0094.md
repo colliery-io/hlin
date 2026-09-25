@@ -54,7 +54,7 @@ port published.
 
 ## Implementation Notes
 
-- Depends on [[HLIN-T-0093]]. The repository's existing `Dockerfile` builds
+- Depends on [[HLIN-T-0093]], [[HLIN-T-0096]] and [[HLIN-T-0097]]. The repository's existing `Dockerfile` builds
   the shell image with a frontend; build on it rather than beside it.
 - Dex and its config already exist for the collab flavour.
 
