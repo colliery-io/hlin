@@ -4,14 +4,14 @@ level: initiative
 title: "Twenty platforms on one surface"
 short_code: "HLIN-I-0012"
 created_at: 2026-09-25T02:41:04.680174+00:00
-updated_at: 2026-09-25T02:43:42.046537+00:00
+updated_at: 2026-09-25T22:56:22.043152+00:00
 parent: HLIN-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -205,3 +205,14 @@ answer `suspend` at once; and let a module whose read failed try again. For
 ### 2026-09-24 — opened
 
 Opened from the owner's request, with the three decisions above.
+### 2026-09-25 — completed
+
+Twenty platforms, twenty crates, twenty processes and twenty modules on one
+scrolling surface, measured on release builds. Six in view reach first
+content in about 600 ms cold on loopback and 1.09 s over 50 Mbit/s; cold
+bytes for the first screen 1.95 MB after compression; the frame budget holds
+at 12 while scrolling; a killed platform degrades its panel alone and
+recovers by itself, twice in one session since [[HLIN-T-0092]] fixed the
+event stream reusing an expired token on every reconnect, a product bug that
+would have locked any platform restarted more than two minutes after a
+surface was opened out of live updates for good.
