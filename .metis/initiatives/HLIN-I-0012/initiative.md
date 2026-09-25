@@ -150,6 +150,24 @@ as it goes (brotli there is about ten times slower than optimised: 223 ms
 against 22 ms for the frontend's wasm); over a real link the smaller bytes
 win by 380 ms. Details in [[HLIN-T-0086]].
 
+**Since: each file compressed once** ([[HLIN-T-0091]]). The shell keeps
+what it compresses, keyed by content and encoding within `[compression]
+cache_bytes` (64 MiB; 3.48 MB held after the suite), answers a file's
+first request at brotli 4 and replaces it with brotli 11 in the background,
+and compresses its frontend at 11 when it starts. Same method, three
+configurations measured in one session:
+
+| | Uncompressed | Compressed per request ([[HLIN-T-0086]]) | Compressed once |
+|---|---|---|---|
+| Cold, navigation → six drawn, loopback | 592 ms | 819 ms | **599 ms** |
+| Cold over 50 Mbit/s, 40 ms → six drawn | 1,725 ms | 1,373 ms | **1,091 ms** |
+| Warm → six drawn | 537 ms | 535 ms | 534 ms |
+| Cold bytes, first screen | 7.06 MB | 2.32 MB | **1.95 MB** (1.88 once all at 11) |
+| Every module asset once, as sent | 6.31 MB | 2.05 MB | **1.83 MB** |
+
+Loopback is back at the uncompressed time within the runs' spread, and the
+throttled first screen is 630 ms sooner than uncompressed.
+
 **Proofs.** A scrolled-away converter keeps its value and a stopwatch keeps
 running; a half-written note was lost until the notes module was given a
 `suspend` hook, and now keeps its draft. Killing one widget's platform moves
