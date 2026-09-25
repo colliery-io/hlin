@@ -4,14 +4,14 @@ level: task
 title: "Stream a response to a module, as fast as it asks and no faster"
 short_code: "HLIN-T-0068"
 created_at: 2026-09-25T00:01:06.693811+00:00
-updated_at: 2026-09-25T00:01:06.693811+00:00
+updated_at: 2026-09-25T02:19:27.121815+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: HLIN-I-0011
 ## Objective
 
 Slice 8 of [[HLIN-I-0011]]. [[HLIN-S-0007]] *Streaming* and REQ-3.6.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
