@@ -4,14 +4,14 @@ level: task
 title: "The feed's own module"
 short_code: "HLIN-T-0075"
 created_at: 2026-09-25T00:39:02.766139+00:00
-updated_at: 2026-09-25T01:36:21.618956+00:00
+updated_at: 2026-09-25T02:11:21.779561+00:00
 parent: HLIN-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: HLIN-I-0010
 ## Objective
 
 Task 6 of [[HLIN-I-0010]]. The feed's UI as a module.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
