@@ -200,13 +200,16 @@ def e2e_test(headed=False, filter=None):
         """
         Drive a real browser through Dex's login form as each of the demo's
         three people, asserting the name the shell shows, the email its
-        principal carries, and that signing out ends the session.
+        principal carries, and that signing out ends the session. Then open
+        the published surface as Alice (both panels drawn with data) and as
+        Carol (the checklist refuses her; the feed does not).
 
         ## When to use
         - After `angreal demo up --with collab`
         - After changing the oidc authenticator, sessions, or demo/dex.yaml
 
-        Creates sessions and ends them; changes nothing else.
+        Creates sessions and ends them, and a first empty surface for Bob and
+        Carol; changes nothing else.
         """,
         risk_level="safe",
     ),
@@ -241,7 +244,7 @@ def e2e_signin(headed=False):
         )
         return 1
 
-    argv = ["npx", "playwright", "test", "signin.spec.js"]
+    argv = ["npx", "playwright", "test", "signin.spec.js", "collab.spec.js"]
     if headed:
         argv.append("--headed")
 

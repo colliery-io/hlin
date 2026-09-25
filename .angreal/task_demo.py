@@ -38,8 +38,8 @@ CONFIGS = {
 }
 
 #: Flavours where people sign in through Dex rather than being the development
-#: user. They start the identity provider and none of the sample platforms
-#: above: the collaborative demo brings its own (HLIN-I-0010).
+#: user. They start the identity provider and, instead of the sample platforms
+#: below, the collaborative demo's own (HLIN-I-0010).
 SIGNED_IN = {"collab"}
 
 #: Where Dex answers, as both the shell and the browser reach it.
@@ -57,6 +57,26 @@ SHELL = "http://127.0.0.1:8080"
 PLATFORMS = [
     {"name": "orebank", "port": 8081},
     {"name": "stampmill", "port": 8082},
+]
+
+#: The collaborative demo's platforms: two that accept writes and decide their
+#: own rules from who is asking (HLIN-T-0072, HLIN-T-0073). Each is its own
+#: binary, and both verify the shell's tokens like the sample platforms do.
+COLLAB_PLATFORMS = [
+    {"name": "checklist", "port": 8083, "binary": "hlin-sample-checklist"},
+    {"name": "feed", "port": 8084, "binary": "hlin-sample-feed"},
+]
+
+#: Who composes and publishes the collaborative demo's surface, and what it is
+#: called. Alice owns the `team` list, so the surface is hers to publish.
+COLLAB_AUTHOR = "alice@example.com"
+COLLAB_PASSWORD = "password"
+COLLAB_TITLE = "The team"
+
+#: The surface itself: the team's checklist and the feed, side by side.
+COLLAB_PANELS = [
+    ("checklist", "items", {"list": ["team"]}, 0, 0, 6, 6),
+    ("feed", "posts", {}, 6, 0, 6, 6),
 ]
 
 demo = angreal.command_group(name="demo", about="the running demo")
@@ -308,8 +328,10 @@ def _wait_for_panels(seconds=30):
 
         `--with collab` instead signs people in through Dex (a container, with
         users alice@example.com, bob@example.com and carol@elsewhere.org,
-        password `password`), sets the client secret for Dex and the shell, and
-        starts no sample platforms.
+        password `password`), sets the client secret for Dex and the shell,
+        starts the checklist (8083) and feed (8084) platforms rather than the
+        sample platforms, and signs in as Alice to publish a surface with both
+        side by side, which is what Alice lands on.
 
         ## When to use
         - To see the product running
@@ -369,10 +391,19 @@ def demo_up(with_=None):
         return 1
 
     print("building the binaries", flush=True)
+    binaries = ["hlin"] + (
+        [platform["binary"] for platform in COLLAB_PLATFORMS]
+        if signed_in
+        else ["hlin-sample-platform"]
+    )
     build = subprocess.run(
-        ["cargo", "build", "--bin", "hlin", "--bin", "hlin-sample-platform"], cwd=cwd
+        ["cargo", "build"] + [flag for binary in binaries for flag in ("--bin", binary)],
+        cwd=cwd,
     )
     if build.returncode != 0:
+        return 1
+
+    if signed_in and _build_modules() != 0:
         return 1
 
     # The platforms verify the shell's tokens, and the shell is not up yet. That
@@ -398,7 +429,20 @@ def demo_up(with_=None):
         pid = _start(platform["name"], argv, platform["port"])
         print(f"  {platform['name']} on {platform['port']} (pid {pid})", flush=True)
 
-    for platform in [] if signed_in else PLATFORMS:
+    for platform in COLLAB_PLATFORMS if signed_in else []:
+        argv = [
+            f"./target/debug/{platform['binary']}",
+            "--name",
+            platform["name"],
+            "--port",
+            str(platform["port"]),
+            "--shell-keys",
+            f"{SHELL}/.well-known/hlin-keys.json",
+        ]
+        pid = _start(platform["name"], argv, platform["port"])
+        print(f"  {platform['name']} on {platform['port']} (pid {pid})", flush=True)
+
+    for platform in COLLAB_PLATFORMS if signed_in else PLATFORMS:
         url = f"http://127.0.0.1:{platform['port']}/.well-known/hlin.json"
         if not _wait_for(url, seconds=30):
             print(f"{platform['name']} did not come up. See demo/state/logs.")
@@ -434,6 +478,9 @@ def demo_up(with_=None):
     # which is how the first browser run after `up` came to fail while every
     # later one passed.
     if signed_in:
+        print(f"signing in as {COLLAB_AUTHOR} to publish `{COLLAB_TITLE}`", flush=True)
+        if _publish_collab_surface() != 0:
+            return 1
         print(f"\nHlin is running at {SHELL}, signing people in through Dex.")
         print("Sign in as alice@example.com, bob@example.com or carol@elsewhere.org;")
         print("the password is `password`.")
@@ -485,8 +532,8 @@ def demo_status():
     about="stop everything the demo started",
     tool=angreal.ToolDescription(
         """
-        Stop the shell, both sample platforms, Dex if `--with collab` started
-        it, and the development database, and forget the process registry.
+        Stop the shell, the sample platforms (or the checklist and feed, and
+        Dex, if `--with collab` started them), and the development database, and forget the process registry.
 
         ## When to use
         - When finished with the demo
@@ -518,7 +565,7 @@ def _stop_everything(keep_database=False):
 
     # The shell goes first, so the platforms are not left answering a shell that
     # is halfway through shutting down.
-    for name in ["shell"] + [platform["name"] for platform in PLATFORMS]:
+    for name in ["shell"] + [platform["name"] for platform in PLATFORMS + COLLAB_PLATFORMS]:
         entry = processes.get(name)
         if entry and _stop(name, entry):
             print(f"stopped {name}", flush=True)
@@ -555,6 +602,160 @@ def _database_down():
 
     DockerCompose(compose_file, project_name="hlin").down()
     print("stopped the database", flush=True)
+
+
+# -- The collaborative demo's surface -------------------------------------
+
+
+def _build_modules():
+    """Build the platforms' modules, once there are modules to build.
+
+    The hook for HLIN-T-0074 (the checklist's module) and HLIN-T-0075 (the
+    feed's): each will add its build here, before the platforms start, so a
+    platform never serves a manifest naming a `ui` whose bundle is not on disk.
+    Until then the shell draws both panels as tables and there is nothing to
+    build.
+    """
+    return 0
+
+
+def _signed_in_as(email, password):
+    """A URL opener carrying a session for this person, signed in through Dex.
+
+    The same journey a browser makes, with nothing the shell does not offer
+    everybody: `/auth/login` sends it to Dex, Dex's form is posted, and Dex
+    sends it back to `/auth/callback`, which sets the session cookie. No
+    backdoor, so what is seeded is exactly what a person could have composed.
+    """
+    import html
+    import http.cookiejar
+    import re
+    import urllib.parse
+
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+    try:
+        with opener.open(f"{SHELL}/auth/login?next=/api/config", timeout=15) as page:
+            form_url = page.geturl()
+            body = page.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError) as error:
+        print(f"could not reach Dex's sign-in form: {error}", flush=True)
+        return None
+
+    # The form posts back to where it was served, or to its own action.
+    action = re.search(r'<form[^>]*action="([^"]+)"', body)
+    if action:
+        form_url = urllib.parse.urljoin(form_url, html.unescape(action.group(1)))
+
+    fields = urllib.parse.urlencode({"login": email, "password": password}).encode()
+    try:
+        with opener.open(form_url, data=fields, timeout=15) as answer:
+            landed = answer.geturl()
+            config = json.loads(answer.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        print(f"signing in as {email} failed: {error}", flush=True)
+        return None
+
+    if not landed.startswith(SHELL) or (config.get("principal") or {}).get("email") != email:
+        print(f"signing in as {email} did not come back signed in (at {landed})", flush=True)
+        return None
+    return opener
+
+
+def _as(opener, method, path, body=None):
+    """One JSON request with a session. Returns (status, parsed body or None)."""
+    request = urllib.request.Request(
+        SHELL + path,
+        data=None if body is None else json.dumps(body).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method=method,
+    )
+    try:
+        with opener.open(request, timeout=10) as answer:
+            text = answer.read().decode("utf-8")
+            return answer.status, json.loads(text) if text else None
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()[:200]
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError) as error:
+        return 0, str(error)
+
+
+def _publish_collab_surface():
+    """Publish the surface people land on: the checklist and the feed.
+
+    Signed in as Alice, through the shell's own API, so the layout is hers and
+    the rules that apply to it are the ones that apply to any layout. Her own
+    layout is replaced rather than a new one created, so running `up` again
+    leaves one surface, not one per run; and replacing it makes it her most
+    recently changed layout, which is what `/api/layouts/home` opens for her.
+
+    Published, so anyone signed in may open it (and fork it). What each of
+    them sees on it is still each platform's decision: Carol is not on the
+    team list, so the checklist refuses her its panel.
+    """
+    opener = _signed_in_as(COLLAB_AUTHOR, COLLAB_PASSWORD)
+    if opener is None:
+        return 1
+
+    # The registry polls on its own schedule; a panel it has not seen yet
+    # would be accepted and drawn as gone.
+    wanted = {(platform, key) for platform, key, *_ in COLLAB_PANELS}
+    deadline = time.time() + 30
+    while True:
+        status, catalog = _as(opener, "GET", "/api/panels")
+        offered = (
+            {(p["id"], panel["key"]) for p in catalog for panel in p["panels"]}
+            if status == 200
+            else set()
+        )
+        if wanted <= offered:
+            break
+        if time.time() > deadline:
+            missing = ", ".join(f"{p}/{k}" for p, k in sorted(wanted - offered))
+            print(f"the shell is not offering {missing}. See demo/state/logs.", flush=True)
+            return 1
+        time.sleep(0.5)
+
+    status, owned = _as(opener, "GET", "/api/layouts")
+    if status != 200:
+        print(f"could not list Alice's layouts: {status} {owned}", flush=True)
+        return 1
+    existing = next((layout for layout in owned if layout["title"] == COLLAB_TITLE), None)
+
+    if existing:
+        layout = existing["id"]
+    else:
+        status, created = _as(opener, "POST", "/api/layouts", {"title": COLLAB_TITLE})
+        if status != 201:
+            print(f"could not create the surface: {status} {created}", flush=True)
+            return 1
+        layout = created["id"]
+
+    status, written = _as(
+        opener,
+        "PUT",
+        f"/api/layouts/{layout}",
+        {
+            "title": COLLAB_TITLE,
+            "visibility": "published",
+            "panels": [
+                {
+                    "platform_id": platform,
+                    "panel_key": key,
+                    "selections": selections,
+                    "position": {"x": x, "y": y, "w": w, "h": h},
+                }
+                for platform, key, selections, x, y, w, h in COLLAB_PANELS
+            ],
+        },
+    )
+    if status != 200:
+        print(f"could not publish the surface: {status} {written}", flush=True)
+        return 1
+
+    print(f"  published {SHELL}/s/{layout}", flush=True)
+    return 0
 
 
 # -- A surface worth opening ----------------------------------------------

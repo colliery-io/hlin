@@ -400,14 +400,16 @@ They work in layouts they create and delete through the API, so a run neither
 depends on nor disturbs a surface you composed. They also avoid asserting on any
 design pack's markup, so the same suite runs against any front end.
 
-### Signing in as somebody
+### Signing in as somebody: the collaborative demo
 
-The standard demo makes everybody the same development user. The
-collaborative one signs people in through a real identity provider:
+The standard demo makes everybody the same development user, looking at
+platforms nobody can change. The collaborative one signs people in through a
+real identity provider, in front of two platforms that accept writes and
+decide for themselves who may do what:
 
 ```bash
-angreal demo up --with collab   # Postgres, Dex, the shell on `oidc`
-angreal e2e signin              # signs in through Dex's form as each person
+angreal demo up --with collab   # Postgres, Dex, checklist, feed, the shell on `oidc`
+angreal e2e signin              # signs in through Dex's form; opens the surface as Alice and Carol
 ```
 
 Open `http://127.0.0.1:8080` — `127.0.0.1`, not `localhost`, because the
@@ -415,11 +417,34 @@ session cookie belongs to the host name the browser used — and sign in as
 `alice@example.com`, `bob@example.com` or `carol@elsewhere.org`, password
 `password`. Your name is in the bar, beside **Sign out**.
 
+The story so far:
+
+- **Two platforms, their own rules.** `hlin-sample-checklist` (port 8083)
+  keeps shared lists with owners and members: Alice owns `team`, Bob is on it,
+  Carol has a list of her own. `hlin-sample-feed` (port 8084) is a feed anyone
+  signed in may read and only people at `example.com` may post to. Both verify
+  the shell's signed token (`hlin-token`) and decide from its `email`; the
+  shell knows none of their rules.
+- **One published surface.** `up` signs in as Alice through Dex — the same
+  journey a browser makes, through the shell's ordinary API — and publishes
+  **The team**: the checklist on the `team` list beside the feed, both drawn
+  by the shell as tables. Alice lands on it when she signs in. Running `up`
+  again replaces it rather than adding another.
+- **The same surface, not the same for everyone.** Anyone signed in can open
+  it (its link is printed by `up`). Bob sees what Alice sees. Carol sees the
+  posts, but the checklist refuses her the team list, and the shell draws that
+  panel as *you do not have access to this panel* — the platform's decision,
+  shown rather than hidden.
+- **Not yet:** each platform's own module, so people can tick, add and post
+  from the surface rather than only read it. Until then the panels are the
+  shell's tables. A first-time Bob or Carol lands on an empty surface of their
+  own and opens The team by its link.
+
 Dex is configured by `demo/dex.yaml` and the shell by `demo/hlin-collab.toml`.
 Its issuer is plain http on loopback, which only a debug build of the shell
 accepts. `up` generates the client secret and hands it to both through
 `HLIN_DEMO_OIDC_SECRET`, unless that is already set. `angreal demo down` stops
-Dex too. `angreal e2e test` expects the standard demo and says so if pointed at
+the platforms and Dex too. `angreal e2e test` expects the standard demo and says so if pointed at
 this one; `angreal e2e signin` expects this one.
 
 ### Seeing it in a real design system

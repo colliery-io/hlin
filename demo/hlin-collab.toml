@@ -4,8 +4,11 @@
 # development user. `angreal demo up --with collab` starts Dex, sets the client
 # secret for both sides, and starts this.
 #
-# No platforms yet: `checklist` and `feed` arrive with their own tasks, and a
-# shell with none starts and signs people in regardless.
+# Two platforms that accept writes and decide their own rules: a shared
+# checklist and a feed. Neither knows the other exists, and the shell knows
+# nothing of their rules; each is told who is asking by a signed token, and
+# decides for itself (HLIN-T-0072, HLIN-T-0073). `demo up --with collab` then
+# publishes a surface with both side by side (HLIN-T-0076).
 
 port = 8080
 issuer = "hlin"
@@ -38,3 +41,17 @@ same_site = "Lax"
 poll_seconds = 10
 debounce_observations = 2
 upstream_timeout_seconds = 10
+
+# Shared lists, each with an owner and members kept by the platform itself.
+# Alice and Bob are on `team`; Carol is not, and is refused it.
+[[platforms]]
+id = "checklist"
+base_url = "http://127.0.0.1:8083"
+auth = { strategy = "hlin-token" }
+
+# Posts. Anyone signed in reads; only people at example.com post, which Carol
+# is not.
+[[platforms]]
+id = "feed"
+base_url = "http://127.0.0.1:8084"
+auth = { strategy = "hlin-token" }
