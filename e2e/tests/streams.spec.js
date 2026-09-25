@@ -100,10 +100,15 @@ test.describe('a module streaming a response through the shell', () => {
     const probe = await probeIn(page, 'module-probe');
     const name = feedName('held');
 
-    // Heavy ticks, quickly: about 800 KB a second, within the default rate,
-    // and far more than the module will ask for.
+    // Heavy ticks, quickly: about 400 KB a second, far more than the module
+    // will ask for, and well within the default rate. Not much nearer it: the
+    // shell reads the platform only as fast as the browser takes what it
+    // forwards, so a browser that is slow for a moment makes the shell read a
+    // moment's worth at once, and at 800 KB a second that burst could pass
+    // `stream_bytes_per_second` and end the stream as `rate`, which a browser
+    // busy with the tests before this one did.
     const credit = 4096;
-    const id = await open(probe, `id=${name}&every_ms=10&bytes=8192`, { credit, auto: false });
+    const id = await open(probe, `id=${name}&every_ms=10&bytes=4096`, { credit, auto: false });
 
     // Exactly what was granted arrives, and not a byte more, however long
     // the platform goes on.
@@ -133,14 +138,25 @@ test.describe('a module streaming a response through the shell', () => {
     // Far less than it would have written in the time, had anything read it.
     expect(before.bytes).toBeLessThan(64 * 1024 * 1024);
 
-    // Credit again, and it flows again.
-    await pull(probe, id, 64 * 1024);
-    await expect.poll(async () => (await stream(probe, id)).bytes).toBeGreaterThan(credit);
+    // Credit again, as a module consuming it would, and it flows again, all
+    // the way back. A little at a time, well below the stream's rate limit,
+    // until the platform writes: how much of what the connections hold must
+    // drain before the platform's socket can be written again is the
+    // operating system's buffering, not the shell's (a single 64 KiB was
+    // enough once, and on another machine was not), and granting it all at
+    // once would draw it through the shell faster than
+    // `stream_bytes_per_second` allows.
+    let flowing = false;
+    for (let step = 0; step < 80 && !flowing; step += 1) {
+      await pull(probe, id, 192 * 1024);
+      await page.waitForTimeout(300);
+      flowing = (await counts(probe, name)).bytes > before.bytes;
+    }
+    expect(flowing, 'the platform wrote again once the module read again').toBe(true);
     const resumed = await stream(probe, id);
+    expect(resumed.bytes).toBeGreaterThan(credit);
     expect(resumed.bytes).toBeLessThanOrEqual(resumed.pulled);
-    await expect
-      .poll(async () => (await counts(probe, name)).bytes)
-      .toBeGreaterThan(before.bytes);
+    expect(resumed.ended).toBe(false);
   });
 
   test('cancel ends a stream, and the platform sees its connection dropped', async ({ page }) => {
