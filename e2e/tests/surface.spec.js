@@ -54,21 +54,22 @@ test.describe('a person composes a surface', () => {
     await shot(page, 1, 'empty-surface');
   });
 
-  test('edit mode opens a picker listing both platforms', async ({ page, request }) => {
+  test('edit mode opens a picker listing every platform', async ({ page, request }) => {
     await openSurface(page, layoutId);
     await page.locator('button.mode').click();
 
     const catalog = page.locator('aside.catalog');
     await expect(catalog).toBeVisible();
 
-    // Two platforms that know nothing about each other, offered side by side.
-    // One would demonstrate nothing.
+    // Platforms that know nothing about each other, offered side by side.
+    // One would demonstrate nothing; the third is there so a surface can hold
+    // modules from three (HLIN-S-0007, NFR-1.1).
     const platforms = catalog.locator('section.platform h3');
-    await expect(platforms).toHaveCount(2);
-    await expect(platforms.nth(0)).toContainText('Orebank');
-    await expect(platforms.nth(1)).toContainText('Stampmill');
+    await expect(platforms).toHaveCount(3);
+    const names = (await platforms.allTextContents()).map((name) => name.trim()).sort();
+    expect(names.map((name) => name.split(/\s/)[0])).toEqual(['Orebank', 'Smelter', 'Stampmill']);
 
-    // Every panel both platforms offer, and no more. Counted from the catalog
+    // Every panel the platforms offer, and no more. Counted from the catalog
     // rather than written down here: a hardcoded number asserts nothing about
     // the picker beyond how many panels the sample platform happened to have
     // on the day it was written, and fails the moment one is added.

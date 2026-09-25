@@ -1,0 +1,17 @@
+<!doctype html>
+<!--
+  Where the hostile module tries to go. Not a module: no panel names it, and
+  it speaks no bridge. It exists so that the containment tests point every
+  navigation, frame and script at an address that really answers, and so
+  that anything which did load it would say so where a test can see.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lured</title>
+  </head>
+  <body>
+    <p id="lured">A module got here, which it must never be able to.</p>
+    <script src="lure.js"></script>
+  </body>
+</html>

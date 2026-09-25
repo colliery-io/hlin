@@ -1,0 +1,25 @@
+[package]
+name = "hlin-sample-platform-module"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The sample platform's annotations panel: a small Leptos module built with the SDK"
+publish = false
+
+[[bin]]
+name = "hlin-sample-platform-module"
+path = "src/main.rs"
+
+[dependencies]
+hlin-module = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Runs `main`'s wait for `init`. Leptos's own `spawn_local` needs the executor
+# that `mount_to_body` starts, and nothing is mounted until `init` arrives.
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+js-sys = "0.3"

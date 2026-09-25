@@ -12,6 +12,8 @@
 //! from [[HLIN-S-0005]], so a demo can show a platform that needed no change
 //! beside one that verifies a token.
 
+pub mod annotations;
+pub mod built;
 pub mod changes;
 pub mod data;
 pub mod feed;

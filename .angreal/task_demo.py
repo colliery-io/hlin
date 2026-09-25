@@ -2,7 +2,7 @@
 
 Everything the initiative built, running together, reproducible by anyone with
 the repository. `demo up` starts the database, builds the frontend and starts
-two sample platforms and the shell. `demo walkthrough` then drives the whole
+three sample platforms and the shell. `demo walkthrough` then drives the whole
 thing over HTTP and asserts what should happen, so a regression is named rather
 than discovered.
 
@@ -25,6 +25,10 @@ import angreal
 cwd = os.path.join(angreal.get_root(), "..")
 STATE = os.path.join(cwd, "demo", "state")
 REGISTRY = os.path.join(STATE, "processes.json")
+#: What the running demo was built as: its flavour, and whether its
+#: WebAssembly is optimised. The load-time tests assert their limits only
+#: against a release build (e2e/tests/performance.spec.js).
+BUILD = os.path.join(STATE, "build.json")
 LOGS = os.path.join(STATE, "logs")
 #: The shell configurations in this repository. Each names a frontend, which is
 #: how the demo chooses a design system: a front end is a binary that picked a
@@ -57,10 +61,20 @@ SHELL = "http://127.0.0.1:8080"
 
 #: What `up` starts, in the order it starts them. The shell is last because the
 #: platforms verify tokens against keys it publishes.
+#:
+#: Three, all the same binary under different names, so a surface can hold
+#: modules from three platforms at once: what the load-time requirement is
+#: measured against (HLIN-S-0007, NFR-1.1). Each serves the annotations
+#: module, built with the SDK from `SAMPLE_MODULE`.
 PLATFORMS = [
     {"name": "orebank", "port": 8081},
     {"name": "stampmill", "port": 8082},
+    {"name": "smelter", "port": 8085},
 ]
+
+#: The sample platforms' one module built with the SDK (HLIN-T-0071), a Trunk
+#: project the platforms serve from its `dist`.
+SAMPLE_MODULE = "crates/hlin-sample-platform/module"
 
 #: The collaborative demo's platforms: two that accept writes and decide their
 #: own rules from who is asking (HLIN-T-0072, HLIN-T-0073). Each is its own
@@ -354,19 +368,26 @@ def _wait_for(url, seconds=60):
 
 
 def _wait_for_panels(seconds=30):
-    """Wait until the shell is offering panels, not merely answering.
+    """Wait until the shell is offering every sample platform's panels, not
+    merely answering.
 
     The registry polls platforms on its own schedule and the shell serves
     requests from the moment it binds, so there is a window where everything
     looks healthy and every layout renders empty. Waiting for a panel to exist
-    is waiting for the thing a person actually opens the demo to see.
+    is waiting for the thing a person actually opens the demo to see. Every
+    platform's, because a test that puts three platforms' modules on one
+    surface fails confusingly when the third has not been polled yet.
     """
+    wanted = {platform["name"] for platform in PLATFORMS}
     deadline = time.time() + seconds
     while time.time() < deadline:
         status, body = _get("/api/panels")
         if status == 200:
             try:
-                if any(platform.get("panels") for platform in json.loads(body)):
+                offering = {
+                    platform.get("id") for platform in json.loads(body) if platform.get("panels")
+                }
+                if wanted <= offering:
                     return True
             except ValueError:
                 pass
@@ -385,11 +406,11 @@ RELEASE = False
 @demo()
 @angreal.command(
     name="up",
-    about="start the whole demo: database, frontend, two platforms and the shell",
+    about="start the whole demo: database, frontend, three platforms and the shell",
     tool=angreal.ToolDescription(
         """
         Bring up everything needed to look at Hlin: the development database,
-        the built frontend, two sample platforms and the shell, as background
+        the built frontend, three sample platforms and the shell, as background
         processes with logs under demo/state/logs.
 
         `--with collab` instead signs people in through Dex (a container, with
@@ -453,6 +474,9 @@ def demo_up(with_=None, release=False):
 
     print("stopping anything already running", flush=True)
     _stop_everything(keep_database=True)
+    os.makedirs(STATE, exist_ok=True)
+    with open(BUILD, "w") as handle:
+        json.dump({"flavour": flavour, "release": RELEASE}, handle)
 
     if _database_listening():
         print("a database is already listening on 55432; leaving it alone", flush=True)
@@ -499,6 +523,18 @@ def demo_up(with_=None, release=False):
     if signed_in and _build_modules() != 0:
         return 1
 
+    # Before the sample platforms start, for the reason `_build_modules`
+    # gives: a platform reads its module's files once, when it starts.
+    if not signed_in and not twenty:
+        print("building the sample platforms' module", flush=True)
+        if subprocess.run(_trunk(), cwd=os.path.join(cwd, SAMPLE_MODULE)).returncode != 0:
+            print(
+                "The sample platforms' module did not build.\n"
+                "  cargo install trunk\n"
+                "  rustup target add wasm32-unknown-unknown"
+            )
+            return 1
+
     if twenty:
         return _twenty_up(config)
 
@@ -516,6 +552,8 @@ def demo_up(with_=None, release=False):
             "token",
             "--shell-keys",
             f"{SHELL}/.well-known/hlin-keys.json",
+            "--module-dir",
+            os.path.join(cwd, SAMPLE_MODULE, "dist"),
         ]
         if platform["name"] == "orebank":
             # One panel behind a group, so `forbidden` has something to be
@@ -671,8 +709,9 @@ def _stop_everything(keep_database=False):
         if entry and _stop(name, entry):
             print(f"stopped {name}", flush=True)
 
-    if os.path.isfile(REGISTRY):
-        os.remove(REGISTRY)
+    for recorded in (REGISTRY, BUILD):
+        if os.path.isfile(recorded):
+            os.remove(recorded)
 
     # Whether or not the flavour that started it is the one being stopped: a
     # Dex left running holds its port and a secret nothing else knows.

@@ -13,6 +13,10 @@ use serde_json::{Map, Value};
 
 /// The contract version this platform declares when it is behaving.
 ///
+/// 2.4.0 adds `annotations`, drawn by a module built with the SDK, which reads
+/// and writes as the viewer, and so a write route; and `module-hostile`, the
+/// containment tests' subject. All additive.
+///
 /// 2.3.0 adds `module-context`, the probe on a panel that declares the time
 /// picker and a cluster, so a module has parameters to be told and to set.
 /// Adding a panel is additive.
@@ -27,7 +31,7 @@ use serde_json::{Map, Value};
 /// `angreal demo walkthrough` failed with the violation naming the exact
 /// parameter — which is what HLIN-A-0002 exists to do, working against the code
 /// that was demonstrating it.
-pub const NORMAL_VERSION: &str = "2.3.0";
+pub const NORMAL_VERSION: &str = "2.4.0";
 
 /// The panel key dropped by `--breaking`, without a major bump.
 pub const BREAKING_PANEL_KEY: &str = "queue-depth";
@@ -94,7 +98,7 @@ pub fn build(name: &str, breaking: bool) -> Manifest {
         assets: Some(crate::modules::ASSETS.to_string()),
         routes: Some(Routes {
             read: vec![crate::modules::READS.to_string()],
-            write: vec![],
+            write: vec![crate::annotations::WRITES.to_string()],
             extra: Default::default(),
         }),
         extra: Default::default(),
@@ -403,6 +407,48 @@ fn all_panels(name: &str) -> Vec<Panel> {
                     ],
                 ),
                 crate::modules::PROBE,
+            )
+        },
+        // Notes pinned to moments, drawn by this platform's one module built
+        // with the SDK (`module/`, served by `crate::built`): it follows the
+        // time picker, reads and writes as the viewer, and says `changed`
+        // after a write so the same panel in anybody else's browser reads
+        // again. Its module or nothing.
+        Panel {
+            kind: None,
+            envelope: None,
+            data: None,
+            ..drawn_by_module(
+                panel(
+                    "annotations",
+                    "Annotations",
+                    Some("Notes pinned to moments, inside the chosen time range"),
+                    "stat",
+                    "scalar.v1",
+                    "unused",
+                    vec![ParamDecl::bare("time_range")],
+                ),
+                crate::built::ANNOTATIONS_ENTRY,
+            )
+        },
+        // A module that tries every way out of its frame, for the containment
+        // tests (`ui/hostile`). Its module or nothing, and harmless: every
+        // attempt is made only when a test asks, and the frame stops them all.
+        Panel {
+            kind: None,
+            envelope: None,
+            data: None,
+            ..drawn_by_module(
+                panel(
+                    "module-hostile",
+                    "Module that tries to escape",
+                    Some("A module that tries to leave its frame, for the containment tests"),
+                    "stat",
+                    "scalar.v1",
+                    "unused",
+                    vec![],
+                ),
+                crate::modules::HOSTILE,
             )
         },
     ]

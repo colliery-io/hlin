@@ -231,7 +231,7 @@ config:
 To work on it instead, everything is an `angreal` task:
 
 ```sh
-angreal demo up        # database, front end, two sample platforms, the shell
+angreal demo up        # database, front end, three sample platforms, the shell
 angreal demo compose   # a surface worth looking at, and its URL
 angreal demo down
 ```

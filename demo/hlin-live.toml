@@ -68,3 +68,11 @@ auth = { strategy = "hlin-token" }
 id = "stampmill"
 base_url = "http://127.0.0.1:8082"
 auth = { strategy = "hlin-token" }
+
+# A third, so a surface can hold modules from three platforms at once, which
+# is what the load-time requirement is measured against (HLIN-S-0007,
+# NFR-1.1). The same binary again, under another name.
+[[platforms]]
+id = "smelter"
+base_url = "http://127.0.0.1:8085"
+auth = { strategy = "hlin-token" }

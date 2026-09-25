@@ -30,6 +30,14 @@ fn the_reference_manifest_is_valid() {
         "a platform teams copy must have no rejected panels: {:?}",
         checked.rejected()
     );
+    // A route prefix the shell cannot use refuses every request under it,
+    // and says so only in a warning: `/api/module/annotations` without its
+    // trailing `/` did exactly that to the annotations module's writes.
+    assert!(
+        checked.unusable_routes.is_empty(),
+        "every declared route prefix is usable: {:?}",
+        checked.unusable_routes
+    );
     // Every panel declared, accepted. Counted from the document rather than
     // written down, because a number here asserts nothing about validation
     // beyond how many panels this platform happened to have on the day it was
@@ -326,6 +334,8 @@ async fn serving() -> (
         identity: hlin_sample_platform::IdentityMode::Open,
         restricted_panel_group: None,
         changes: changes.clone(),
+        annotations: std::sync::Arc::new(hlin_sample_platform::annotations::Annotations::new()),
+        built: hlin_sample_platform::built::Built::none(),
     };
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -574,4 +584,95 @@ async fn the_feed_ticks_in_order_and_counts_what_it_wrote_until_its_reader_leave
         .await
         .unwrap();
     assert_eq!(unknown.status(), 404);
+}
+
+// -- The annotations module's API (HLIN-T-0071) ----------------------------
+
+/// A write through the shell is the viewer's, and only for the one request
+/// its token was minted for: a read's token, or one bound to another path, is
+/// refused, and the same idempotency key is the same note.
+#[tokio::test]
+async fn a_note_is_pinned_as_the_viewer_once_and_only_with_a_token_bound_to_it() {
+    use hlin_identity::{BoundRequest, IDENTITY_HEADER, Issuer, Principal, Verifier};
+    use hlin_sample_platform::annotations::{PATH, PIN};
+
+    let shell = Issuer::generate("hlin");
+    let config = hlin_sample_platform::Config {
+        name: PLATFORM.to_string(),
+        breaking: false,
+        identity: hlin_sample_platform::IdentityMode::Token {
+            verifier: std::sync::Arc::new(Verifier::with_keys("hlin", shell.jwks())),
+        },
+        restricted_panel_group: None,
+        changes: hlin_sample_platform::changes::Changes::new(),
+        annotations: std::sync::Arc::new(hlin_sample_platform::annotations::Annotations::new()),
+        built: hlin_sample_platform::built::Built::none(),
+    };
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        axum::serve(listener, hlin_sample_platform::router(config))
+            .await
+            .unwrap();
+    });
+
+    let ada = Principal::new("u_ada").with_name("Ada");
+    let bound = |path: &str| {
+        shell
+            .mint_bound(
+                &ada,
+                PLATFORM,
+                &BoundRequest::new("POST", path).expect("a plain path"),
+            )
+            .expect("mints")
+    };
+    let client = reqwest::Client::new();
+    let pin = |token: String, key: Option<&str>| {
+        let mut request = client
+            .post(format!("{base}{PIN}"))
+            .header(IDENTITY_HEADER, token)
+            .body(r#"{"text":"deployed 4.2"}"#);
+        if let Some(key) = key {
+            request = request.header("Idempotency-Key", key);
+        }
+        request.send()
+    };
+
+    let read_token = shell.mint(&ada, PLATFORM).expect("mints");
+    assert_eq!(pin(read_token, Some("k-1")).await.unwrap().status(), 401);
+    let elsewhere = bound("/api/module/whoami");
+    assert_eq!(pin(elsewhere, Some("k-1")).await.unwrap().status(), 401);
+    assert_eq!(pin(bound(PIN), None).await.unwrap().status(), 400);
+
+    let first = pin(bound(PIN), Some("k-1")).await.unwrap();
+    assert_eq!(first.status(), 201);
+    let first: serde_json::Value = first.json().await.unwrap();
+    assert_eq!(first["author"], "Ada");
+    let again = pin(bound(PIN), Some("k-1")).await.unwrap();
+    assert_eq!(again.status(), 200, "the same key is the same write");
+    let again: serde_json::Value = again.json().await.unwrap();
+    assert_eq!(again["id"], first["id"]);
+
+    let now = Utc::now().timestamp_millis();
+    let read = client
+        .get(format!("{base}{PATH}?from={}&to={}", now - 60_000, now + 1))
+        .header(IDENTITY_HEADER, shell.mint(&ada, PLATFORM).unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(read.status(), 200);
+    let read: serde_json::Value = read.json().await.unwrap();
+    assert_eq!(read["viewer"], "Ada");
+    assert_eq!(read["annotations"].as_array().unwrap().len(), 1);
+
+    let before = client
+        .get(format!("{base}{PATH}?to={}", now - 60_000))
+        .header(IDENTITY_HEADER, shell.mint(&ada, PLATFORM).unwrap())
+        .send()
+        .await
+        .unwrap();
+    let before: serde_json::Value = before.json().await.unwrap();
+    assert!(before["annotations"].as_array().unwrap().is_empty());
 }

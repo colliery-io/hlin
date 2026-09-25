@@ -1,0 +1,76 @@
+/* The annotations module, drawn with the shell's theme tokens only
+ * (HLIN-S-0007, *theme*): the SDK sets whatever `--hlin-*` tokens the shell
+ * sends as custom properties on <html>, and each has a fallback for a token
+ * the shell does not send. */
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  min-height: 100vh;
+  font: 13px/1.45 system-ui, sans-serif;
+  background: var(--hlin-raised, Canvas);
+  color: var(--hlin-text, CanvasText);
+}
+
+.quiet {
+  color: var(--hlin-dim, #868e96);
+  margin: 0 0 6px;
+}
+
+.refusal {
+  color: var(--hlin-bad, #e03131);
+  margin: 0 0 6px;
+}
+
+form {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 3px 6px;
+  color: inherit;
+  background: var(--hlin-surface, Field);
+  border: 1px solid var(--hlin-border, #ced4da);
+  border-radius: 4px;
+}
+
+button {
+  font: inherit;
+  padding: 3px 10px;
+  color: var(--hlin-on-accent, #fff);
+  background: var(--hlin-accent, #1971c2);
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  padding: 3px 0;
+  border-top: 1px solid var(--hlin-border, #e9ecef);
+}
+
+li .who {
+  color: var(--hlin-dim, #868e96);
+  font-size: 11px;
+}

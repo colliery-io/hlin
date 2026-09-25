@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+  A module that tries to get out of its frame (specification HLIN-S-0007,
+  *Containment*). It speaks enough of the bridge to be mounted and kept, and
+  then, when a browser test asks, tries each escape the specification closes
+  and writes down what happened: the parent's document, the shell's cookies
+  and storage, the network, other scripts, navigating itself or anything else,
+  the request proxy directly, another platform through the bridge, floods, and
+  held streams. Nothing here is a real attack on anything but this repository's
+  own demo; it is the containment matrix's subject.
+
+  Plain JavaScript, in a file of its own, like the probe: the module CSP runs
+  no inline script, and this page must be judged by exactly the policy every
+  module gets.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Module that tries to escape</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0; padding: 8px 10px; font: 12px/1.45 system-ui, sans-serif;
+        background: var(--hlin-raised, Canvas); color: var(--hlin-text, CanvasText);
+        min-height: 100vh; box-sizing: border-box;
+      }
+      p { margin: 0 0 2px; }
+      .label { color: var(--hlin-dim, #868e96); }
+      #tried { margin: 4px 0 0; padding: 0; list-style: none; }
+      #tried li[data-escaped="true"] { color: var(--hlin-bad, #e03131); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <p><span class="label">Bridge:</span> <span id="state" data-state="waiting">waiting for init</span></p>
+    <p><span class="label">Tried:</span></p>
+    <ul id="tried"></ul>
+    <script src="hostile.js"></script>
+  </body>
+</html>

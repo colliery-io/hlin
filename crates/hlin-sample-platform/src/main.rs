@@ -51,6 +51,13 @@ struct Cli {
     /// The issuer name every token must claim.
     #[arg(long, default_value = "hlin")]
     shell_issuer: String,
+
+    /// Where the annotations module is built: Trunk's output for `module/`.
+    ///
+    /// Read once, at start. Without it the platform still runs, and the shell
+    /// says the annotations panel is unavailable.
+    #[arg(long, default_value = hlin_sample_platform::built::BUILT)]
+    module_dir: std::path::PathBuf,
 }
 
 /// Fetches the shell's key set over HTTP.
@@ -135,12 +142,29 @@ async fn main() -> anyhow::Result<()> {
     let changes = hlin_sample_platform::changes::Changes::new();
     hlin_sample_platform::changes::drive(changes.clone());
 
+    let built = match hlin_sample_platform::built::Built::read(&cli.module_dir) {
+        Ok(files) if files.has_entry() => {
+            tracing::info!(dir = %cli.module_dir.display(), "serving the annotations module");
+            files
+        }
+        _ => {
+            tracing::warn!(
+                dir = %cli.module_dir.display(),
+                "no annotations module built here, so the shell will say that panel is \
+                 unavailable; `trunk build` in crates/hlin-sample-platform/module builds it"
+            );
+            hlin_sample_platform::built::Built::none()
+        }
+    };
+
     let config = Config {
         name: cli.name.clone(),
         breaking: cli.breaking,
         identity,
         restricted_panel_group: cli.restrict_health_to.clone(),
         changes,
+        annotations: std::sync::Arc::new(hlin_sample_platform::annotations::Annotations::new()),
+        built,
     };
 
     let listener = tokio::net::TcpListener::bind((cli.bind.as_str(), cli.port)).await?;

@@ -1,0 +1,18 @@
+# Builds the annotations module into `dist/`, which the platform serves under
+# its `assets` prefix (see `src/built.rs` in the platform crate).
+#
+# As the checklist's (crates/hlin-sample-checklist/module/Trunk.toml), and for
+# the same reasons: a relative `public_url`, because the shell serves these at
+# `/m/{platform}/ui/annotations/` and the platform's id is the shell's to
+# choose; Trunk's inline loader swapped for `boot.js`, because the module CSP
+# runs no inline script; and the hashes kept, so everything but the entry and
+# `boot.js` is cached immutably.
+[build]
+minify = "never"
+public_url = "./"
+pattern_script = "<script type=\"module\" src=\"{base}boot.js\" data-js=\"{base}{js}\" data-wasm=\"{base}{wasm}\"></script>"
+
+# The wasm-bindgen CLI must match the wasm-bindgen crate exactly, as in the
+# examples' own Trunk.toml.
+[tools]
+wasm_bindgen = "0.2.126"

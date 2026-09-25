@@ -5,12 +5,13 @@ use std::sync::Arc;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use hlin_manifest::envelope::Envelope;
 use serde::Deserialize;
 
+use crate::annotations::Annotations;
 use crate::changes::Changes;
 use crate::data::{self, Window};
 
@@ -53,6 +54,10 @@ pub struct Config {
     pub restricted_panel_group: Option<String>,
     /// The state this platform actually mutates, and its notifications.
     pub changes: Arc<Changes>,
+    /// The notes its module reads and writes as the viewer.
+    pub annotations: Arc<Annotations>,
+    /// Its module built with the SDK, read from disk when it started.
+    pub built: crate::built::Built,
 }
 
 /// The router for a platform with this configuration.
@@ -88,6 +93,8 @@ pub fn router(config: Config) -> Router {
         .route("/api/module/whoami", get(whoami))
         .route("/api/module/feed", get(feed))
         .route("/api/module/feed/{id}", get(feed_counts))
+        .route(crate::annotations::PATH, get(annotations))
+        .route(crate::annotations::PIN, post(annotate))
         .route("/ui/{*path}", get(crate::modules::asset))
         .with_state(state)
 }
@@ -147,6 +154,78 @@ async fn feed_counts(
     }
 }
 
+/// A window of the notes, in milliseconds, as the module asks for it.
+#[derive(Debug, Deserialize)]
+struct Between {
+    from: Option<i64>,
+    to: Option<i64>,
+}
+
+/// The notes pinned inside the window the module was told, and who is asking,
+/// so a test can see the read arrived as the viewer.
+async fn annotations(
+    State(config): State<Arc<Config>>,
+    headers: HeaderMap,
+    Query(between): Query<Between>,
+) -> Response {
+    match identify(&config, &headers) {
+        Ok(caller) => Json(serde_json::json!({
+            "viewer": caller.name,
+            "platform": config.name,
+            "annotations": config.annotations.within(between.from, between.to),
+        }))
+        .into_response(),
+        Err(refusal) => refusal.into_response(),
+    }
+}
+
+/// Pin a note at the present moment, as whoever sent it.
+///
+/// Identity is checked for this request, not merely for this caller: under
+/// `--auth token` the token must be bound to `POST` and this path, which is
+/// what the shell mints for a module's write (HLIN-A-0013). `201` with the
+/// note, or `200` with the one already pinned under the same key.
+async fn annotate(
+    State(config): State<Arc<Config>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let caller = match identify_write(&config, &headers, "POST", crate::annotations::PIN) {
+        Ok(caller) => caller,
+        Err(refusal) => return refusal.into_response(),
+    };
+    let Some(key) = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .filter(|key| !key.is_empty() && key.len() <= 255)
+    else {
+        return said(
+            StatusCode::BAD_REQUEST,
+            "Every note needs an Idempotency-Key, so a retry never pins it twice.",
+        );
+    };
+    let Ok(pin) = serde_json::from_slice::<crate::annotations::Pin>(&body) else {
+        return said(StatusCode::BAD_REQUEST, "A note is { \"text\": \"…\" }.");
+    };
+    let now = Utc::now().timestamp_millis();
+    match config.annotations.pin(key, &caller.name, &pin.text, now) {
+        Ok((note, new)) => {
+            let status = if new {
+                StatusCode::CREATED
+            } else {
+                StatusCode::OK
+            };
+            (status, Json(note)).into_response()
+        }
+        Err(refused) => said(StatusCode::UNPROCESSABLE_ENTITY, &refused.words()),
+    }
+}
+
+/// A refusal this platform decided, in words for the person who asked.
+fn said(status: StatusCode, message: &str) -> Response {
+    (status, Json(serde_json::json!({ "message": message }))).into_response()
+}
+
 /// Who is asking, or a refusal.
 ///
 /// The 401 and 403 distinction is the one platforms most often get wrong, and
@@ -155,6 +234,8 @@ async fn feed_counts(
 /// viewer they need access ([[HLIN-S-0004]]).
 struct Caller {
     principal: String,
+    /// What to call them: the name the shell vouched for, else the principal.
+    name: String,
     groups: Vec<String>,
 }
 
@@ -171,6 +252,7 @@ fn identify_inner(config: &Config, headers: &HeaderMap) -> Result<Caller, Refusa
     match &config.identity {
         IdentityMode::Open => Ok(Caller {
             principal: "anonymous".to_string(),
+            name: "anonymous".to_string(),
             groups: vec![],
         }),
 
@@ -191,6 +273,10 @@ fn identify_inner(config: &Config, headers: &HeaderMap) -> Result<Caller, Refusa
                             groups.split(',').map(str::to_string).collect::<Vec<_>>()
                         })
                         .unwrap_or_default(),
+                    name: principal
+                        .split_once(':')
+                        .map(|(who, _)| who.to_string())
+                        .unwrap_or_else(|| principal.clone()),
                     principal: principal
                         .split_once(':')
                         .map(|(who, _)| who.to_string())
@@ -211,10 +297,7 @@ fn identify_inner(config: &Config, headers: &HeaderMap) -> Result<Caller, Refusa
             // a platform that checked only the signature would accept a token
             // minted for somebody else.
             match verifier.verify(presented, &config.name) {
-                Ok(claims) => Ok(Caller {
-                    principal: claims.sub.clone(),
-                    groups: claims.groups.clone(),
-                }),
+                Ok(claims) => Ok(caller_from(claims)),
                 Err(reason) => {
                     // A refused credential is a 401. Whether this principal may
                     // see a panel is a separate question, answered below with a
@@ -228,6 +311,46 @@ fn identify_inner(config: &Config, headers: &HeaderMap) -> Result<Caller, Refusa
                 }
             }
         }
+    }
+}
+
+/// Who is making this write, or a refusal.
+///
+/// Under `--auth token`, the token must be bound to exactly this method and
+/// path: a read's token, or one minted for another write, is refused, so a
+/// token that leaked from one request cannot be spent on another. The other
+/// modes have no binding to check and identify a writer as they would a
+/// reader.
+fn identify_write(
+    config: &Config,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+) -> Result<Caller, Refusal> {
+    let IdentityMode::Token { verifier } = &config.identity else {
+        return identify(config, headers);
+    };
+    let presented = headers
+        .get(hlin_identity::IDENTITY_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    match verifier.verify_request(presented, &config.name, method, path) {
+        Ok(claims) => Ok(caller_from(claims)),
+        Err(reason) => {
+            tracing::warn!(%reason, "refused a write's identity");
+            Err(refuse(
+                StatusCode::UNAUTHORIZED,
+                "identity was not accepted for this request",
+            ))
+        }
+    }
+}
+
+fn caller_from(claims: hlin_identity::Claims) -> Caller {
+    Caller {
+        name: claims.name.clone().unwrap_or_else(|| claims.sub.clone()),
+        principal: claims.sub,
+        groups: claims.groups,
     }
 }
 
