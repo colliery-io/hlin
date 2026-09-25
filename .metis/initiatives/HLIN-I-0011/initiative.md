@@ -4,14 +4,14 @@ level: initiative
 title: "Platforms ship UI modules, and the shell hosts them in sandboxes"
 short_code: "HLIN-I-0011"
 created_at: 2026-09-24T22:23:21.385709+00:00
-updated_at: 2026-09-24T23:20:39.656199+00:00
+updated_at: 2026-09-25T00:02:31.540277+00:00
 parent: HLIN-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/active"
 
 
 exit_criteria_met: false
