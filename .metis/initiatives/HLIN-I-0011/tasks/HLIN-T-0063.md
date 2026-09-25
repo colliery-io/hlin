@@ -4,14 +4,14 @@ level: task
 title: "Bind a write's token to its request"
 short_code: "HLIN-T-0063"
 created_at: 2026-09-25T00:00:59.997145+00:00
-updated_at: 2026-09-25T00:02:33.301934+00:00
+updated_at: 2026-09-25T00:13:59.964623+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -30,6 +30,8 @@ Slice 3 of [[HLIN-I-0011]]. Decision 6 of [[HLIN-I-0010]] and step 6 of the
 request proxy in [[HLIN-S-0007]]: a write carries the usual `hlin-token` plus
 `htm` (method) and `htu` (path relative to the platform's base, without its
 query), with a 30-second lifetime. A platform verifying a write requires them.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
