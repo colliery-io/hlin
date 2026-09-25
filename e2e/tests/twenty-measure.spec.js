@@ -564,10 +564,11 @@ test.describe('twenty widgets, measured', () => {
           `mounted at most ${one.scroll.settledMounted} settled, ${one.scroll.peakMounted} at the peak`,
       );
 
-      // The budget is kept once suspensions have run their course. On the
-      // way, a frame being suspended is still in the document but no longer
-      // counted by the page, so the peak can pass twelve: recorded, not
-      // asserted (HLIN-T-0084).
+      // The budget is kept at every moment, not only once suspensions have
+      // run their course: a frame counts until it has left the document, and
+      // room is made before another is mounted (HLIN-T-0085). The peak is the
+      // page's own count at every change in the document on the way.
+      expect(one.scroll.peakMounted, 'frames in the document at the peak while scrolling').toBeLessThanOrEqual(BUDGET);
       expect(one.scroll.settledMounted, 'frames mounted, settled, while scrolling').toBeLessThanOrEqual(BUDGET);
       expect(scrolled.removedInView, 'frames unmounted while their panel was in view').toEqual([]);
     }

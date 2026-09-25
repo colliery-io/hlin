@@ -617,19 +617,23 @@ fn suspend_answers_with_what_the_hook_keeps() {
 }
 
 #[test]
-fn suspend_without_a_hook_or_anything_to_keep_is_not_answered() {
+fn suspend_without_a_hook_or_anything_to_keep_is_answered_at_once_with_nothing() {
     let (module, host) = started();
-    module.receive(from_shell(
-        "s-8",
-        ShellMessage::Suspend(Suspend { deadline_ms: 500 }),
-    ));
-    assert!(host.take().is_empty());
-    module.on_suspend(|| None);
-    module.receive(from_shell(
-        "s-9",
-        ShellMessage::Suspend(Suspend { deadline_ms: 500 }),
-    ));
-    assert!(host.take().is_empty());
+    for (id, hook) in [("s-8", false), ("s-9", true)] {
+        if hook {
+            module.on_suspend(|| None);
+        }
+        module.receive(from_shell(
+            id,
+            ShellMessage::Suspend(Suspend { deadline_ms: 500 }),
+        ));
+        let state = host.only();
+        assert_eq!(state.re.as_deref(), Some(id));
+        assert_eq!(
+            state.message,
+            ModuleMessage::State(hlin_bridge::State { blob: None })
+        );
+    }
 }
 
 // --- What a module tells the shell ----------------------------------------------

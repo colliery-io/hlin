@@ -630,18 +630,31 @@ pub struct Mounted {
     pub near: bool,
     /// When it was last in view, in milliseconds.
     pub last_seen: f64,
+    /// Already asked to `suspend`, and on its way out. Still in the document,
+    /// so still counted; but already going, so not chosen again.
+    pub leaving: bool,
 }
 
 /// Which frames to unmount so the surface is back within `budget`, first
 /// first (REQ-4.3).
+///
+/// Every frame in the document counts, including one being suspended: it is
+/// there until it has gone, and a budget that stopped counting it at `suspend`
+/// ran to eighteen while scrolling ([[HLIN-T-0085]]). One already leaving is
+/// not chosen again, and the frames already leaving make up that much of the
+/// excess.
 ///
 /// The least recently seen of the frames out of view, and of those, one far
 /// from the viewport before one about to scroll in. Never one in view: a
 /// surface with more than the budget in view at once runs over it rather than
 /// blank what a person is looking at.
 pub fn over_budget(mounted: &[Mounted], budget: usize) -> Vec<String> {
-    let excess = mounted.len().saturating_sub(budget);
-    let mut candidates: Vec<&Mounted> = mounted.iter().filter(|frame| !frame.in_view).collect();
+    let leaving = mounted.iter().filter(|frame| frame.leaving).count();
+    let excess = mounted.len().saturating_sub(budget).saturating_sub(leaving);
+    let mut candidates: Vec<&Mounted> = mounted
+        .iter()
+        .filter(|frame| !frame.in_view && !frame.leaving)
+        .collect();
     candidates.sort_by(|a, b| {
         a.near
             .cmp(&b.near)
@@ -653,6 +666,37 @@ pub fn over_budget(mounted: &[Mounted], budget: usize) -> Vec<String> {
         .take(excess)
         .map(|frame| frame.instance.clone())
         .collect()
+}
+
+/// Whether one more frame may be put in the document now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Room {
+    /// Yes: there is room, or the newcomer is in view and nothing else can go.
+    Now,
+    /// Not yet. These go first (asked to `suspend`, or taken at once), and the
+    /// newcomer is mounted once one of them, or one already leaving, has left
+    /// the document. Empty when nothing can go and the newcomer is not in
+    /// view: it waits until it is.
+    After(Vec<String>),
+}
+
+/// Whether a frame not yet in the document may be put there, given the frames
+/// that are (*Budget*).
+///
+/// Room is made before the frame is mounted rather than after, so the count
+/// in the document never passes `budget` on the way: a frame is suspended
+/// and gone first, then the newcomer arrives. Only a frame in view is mounted
+/// past the budget, and only when nothing out of view is left to take.
+pub fn room_for(mounted: &[Mounted], budget: usize, in_view: bool) -> Room {
+    if mounted.len() < budget {
+        return Room::Now;
+    }
+    let going = over_budget(mounted, budget.saturating_sub(1));
+    let leaving = mounted.iter().any(|frame| frame.leaving);
+    if going.is_empty() && !leaving && in_view {
+        return Room::Now;
+    }
+    Room::After(going)
 }
 
 /// Whether a `state` blob is one the page keeps: at most `state_bytes`.
@@ -1276,7 +1320,67 @@ mod tests {
             in_view,
             near,
             last_seen,
+            leaving: false,
         }
+    }
+
+    fn leaving(instance: &str) -> Mounted {
+        Mounted {
+            leaving: true,
+            ..mounted(instance, false, false, 0.0)
+        }
+    }
+
+    #[test]
+    fn a_frame_being_suspended_counts_until_it_has_gone_and_is_not_asked_twice() {
+        let mut frames: Vec<_> = (0..11)
+            .map(|i| mounted(&format!("f{i}"), false, false, f64::from(i)))
+            .collect();
+        frames.push(leaving("going"));
+        frames.push(mounted("new", true, true, 100.0));
+        assert!(
+            over_budget(&frames, FRAME_BUDGET).is_empty(),
+            "thirteen, one of them already leaving: nothing more to take"
+        );
+        frames.push(mounted("newer", true, true, 100.0));
+        assert_eq!(over_budget(&frames, FRAME_BUDGET), ["f0"]);
+    }
+
+    #[test]
+    fn room_is_made_before_a_frame_is_mounted_not_after() {
+        let eleven: Vec<_> = (0..11)
+            .map(|i| mounted(&format!("f{i}"), false, false, f64::from(i)))
+            .collect();
+        assert_eq!(room_for(&eleven, FRAME_BUDGET, false), Room::Now);
+
+        let mut twelve = eleven.clone();
+        twelve.push(mounted("f11", true, false, 50.0));
+        assert_eq!(
+            room_for(&twelve, FRAME_BUDGET, true),
+            Room::After(vec!["f0".into()]),
+            "at the budget, the least recently seen goes first, even for a frame in view"
+        );
+
+        let mut going = eleven.clone();
+        going.push(leaving("going"));
+        assert_eq!(
+            room_for(&going, FRAME_BUDGET, true),
+            Room::After(vec![]),
+            "one already leaving makes the room: wait for it"
+        );
+    }
+
+    #[test]
+    fn a_frame_in_view_is_mounted_over_budget_only_when_nothing_else_can_go() {
+        let in_view: Vec<_> = (0..12)
+            .map(|i| mounted(&format!("f{i}"), true, false, 0.0))
+            .collect();
+        assert_eq!(room_for(&in_view, FRAME_BUDGET, true), Room::Now);
+        assert_eq!(
+            room_for(&in_view, FRAME_BUDGET, false),
+            Room::After(vec![]),
+            "one only near the viewport waits until it is in it"
+        );
     }
 
     #[test]

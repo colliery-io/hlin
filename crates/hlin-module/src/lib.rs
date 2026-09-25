@@ -304,7 +304,8 @@ impl Module {
     /// What to keep when the shell unmounts this frame to stay within its
     /// budget. Called on `suspend`; the bytes come back as [`Self::restored`]
     /// when the frame is mounted again on the same page. Return `None` to keep
-    /// nothing. Keep it small: the page keeps at most `state_bytes` (64 KiB by
+    /// nothing. Without a hook, `suspend` is answered at once with nothing
+    /// kept. Keep it small: the page keeps at most `state_bytes` (64 KiB by
     /// default) and drops anything larger. A later call replaces the hook.
     pub fn on_suspend(&self, hook: impl Fn() -> Option<Vec<u8>> + 'static) {
         self.inner.state.borrow_mut().suspend = Some(Rc::new(hook));
@@ -564,11 +565,15 @@ impl Module {
                     from: changed.from,
                 }));
             }
+            // Answered at once, whatever there is to keep: the frame is in
+            // the document, and counted against the page's budget, until the
+            // page has its answer or gives up waiting for one. A module that
+            // keeps nothing says so rather than make the page wait out the
+            // deadline.
             ShellMessage::Suspend(_) => {
                 let hook = self.inner.state.borrow().suspend.clone();
-                if let Some(blob) = hook.and_then(|hook| hook()) {
-                    self.reply(id, ModuleMessage::State(State { blob: Some(blob) }));
-                }
+                let blob = hook.and_then(|hook| hook());
+                self.reply(id, ModuleMessage::State(State { blob }));
             }
         }
     }

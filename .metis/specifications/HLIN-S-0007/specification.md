@@ -462,6 +462,7 @@ automatically.
 *Streaming*).
 
 **`state`**: `{ "blob": "<ArrayBuffer>" }`, answering `suspend` (see *Budget*).
+`{ "blob": null }`, or no `blob`, keeps nothing and lets the frame go at once.
 
 ### Limits
 
@@ -673,14 +674,23 @@ that, the shell unmounts the out-of-view frame seen least recently. A frame in
 view is never unmounted, so a surface with more than 12 panels in view at once
 runs over the budget rather than blanking what a person is looking at.
 
+A frame counts against the budget from the moment it is put in the document
+until it has left it, including while it is being suspended. So room is made
+before a frame is mounted, not after: the page suspends the frame to go, and
+mounts the newcomer once that one has left the document. The count in the
+document never passes 12 on the way, only when more than 12 are in view at
+once ([[HLIN-T-0085]]).
+
 Unmounting loses whatever a module held only in memory: a half-typed entry, a
 scroll position, an expanded row. So before unmounting, the page sends
 `suspend`, and the module may answer `state` with a blob of at most
 `state_bytes` within the deadline. The page keeps it in memory for the life of
 the page, never on the server and never sent to the platform, and returns it
-as `init.restored` when the frame remounts. The SDK exposes this as a hook; a
-module that ignores it simply starts fresh. Reloading the page forgets every
-blob.
+as `init.restored` when the frame remounts. The SDK exposes this as a hook, and
+answers `suspend` at once with an empty `state` when the module registered
+none or the hook keeps nothing, so a module that keeps nothing costs no wait.
+A module that ignores `suspend` simply starts fresh, after the page has waited
+out the deadline. Reloading the page forgets every blob.
 
 ## Versioning
 

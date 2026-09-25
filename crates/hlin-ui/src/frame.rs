@@ -41,7 +41,7 @@ use leptos::prelude::*;
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 
-use crate::bridge::{self, Allowance, Due, Liveness, Mounted, Registered, Registry};
+use crate::bridge::{self, Allowance, Due, Liveness, Mounted, Registered, Registry, Room};
 
 /// What the surface draws for one module panel.
 #[derive(Debug, Clone, PartialEq)]
@@ -165,6 +165,9 @@ struct Host {
     /// Since when the module has been asked to `suspend`, before its frame is
     /// unmounted to stay within the budget.
     suspending: Option<f64>,
+    /// Near the viewport and wanting a frame, but the budget is full: mounted
+    /// once another frame has left the document.
+    waiting: bool,
     /// The context this frame was last told, in `init` or `context`.
     told: Option<Context>,
     /// The theme this frame was last told.
@@ -553,6 +556,9 @@ pub fn host(container: web_sys::Element, mount: Mount, title: String) {
             PAGE.with(|page| {
                 if let Some(host) = page.borrow_mut().hosts.get_mut(&id) {
                     host.near = close;
+                    // Gone from the margin before there was room: it no
+                    // longer wants a frame.
+                    host.waiting &= close;
                 }
             });
             if close {
@@ -602,6 +608,7 @@ pub fn host(container: web_sys::Element, mount: Mount, title: String) {
                 near: false,
                 last_seen: now(),
                 suspending: None,
+                waiting: false,
                 told: None,
                 told_theme: None,
                 notice: None,
@@ -628,10 +635,46 @@ fn intersecting(entries: &js_sys::Array) -> bool {
 /// A frame unmounted to stay within the budget comes back the same way, as a
 /// new document: `loading` again, a new handshake, and whatever it handed back
 /// at `suspend` in `init.restored`.
+///
+/// At the budget, room is made first and the frame waits for it: another is
+/// suspended and leaves the document, and then this one is mounted, so the
+/// document never holds more than the budget on the way (*Budget*).
 fn attach(instance: &str) {
     let Some(document) = web_sys::window().and_then(|window| window.document()) else {
         return;
     };
+
+    let room = PAGE.with(|page| {
+        let page = page.borrow();
+        let host = page.hosts.get(instance)?;
+        if host.iframe.is_some() {
+            return None;
+        }
+        // A page is never counted against the budget, and never waits.
+        if host.mount.page {
+            return Some(Room::Now);
+        }
+        Some(bridge::room_for(
+            &budgeted(&page),
+            bridge::FRAME_BUDGET,
+            host.in_view,
+        ))
+    });
+    match room {
+        None => return,
+        Some(Room::Now) => {}
+        Some(Room::After(going)) => {
+            PAGE.with(|page| {
+                if let Some(host) = page.borrow_mut().hosts.get_mut(instance) {
+                    host.waiting = true;
+                }
+            });
+            for id in going {
+                let_go(&id);
+            }
+            return;
+        }
+    }
 
     let prepared = PAGE.with(|page| {
         let mut page = page.borrow_mut();
@@ -672,6 +715,7 @@ fn attach(instance: &str) {
         // a panel far down a surface is not given up on before it is ever
         // mounted.
         let at = now();
+        host.waiting = false;
         host.serial = serial;
         host.liveness = Liveness::new(at);
         host.liveness
@@ -806,6 +850,8 @@ pub fn unmount(instance: &str) {
             }
         }
     });
+    // Deferred, because this runs while the view is tearing a panel down.
+    leptos::task::spawn_local(async { mount_waiting() });
 }
 
 /// Mount a module again after it was given up on: the only way `unavailable`
@@ -825,54 +871,80 @@ pub fn retry(instance: &str) {
 
 // -- The budget --------------------------------------------------------------
 
+/// The frames in the document, as the budget weighs them: every panel's,
+/// including one being suspended, and never a page's.
+fn budgeted(page: &Page) -> Vec<Mounted> {
+    page.hosts
+        .iter()
+        // A page is the one frame a person has open at full width: never
+        // the budget's to take, and not counted against it.
+        .filter(|(_, host)| host.iframe.is_some() && !host.mount.page)
+        .map(|(id, host)| Mounted {
+            instance: id.clone(),
+            in_view: host.in_view,
+            near: host.near,
+            last_seen: host.last_seen,
+            leaving: host.suspending.is_some(),
+        })
+        .collect()
+}
+
 /// Unmount what the budget says must go, out-of-view frames seen least
 /// recently first (*Budget*, REQ-4.3).
+fn keep_to_budget() {
+    let doomed =
+        PAGE.with(|page| bridge::over_budget(&budgeted(&page.borrow()), bridge::FRAME_BUDGET));
+    for id in doomed {
+        let_go(&id);
+    }
+}
+
+/// Start taking one frame away for the budget.
 ///
 /// A module that can hear is offered `suspend` first and unmounted when it
 /// answers `state` or its deadline passes; one still loading has nothing to
 /// keep and goes at once.
-fn keep_to_budget() {
-    let doomed = PAGE.with(|page| {
+fn let_go(id: &str) {
+    let asks = PAGE.with(|page| {
+        let mut page = page.borrow_mut();
+        let host = page.hosts.get_mut(id)?;
+        if host.iframe.is_none() || host.suspending.is_some() {
+            return None;
+        }
+        let asks = host.listening();
+        if asks {
+            host.suspending = Some(now());
+        }
+        Some(asks)
+    });
+    match asks {
+        Some(true) => post(
+            id,
+            None,
+            ShellMessage::Suspend(Suspend {
+                deadline_ms: hlin_bridge::SUSPEND_DEADLINE_MS,
+            }),
+        ),
+        Some(false) => detach(id),
+        None => {}
+    }
+}
+
+/// A frame left the document, or stayed after all: mount whatever was
+/// waiting for room, those in view first.
+fn mount_waiting() {
+    let waiting: Vec<String> = PAGE.with(|page| {
         let page = page.borrow();
-        let mounted: Vec<Mounted> = page
+        let mut waiting: Vec<(&String, &Host)> = page
             .hosts
             .iter()
-            // A page is the one frame a person has open at full width: never
-            // the budget's to take, and not counted against it.
-            .filter(|(_, host)| {
-                host.iframe.is_some() && host.suspending.is_none() && !host.mount.page
-            })
-            .map(|(id, host)| Mounted {
-                instance: id.clone(),
-                in_view: host.in_view,
-                near: host.near,
-                last_seen: host.last_seen,
-            })
+            .filter(|(_, host)| host.waiting && host.iframe.is_none())
             .collect();
-        bridge::over_budget(&mounted, bridge::FRAME_BUDGET)
+        waiting.sort_by_key(|(_, host)| !host.in_view);
+        waiting.into_iter().map(|(id, _)| id.clone()).collect()
     });
-
-    for id in doomed {
-        let asks = PAGE.with(|page| {
-            let mut page = page.borrow_mut();
-            let host = page.hosts.get_mut(&id)?;
-            let asks = host.listening();
-            if asks {
-                host.suspending = Some(now());
-            }
-            Some(asks)
-        });
-        match asks {
-            Some(true) => post(
-                &id,
-                None,
-                ShellMessage::Suspend(Suspend {
-                    deadline_ms: hlin_bridge::SUSPEND_DEADLINE_MS,
-                }),
-            ),
-            Some(false) => detach(&id),
-            None => {}
-        }
+    for id in waiting {
+        attach(&id);
     }
 }
 
@@ -916,6 +988,7 @@ fn detach(instance: &str) {
         host.told = None;
         host.told_theme = None;
     });
+    mount_waiting();
 }
 
 // -- The clock ---------------------------------------------------------------
