@@ -29,6 +29,8 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+# The module files' `ETag`s, from their content.
+sha2 = { workspace = true }
 # A real socket, as the shell would reach it, so the identity check sees the
 # method and path the request actually arrived with.
 reqwest = { workspace = true, optional = true }

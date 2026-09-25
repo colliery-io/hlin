@@ -29,7 +29,12 @@
 //! Trunk puts a content hash in the name of everything it builds but the
 //! entry document, so those files are `immutable`: a new build is a new name.
 //! The entry and `boot.js`, whose names never change, are `no-cache`, which
-//! the shell would impose on the entry anyway.
+//! the shell would impose on the entry anyway. The hash is written without
+//! leading zeros, so it is not always sixteen digits ([`is_hashed`]).
+//!
+//! Every file has an `ETag` from its content, and a matching `If-None-Match`
+//! is answered `304`, so revalidating a `no-cache` file costs a round trip
+//! rather than the file (HLIN-T-0088).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -37,7 +42,7 @@ use std::sync::Arc;
 
 use axum::body::Bytes;
 use axum::extract::{Path as UrlPath, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
 /// Where this platform's module assets live, relative to its base.
@@ -62,6 +67,7 @@ pub struct ModuleFiles {
 struct File {
     content_type: &'static str,
     immutable: bool,
+    etag: HeaderValue,
     body: Bytes,
 }
 
@@ -96,6 +102,7 @@ impl ModuleFiles {
                 let file = File {
                     content_type: content_type(&name),
                     immutable: is_hashed(&name),
+                    etag: etag(&body),
                     body: Bytes::from(body),
                 };
                 (name, file)
@@ -111,8 +118,9 @@ impl ModuleFiles {
         self.files.contains_key("index.html")
     }
 
-    /// One file's answer, or 404.
-    pub fn serve(&self, name: &str) -> Response {
+    /// One file's answer to a request with these headers: the file, `304`
+    /// if the request already holds it, or 404.
+    pub fn serve(&self, name: &str, asked: &HeaderMap) -> Response {
         let Some(file) = self.files.get(name) else {
             return StatusCode::NOT_FOUND.into_response();
         };
@@ -121,23 +129,54 @@ impl ModuleFiles {
         } else {
             "no-cache"
         };
-        (
-            [
-                (
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_static(file.content_type),
-                ),
-                (header::CACHE_CONTROL, HeaderValue::from_static(cache)),
-            ],
-            file.body.clone(),
-        )
-            .into_response()
+        let headers = [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static(file.content_type),
+            ),
+            (header::CACHE_CONTROL, HeaderValue::from_static(cache)),
+            (header::ETAG, file.etag.clone()),
+        ];
+        if holds(asked, &file.etag) {
+            return (StatusCode::NOT_MODIFIED, headers).into_response();
+        }
+        (headers, file.body.clone()).into_response()
     }
 }
 
 /// `GET /ui/posts/{file}`.
-pub async fn asset(State(files): State<ModuleFiles>, UrlPath(name): UrlPath<String>) -> Response {
-    files.serve(&name)
+pub async fn asset(
+    State(files): State<ModuleFiles>,
+    UrlPath(name): UrlPath<String>,
+    headers: HeaderMap,
+) -> Response {
+    files.serve(&name, &headers)
+}
+
+/// A strong validator for this content: the first 128 bits of its SHA-256.
+fn etag(body: &[u8]) -> HeaderValue {
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(body);
+    let hex: String = digest[..16]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    HeaderValue::from_str(&format!("\"{hex}\"")).expect("hex is a valid header value")
+}
+
+/// Whether `If-None-Match` names this validator, compared weakly as RFC 9110
+/// says it must be.
+fn holds(asked: &HeaderMap, etag: &HeaderValue) -> bool {
+    let Some(tags) = asked
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    let ours = etag.to_str().unwrap_or_default();
+    tags.split(',')
+        .map(str::trim)
+        .any(|tag| tag == "*" || tag.strip_prefix("W/").unwrap_or(tag) == ours)
 }
 
 /// The type a file is served as. The shell insists on `application/wasm` and
@@ -152,13 +191,17 @@ fn content_type(name: &str) -> &'static str {
     }
 }
 
-/// Whether Trunk put a content hash in this name: `{crate}-{16 hex}.js`,
-/// `{crate}-{16 hex}_bg.wasm`, `module-{16 hex}.css`.
+/// Whether Trunk put a content hash in this name: `{crate}-{hash}.js`,
+/// `{crate}-{hash}_bg.wasm`, `module-{hash}.css`.
+///
+/// The hash is a `u64` in hex with no leading zeros, so up to sixteen digits:
+/// one build in sixteen has fifteen. Eight or more, so a short all-hex word at
+/// the end of a crate's name (`-feed`) does not pass for one.
 fn is_hashed(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or(name);
     let stem = stem.strip_suffix("_bg").unwrap_or(stem);
     stem.rsplit_once('-').is_some_and(|(_, hash)| {
-        hash.len() == 16 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        (8..=16).contains(&hash.len()) && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
     })
 }
 
@@ -173,6 +216,7 @@ mod tests {
             "hlin-sample-feed-module-ad726f0dc22e8941_bg.wasm"
         ));
         assert!(is_hashed("module-0123456789abcdef.css"));
+        assert!(is_hashed("module-ef8fd81f1008991.css"));
         assert!(!is_hashed("index.html"));
         assert!(!is_hashed("boot.js"));
         assert!(!is_hashed("hlin-sample-feed-module.js"));
@@ -187,7 +231,7 @@ mod tests {
                 vec![0, 97, 115, 109],
             ),
         ]);
-        let entry = files.serve("index.html");
+        let entry = files.serve("index.html", &HeaderMap::new());
         assert_eq!(entry.status(), StatusCode::OK);
         assert_eq!(entry.headers()[header::CACHE_CONTROL], "no-cache");
         assert!(
@@ -197,7 +241,7 @@ mod tests {
                 .starts_with("text/html")
         );
 
-        let wasm = files.serve("app-ad726f0dc22e8941_bg.wasm");
+        let wasm = files.serve("app-ad726f0dc22e8941_bg.wasm", &HeaderMap::new());
         assert_eq!(wasm.headers()[header::CONTENT_TYPE], "application/wasm");
         assert!(
             wasm.headers()[header::CACHE_CONTROL]
@@ -212,13 +256,15 @@ mod tests {
         let files = ModuleFiles::from_files([("index.html".to_string(), vec![])]);
         for asked in ["../Cargo.toml", "missing.js", "", "index.html/"] {
             assert_eq!(
-                files.serve(asked).status(),
+                files.serve(asked, &HeaderMap::new()).status(),
                 StatusCode::NOT_FOUND,
                 "{asked}"
             );
         }
         assert_eq!(
-            ModuleFiles::none().serve("index.html").status(),
+            ModuleFiles::none()
+                .serve("index.html", &HeaderMap::new())
+                .status(),
             StatusCode::NOT_FOUND
         );
     }
@@ -234,6 +280,9 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
 
         assert!(files.has_entry());
-        assert_eq!(files.serve("nested").status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            files.serve("nested", &HeaderMap::new()).status(),
+            StatusCode::NOT_FOUND
+        );
     }
 }

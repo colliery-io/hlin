@@ -244,8 +244,9 @@ async fn health() -> Json<Value> {
 async fn asset<S: Send + 'static>(
     State(platform): State<Platform<S>>,
     Path(name): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
-    platform.inner.module.serve(&name)
+    platform.inner.module.serve(&name, &headers)
 }
 
 /// The fallback's data, as the person asking would see it.
