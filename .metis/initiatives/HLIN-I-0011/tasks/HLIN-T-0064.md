@@ -4,14 +4,14 @@ level: task
 title: "Serve module assets from the shell's origin, confined by their own CSP"
 short_code: "HLIN-T-0064"
 created_at: 2026-09-25T00:01:01.398244+00:00
-updated_at: 2026-09-25T00:01:01.398244+00:00
+updated_at: 2026-09-25T00:23:24.637588+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0011
 
 Slice 4 of [[HLIN-I-0011]]. [[HLIN-S-0007]] *Assets*, *The module CSP* and
 *The shell page's CSP*.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
