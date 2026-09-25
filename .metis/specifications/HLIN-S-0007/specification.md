@@ -832,14 +832,21 @@ stream cap tied to HTTP/2 (so streams cannot starve the shell's own stream).
 ## Open Questions
 
 - **Platforms' own frontends.** Nothing here depends on the answer.
-- **A module's CPU, outside Chromium.** In Firefox and WebKit a module frame
-  shares the page's process, so a module that spins freezes the whole
-  surface, heartbeat included (*Containment*). Serving `/m/` from a site of
-  its own (a module origin beside the shell's) would put frames in another
-  process wherever the browser isolates by site, which Firefox does and WebKit
-  does not; it would also change *The shell's origin*, the module CSP and the
-  request proxy's first check. Not needed for `[1, 0]`; worth deciding before
-  a platform ships a heavy module to people on Firefox.
+
+Decided on 2026-09-25:
+
+- **A module's CPU, outside Chromium: accepted, and documented.** In Firefox,
+  WebKit and Chromium's headless shell a module frame shares the page's
+  process, so a module that spins freezes the whole surface, heartbeat
+  included (*Containment*); full Chromium isolates sandboxed frames and keeps
+  the page drawing. The owner chose to accept this for `[1, 0]` and put the
+  duty on modules: **a module must not block its main thread**. Work that
+  takes more than a frame or two belongs in chunks that yield, or in a Web
+  Worker the module's own CSP allows from its own assets. The SDK warns in a
+  debug build when a module holds the main thread too long (see
+  [[HLIN-T-0090]]). Serving `/m/` from a site of its own, which would isolate
+  frames in Chromium and Firefox but not WebKit, was considered and not taken;
+  it remains the answer if hung modules become a real problem.
 
 The containment matrix, an open question until HLIN-T-0071, is settled and
 written down in *Containment*.

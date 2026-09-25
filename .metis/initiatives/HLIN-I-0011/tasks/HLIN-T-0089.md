@@ -4,14 +4,14 @@ level: task
 title: "Don't end a well-behaved stream as too fast because its bytes arrived in a burst"
 short_code: "HLIN-T-0089"
 created_at: 2026-09-25T17:08:43.769412+00:00
-updated_at: 2026-09-25T17:09:22.117906+00:00
+updated_at: 2026-09-25T18:45:00.219528+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: true
@@ -38,6 +38,8 @@ it pulls again, the shell reads the backlog in one burst, and the
 The limit exists to stop a platform flooding the page. It should measure the
 platform's pace, or what is delivered to the module, not how fast the shell
 drains a backlog that the module's own pause created.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

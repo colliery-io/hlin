@@ -219,6 +219,15 @@ cheap next to the network hop that follows it.
   the frame policy are where isolation lives.
 - **Frames are awkward.** Pointer capture over the grid, focus and keyboard
   across frames, accessibility titles, printing.
+- **A hung module can freeze the page, outside Chromium.** Found by
+  [[HLIN-T-0071]]: the sandbox contains what a module can reach, not how long
+  it runs. In Firefox and WebKit a module frame shares the page's process, so
+  a busy loop stops the whole surface; only full Chromium keeps the page
+  drawing. Accepted by the owner on 2026-09-25 and documented as a duty on
+  modules (never block the main thread), with a warning from the SDK in debug
+  builds ([[HLIN-S-0007]], *Open Questions*). This narrows "a broken module is
+  one unavailable panel" to modules that fail by erroring or going silent,
+  not by spinning.
 
 ### The new bet
 

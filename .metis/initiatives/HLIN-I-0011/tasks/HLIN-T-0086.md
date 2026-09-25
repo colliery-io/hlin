@@ -4,14 +4,14 @@ level: task
 title: "Compress what the shell serves, and optimise module wasm"
 short_code: "HLIN-T-0086"
 created_at: 2026-09-25T12:37:19.946479+00:00
-updated_at: 2026-09-25T17:09:22.041742+00:00
+updated_at: 2026-09-25T18:45:00.161064+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: true
@@ -31,6 +31,8 @@ module assets under `/m/` nor its own frontend, and module builds skip
 `wasm-opt`. The first screen of "Twenty" costs 7.73 MB cold; all twenty
 modules are 12.53 MB, 3.98 MB gzipped. Weight is the first risk in the bet
 ([[HLIN-A-0014]]), and this is most of it.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
