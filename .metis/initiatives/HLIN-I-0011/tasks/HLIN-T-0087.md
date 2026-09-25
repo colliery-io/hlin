@@ -62,3 +62,11 @@ Two questions, one for the owner:
 ### 2026-09-25
 
 Created from [[HLIN-T-0084]]'s findings. Not started.
+
+### 2026-09-25 — owner's answer
+
+Yes, from the shell's own refusals. After a few consecutive `unreachable` or
+`timeout` answers from `/p/` for one platform (codes the shell itself
+produced), that platform's panels go `stale`; the first success clears it.
+When the platform's event stream reconnects, its modules are told to refetch,
+so recovery needs no click.
