@@ -4,14 +4,14 @@ level: task
 title: "Sign in to the demo through Dex"
 short_code: "HLIN-T-0061"
 created_at: 2026-09-24T23:21:06.464152+00:00
-updated_at: 2026-09-25T00:02:33.988500+00:00
+updated_at: 2026-09-25T00:28:20.381989+00:00
 parent: HLIN-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: HLIN-I-0010
 A person opens the demo shell, is sent to a real identity provider, signs in
 as one of three named people, and lands on a surface as themselves. This is
 the first time the demo runs the `oidc` authenticator at all.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
