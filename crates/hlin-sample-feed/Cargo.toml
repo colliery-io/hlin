@@ -1,0 +1,43 @@
+[package]
+name = "hlin-sample-feed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "A reference platform for Hlin that accepts writes: a feed of posts, and who may write them"
+
+[[bin]]
+name = "hlin-sample-feed"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_sample_feed"
+path = "src/lib.rs"
+
+[features]
+# Accept an unsigned request as a fixed development principal, so the feed can
+# be run and poked with curl with no shell in front of it. `hlin-identity`
+# refuses to compile this into a release build.
+dev-identity = ["hlin-identity/dev-identity"]
+
+[dependencies]
+async-stream = "0.3"
+hlin-manifest = { workspace = true }
+hlin-identity = { workspace = true, features = ["axum"] }
+axum = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+# A real socket, as the shell would reach it, so the identity check sees the
+# method and path the request actually arrived with.
+reqwest = { workspace = true }
+futures = "0.3"

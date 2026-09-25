@@ -1517,6 +1517,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-sample-feed"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "axum",
+ "chrono",
+ "clap",
+ "futures",
+ "hlin-identity",
+ "hlin-manifest",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "hlin-sample-platform"
 version = "0.0.1"
 dependencies = [
