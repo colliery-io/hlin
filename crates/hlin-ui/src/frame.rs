@@ -106,23 +106,28 @@ pub struct PanelContext {
     pub declared: BTreeSet<String>,
 }
 
-/// Everything needed to mount one panel's module, and nothing that changes
-/// while it is mounted: a change to any of this is a different module, and
-/// remounts it.
+/// Everything needed to mount one panel's module, or one page's, and nothing
+/// that changes while it is mounted: a change to any of this is a different
+/// module, and remounts it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mount {
     /// The platform whose module it is.
     pub platform: String,
-    /// The panel key.
+    /// The panel key, or the navigation entry's path for a page.
     pub panel: String,
-    /// The panel instance.
+    /// The panel instance, or the page's own for as long as it is open.
     pub instance: String,
     /// The entry document, relative to the platform's base.
     pub entry: String,
     /// The bridge major the manifest declared.
     pub bridge: u32,
-    /// Whether the panel declares data to fall back to.
+    /// Whether the panel declares data to fall back to. Never for a page: a
+    /// page has no shell-drawn fallback, and is `unavailable` and says so.
     pub declares_data: bool,
+    /// Whether this is a navigation entry's page, open at full width, rather
+    /// than a panel (*Pages*). A page is told so in `init.page`, is never
+    /// unmounted to meet the budget, and so never has anything `restored`.
+    pub page: bool,
     /// The limits the platform's modules run within.
     pub limits: ModuleLimits,
 }
@@ -768,7 +773,11 @@ fn keep_to_budget() {
         let mounted: Vec<Mounted> = page
             .hosts
             .iter()
-            .filter(|(_, host)| host.iframe.is_some() && host.suspending.is_none())
+            // A page is the one frame a person has open at full width: never
+            // the budget's to take, and not counted against it.
+            .filter(|(_, host)| {
+                host.iframe.is_some() && host.suspending.is_none() && !host.mount.page
+            })
             .map(|(id, host)| Mounted {
                 instance: id.clone(),
                 in_view: host.in_view,
@@ -899,6 +908,8 @@ fn init_for(instance: &str) -> Option<Init> {
             ..
         } = &mut *page;
         let host = hosts.get_mut(instance)?;
+        // A page is never suspended, so there is never anything to hand back.
+        let restored = restored.filter(|_| !host.mount.page);
         let limits = host.mount.limits;
         let context = surroundings.context_for(instance);
         host.told = Some(context.clone());
@@ -907,7 +918,7 @@ fn init_for(instance: &str) -> Option<Init> {
             platform: host.mount.platform.clone(),
             panel: host.mount.panel.clone(),
             instance: instance.to_string(),
-            page: false,
+            page: host.mount.page,
             context,
             theme,
             viewer: Viewer {

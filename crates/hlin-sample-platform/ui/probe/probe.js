@@ -243,4 +243,14 @@
   document.getElementById('nowhere').addEventListener('click', function () {
     send('navigate', { to: { platform: 'nobody', panel: 'nothing' } });
   });
+
+  // A page, which the shell opens at full width, and a navigation entry that
+  // is only a link, which it does not.
+  document.getElementById('to-page').addEventListener('click', function () {
+    send('navigate', { to: { platform: platform, page: 'module-page' } });
+  });
+
+  document.getElementById('to-link').addEventListener('click', function () {
+    send('navigate', { to: { platform: platform, page: 'overview' } });
+  });
 })();

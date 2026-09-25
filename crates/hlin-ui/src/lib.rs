@@ -13,11 +13,12 @@
 //! }
 //! ```
 //!
-//! Two halves live here for two different reasons. [`draft`], [`grid`] and
-//! [`state`] are free of the DOM and are tested on the host, because the rules
-//! that are easiest to get wrong — where a dragged panel lands, which frame is
-//! stale, when a silent stream becomes an absent one — should not need a
-//! browser to check. Everything else is wiring around them.
+//! Two halves live here for two different reasons. [`draft`], [`grid`],
+//! [`route`] and [`state`] are free of the DOM and are tested on the host,
+//! because the rules that are easiest to get wrong — where a dragged panel
+//! lands, which frame is stale, when a silent stream becomes an absent one,
+//! which page an address names — should not need a browser to check.
+//! Everything else is wiring around them.
 
 #![warn(missing_docs)]
 
@@ -40,6 +41,7 @@ pub const APP_CSS: &str = include_str!("../app.css");
 pub mod bridge;
 pub mod draft;
 pub mod grid;
+pub mod route;
 pub mod state;
 
 // The browser half. Compiled everywhere, so a consumer building for `wasm32`

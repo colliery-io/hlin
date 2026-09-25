@@ -128,7 +128,10 @@ budget (see *Budget*), and remounted when their panel comes back.
 transparent element over every frame, so pointer events stay with the grid.
 
 **Pages.** A navigation entry that declares a module opens it at full width in
-the same kind of frame, with `init.page` set.
+the same kind of frame, with `init.page` set. A page is on an address of the
+shell's own, `/page/{platform}/{path}`, so it can be shared and reloaded. It
+has no shell-drawn fallback, and is not counted against, or unmounted by, the
+budget.
 
 ## Assets
 

@@ -61,12 +61,26 @@ fn manifest(id: &str) -> Manifest {
     } else {
         ""
     };
+    // Three navigation entries: a plain link, a page the shell hosts, and a
+    // page whose module is outside the platform's assets and so cannot be.
+    let navigation = if id == OTHER {
+        r#""navigation": [
+            { "label": "Overview", "path": "overview" },
+            { "label": "Lists", "path": "lists", "weight": 5,
+              "ui": { "entry": "/ui/lists/index.html", "bridge": 1 } },
+            { "label": "Elsewhere", "path": "elsewhere",
+              "ui": { "entry": "/elsewhere/index.html", "bridge": 1 } }
+          ],"#
+    } else {
+        ""
+    };
     hlin_manifest::parse_str(&format!(
         r#"{{
           "schema_version": 1,
           "contract_version": "1.0.0",
           "platform": {{ "id": "{id}", "name": "{id}" }},
           {modules}
+          {navigation}
           "panels": [
             {{ "key": "throughput", "title": "Throughput", "kind": "timeseries",
                "envelope": "series.v1", "data": "api/throughput" }},
@@ -212,6 +226,50 @@ async fn the_picker_is_offered_every_accepted_panel_grouped_by_platform() {
         "a viewer can switch a series between more than one rendering, which is \
          the whole reason the picker carries the list: {:?}",
         throughput.available_kinds
+    );
+}
+
+#[tokio::test]
+async fn navigation_is_listed_with_a_module_only_where_the_shell_can_host_it() {
+    let (app, _, _) = shell().await;
+
+    let (_, body) = call(&app, get("/api/panels")).await;
+    let platforms: Vec<CatalogPlatform> = serde_json::from_value(body).expect("a catalogue");
+    let smelter = platforms
+        .iter()
+        .find(|platform| platform.id == OTHER)
+        .expect("the platform is in the catalogue");
+
+    let listed: Vec<(&str, Option<&str>)> = smelter
+        .navigation
+        .iter()
+        .map(|entry| {
+            (
+                entry.path.as_str(),
+                entry.ui.as_ref().map(|ui| ui.entry.as_str()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            ("overview", None),
+            ("lists", Some("/ui/lists/index.html")),
+            // Rejected: the entry stays, as the link it degrades to, and the
+            // page does not.
+            ("elsewhere", None),
+        ]
+    );
+    assert_eq!(smelter.navigation[1].label, "Lists");
+    assert_eq!(smelter.navigation[1].weight, 5);
+
+    let orebank = platforms
+        .iter()
+        .find(|platform| platform.id == PLATFORM)
+        .expect("the platform is in the catalogue");
+    assert!(
+        orebank.navigation.is_empty(),
+        "a platform with no navigation lists none"
     );
 }
 

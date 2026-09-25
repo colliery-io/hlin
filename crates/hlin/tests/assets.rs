@@ -726,3 +726,32 @@ async fn the_shell_page_may_frame_only_module_assets() {
 
     std::fs::remove_dir_all(directory).ok();
 }
+
+#[tokio::test]
+async fn a_link_to_a_platform_page_loads_the_shell_page() {
+    let (base, _) = platform().await;
+    let state = state(&base).await;
+    let config = state.config.clone();
+    let directory = bundle();
+    let app = hlin::server::with_frontend(router(state), &directory, &config);
+
+    // A page's address is the shell's own, beside `/s/`, and nothing the
+    // request proxy (`/p/`) or the module assets (`/m/`) claim: sent to
+    // somebody, or reloaded, it loads the frontend, which opens the page.
+    let page_csp = format!("frame-src {SHELL}/m/");
+    for path in ["/page/checklist/lists", "/page/checklist/lists/nested"] {
+        let answered = fetch(&app, path).await;
+        assert_eq!(answered.status, StatusCode::OK, "{path}");
+        assert_eq!(
+            answered.header(header::CONTENT_SECURITY_POLICY),
+            Some(page_csp.as_str()),
+            "{path}"
+        );
+        assert!(
+            String::from_utf8_lossy(&answered.body).contains("<title>hlin</title>"),
+            "{path} is answered with the frontend"
+        );
+    }
+
+    std::fs::remove_dir_all(directory).ok();
+}

@@ -94,6 +94,38 @@ impl PlatformView {
             .collect()
     }
 
+    /// The navigation entries this platform contributes, each with its module
+    /// only where validation accepted it.
+    ///
+    /// An entry whose module cannot be hosted keeps its place, as the link to
+    /// its `path` it degrades to, so a module declared wrongly costs the page
+    /// and never the entry. A document that is not usable contributes nothing.
+    pub fn accepted_navigation(&self) -> Vec<hlin_manifest::NavigationEntry> {
+        let (Some(manifest), Some(validation)) = (&self.manifest, &self.validation) else {
+            return Vec::new();
+        };
+        if !validation.is_document_valid() {
+            return Vec::new();
+        }
+
+        manifest
+            .navigation
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let mut entry = entry.clone();
+                if validation
+                    .rejected_navigation_modules
+                    .iter()
+                    .any(|rejected| rejected.index == index)
+                {
+                    entry.ui = None;
+                }
+                entry
+            })
+            .collect()
+    }
+
     /// A panel by key, if this platform currently offers it.
     pub fn panel(&self, key: &str) -> Option<&hlin_manifest::Panel> {
         self.accepted_panels()

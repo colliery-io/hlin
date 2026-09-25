@@ -229,6 +229,33 @@ pub struct CatalogPlatform {
     /// a platform that declares no `assets`, which has no modules to bound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub module_limits: Option<ModuleLimits>,
+    /// The navigation entries it contributes, in its manifest's order.
+    ///
+    /// Every entry is listed. Only one carrying a module the shell can host is
+    /// a page the shell opens (specification HLIN-S-0007, *Pages*); an entry
+    /// whose module was rejected is listed without one, as the link it
+    /// degrades to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub navigation: Vec<CatalogNavigation>,
+}
+
+/// One navigation entry, as the shell's own navigation needs it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CatalogNavigation {
+    /// What a person reads.
+    pub label: String,
+    /// The entry's path, relative to its platform's base. What a module names
+    /// as `page` in `navigate`, and what the page's address carries.
+    pub path: String,
+    /// An icon name from the shared vocabulary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Sort hint within the platform's entries.
+    #[serde(default)]
+    pub weight: i64,
+    /// The module the shell hosts as this entry's page, where it can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<CatalogUi>,
 }
 
 /// The limits a platform's modules run within, as the page needs them

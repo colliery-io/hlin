@@ -30,8 +30,11 @@ pub const PROBE: &str = "/ui/probe/index.html";
 /// A module that loads and never says `ready`.
 pub const SILENT: &str = "/ui/silent/index.html";
 
+/// A navigation entry's module, which the shell opens as a page at full width.
+pub const PAGE: &str = "/ui/page/index.html";
+
 /// Every file under [`ASSETS`], by its path beneath it.
-const FILES: [(&str, &str, &str); 3] = [
+const FILES: [(&str, &str, &str); 5] = [
     (
         "probe/index.html",
         "text/html; charset=utf-8",
@@ -47,12 +50,22 @@ const FILES: [(&str, &str, &str); 3] = [
         "text/html; charset=utf-8",
         include_str!("../ui/silent/index.html"),
     ),
+    (
+        "page/index.html",
+        "text/html; charset=utf-8",
+        include_str!("../ui/page/index.html"),
+    ),
+    (
+        "page/page.js",
+        "text/javascript; charset=utf-8",
+        include_str!("../ui/page/page.js"),
+    ),
 ];
 
 /// `GET /ui/{path}`: one module file, or 404.
 ///
 /// Looked up in a fixed table rather than read from disk, so no path a caller
-/// sends can name anything but these three files.
+/// sends can name anything but these files.
 pub async fn asset(Path(path): Path<String>) -> Response {
     match FILES.iter().find(|(name, _, _)| *name == path) {
         Some((_, content_type, body)) => {
@@ -68,7 +81,7 @@ mod tests {
 
     #[test]
     fn every_entry_a_panel_names_is_served() {
-        for entry in [PROBE, SILENT] {
+        for entry in [PROBE, SILENT, PAGE] {
             let beneath = entry.strip_prefix(ASSETS).expect("under the prefix");
             assert!(
                 FILES.iter().any(|(name, _, _)| *name == beneath),
@@ -83,6 +96,17 @@ mod tests {
         // name its script as a file, beside it, that this platform serves.
         let page = FILES[0].2;
         assert!(page.contains(r#"<script src="probe.js"></script>"#));
+        assert!(!page.contains("<script>"));
+    }
+
+    #[test]
+    fn the_page_loads_its_script_from_a_file_the_csp_allows() {
+        let page = FILES
+            .iter()
+            .find(|(name, _, _)| *name == "page/index.html")
+            .expect("the page is served")
+            .2;
+        assert!(page.contains(r#"<script src="page.js"></script>"#));
         assert!(!page.contains("<script>"));
     }
 }

@@ -118,6 +118,20 @@ pub async fn catalog(State(state): State<AppState>) -> Json<Vec<CatalogPlatform>
                 .map(|panel| catalog_panel(&view.config.id, panel))
                 .collect(),
             module_limits: module_limits(&state.config, view),
+            navigation: view
+                .accepted_navigation()
+                .into_iter()
+                .map(|entry| hlin_stream::layout::CatalogNavigation {
+                    label: entry.label,
+                    path: entry.path,
+                    icon: entry.icon,
+                    weight: entry.weight,
+                    ui: entry.ui.map(|ui| hlin_stream::layout::CatalogUi {
+                        entry: ui.entry,
+                        bridge: ui.bridge,
+                    }),
+                })
+                .collect(),
         })
         .collect();
 

@@ -57,14 +57,37 @@ pub fn build(name: &str, breaking: bool) -> Manifest {
             icon: Some("database".to_string()),
             extra: Default::default(),
         },
-        navigation: vec![NavigationEntry {
-            label: "Overview".to_string(),
-            path: "overview".to_string(),
-            icon: Some("inbox".to_string()),
-            weight: 10,
-            ui: None,
-            extra: Default::default(),
-        }],
+        navigation: vec![
+            // A plain link to the platform's own frontend, which the shell
+            // does not open: it has only ever hosted entries with a module.
+            NavigationEntry {
+                label: "Overview".to_string(),
+                path: "overview".to_string(),
+                icon: Some("inbox".to_string()),
+                weight: 10,
+                ui: None,
+                extra: Default::default(),
+            },
+            // Two pages the shell opens at full width (HLIN-S-0007, *Pages*):
+            // one whose module answers, and one whose module never says
+            // `ready`, which has no fallback and says it is unavailable.
+            NavigationEntry {
+                label: "Module page".to_string(),
+                path: "module-page".to_string(),
+                icon: None,
+                weight: 20,
+                ui: Some(module(crate::modules::PAGE)),
+                extra: Default::default(),
+            },
+            NavigationEntry {
+                label: "Page that never answers".to_string(),
+                path: "silent-page".to_string(),
+                icon: None,
+                weight: 30,
+                ui: Some(module(crate::modules::SILENT)),
+                extra: Default::default(),
+            },
+        ],
         panels,
         health: "api/health".to_string(),
         events: Some("api/events".to_string()),
@@ -389,12 +412,17 @@ fn all_panels(name: &str) -> Vec<Panel> {
 /// [`crate::modules::ASSETS`].
 fn drawn_by_module(panel: Panel, entry: &str) -> Panel {
     Panel {
-        ui: Some(ModuleUi {
-            entry: entry.to_string(),
-            bridge: 1,
-            extra: Default::default(),
-        }),
+        ui: Some(module(entry)),
         ..panel
+    }
+}
+
+/// One of this platform's modules, speaking bridge major 1.
+fn module(entry: &str) -> ModuleUi {
+    ModuleUi {
+        entry: entry.to_string(),
+        bridge: 1,
+        extra: Default::default(),
     }
 }
 

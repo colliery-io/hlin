@@ -23,6 +23,7 @@ use wasm_bindgen::prelude::Closure;
 use crate::draft::LayoutDraft;
 use crate::frame::{ModuleFrame, ModuleView, Mount};
 use crate::grid;
+use crate::route::{self, PageTarget};
 use crate::state::{PanelView, SurfaceState};
 
 /// How long a lost stream is merely stale before it is called unreachable.
@@ -83,6 +84,12 @@ where
     let (surface, set_surface) = signal(SurfaceState::new());
     let (draft, set_draft) = signal(LayoutDraft::empty());
     let (catalog, set_catalog) = signal(Vec::<CatalogPlatform>::new());
+    // Whether the catalogue has been asked for yet, so a page nobody offers
+    // is told apart from one whose platform the browser has not heard of yet.
+    let (catalog_known, set_catalog_known) = signal(false);
+    // The platform page open at full width, if one is (HLIN-S-0007, *Pages*).
+    // Read from the address first, so a link to a page opens that page.
+    let (page, set_page) = signal(route::page_of(&current_path()));
     // What each control will accept, by panel reference and control id.
     let (choices, set_choices) = signal(BTreeMap::<(String, String), Vec<Choice>>::new());
     let (mode, set_mode) = signal(Mode::Watching);
@@ -149,7 +156,9 @@ where
             }
             // A link to a surface names the layout; a bare visit gets the
             // principal's own. Either way the address bar ends up naming what
-            // is on screen, so the link can be sent to somebody.
+            // is on screen, so the link can be sent to somebody. A link to a
+            // page is what is on screen, and keeps its address; the surface
+            // behind it is the principal's own.
             let asked = requested_layout();
             let fetched = match &asked {
                 Some(id) => crate::api::layout(id).await,
@@ -159,6 +168,7 @@ where
             match fetched {
                 Ok(document) => {
                     if asked.is_none()
+                        && page.get_untracked().is_none()
                         && let Some(id) = document.surface_id()
                     {
                         show_address(&format!("/s/{id}"));
@@ -179,6 +189,7 @@ where
                 // changes while a person composes.
                 set_catalog.set(platforms);
             }
+            set_catalog_known.set(true);
         });
     });
 
@@ -528,15 +539,85 @@ where
         }
     };
 
+    // -- Pages -------------------------------------------------------------
+
+    // Open a platform's page, and say so in the address bar, as a new entry in
+    // the history: a page is somewhere a person went, and the browser's back
+    // button should bring them back from it.
+    let open_page = move |target: PageTarget| {
+        if page.with_untracked(|open| open.as_ref() == Some(&target)) {
+            return;
+        }
+        push_address(&route::page_address(&target));
+        set_mode.set(Mode::Watching);
+        set_page.set(Some(target));
+    };
+
+    // Back to the surface, which was only ever hidden.
+    let close_page = move || {
+        if page.with_untracked(Option::is_none) {
+            return;
+        }
+        let surface = draft.with_untracked(|draft| draft.surface_id().map(str::to_string));
+        push_address(&surface.map_or_else(|| "/".to_string(), |id| format!("/s/{id}")));
+        set_page.set(None);
+    };
+
+    // The browser's back and forward move between the surface and pages, and
+    // the address is the only record of which.
+    Effect::new(move |_| {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let popped = Closure::<dyn Fn()>::new(move || {
+            set_page.set(route::page_of(&current_path()));
+        });
+        let _ =
+            window.add_event_listener_with_callback("popstate", popped.as_ref().unchecked_ref());
+        popped.forget();
+    });
+
+    // Only a change of page redraws one: setting the same page again must not
+    // reload its module.
+    let open = Memo::new(move |_| page.get());
+
     crate::frame::on_asked(move |asked| match asked {
         crate::frame::Asked::Intent { instance, intent } => act(instance, intent),
         crate::frame::Asked::Navigate { instance, to } => {
-            navigate(
+            if let Some(path) = &to.page {
+                let target = PageTarget {
+                    platform: to.platform.clone(),
+                    path: path.clone(),
+                };
+                if catalog.with_untracked(|catalog| route::page_entry(catalog, &target).is_some()) {
+                    open_page(target);
+                } else {
+                    leptos::logging::warn!(
+                        "a module asked to open page `{path}` of `{}`, which is not a page this shell can open; ignored",
+                        to.platform
+                    );
+                }
+                return;
+            }
+            let Some(target) = panel_to_open(
                 &draft.get_untracked(),
                 &catalog.get_untracked(),
                 &instance,
                 &to,
-            );
+            ) else {
+                return;
+            };
+            if page.with_untracked(Option::is_none) {
+                bring_into_view(&target);
+                return;
+            }
+            // Asked from a page: back to the surface, and to the panel once it
+            // is drawn again.
+            close_page();
+            leptos::task::spawn_local(async move {
+                gloo_timers::future::TimeoutFuture::new(0).await;
+                bring_into_view(&target);
+            });
         }
     });
 
@@ -652,6 +733,7 @@ where
     // Taken here, before the pack is moved into the closures that draw with it,
     // for the same reason the stylesheet is.
     let offered = drawer.offers().join(" ");
+    let page_drawer = drawer.clone();
 
     view! {
         // This crate's own chrome: the grid, the panel frames, the toolbar.
@@ -702,7 +784,9 @@ where
             // Absent rather than disabled where the shell writes nothing.
             // A disabled control says "not for you, not now"; there is no
             // later here, and no explanation that would make one appear.
-            <Show when=move || !read_only.get()>
+            // Composing is the surface's, and there is none on screen while a
+            // page is open.
+            <Show when=move || !read_only.get() && open.with(Option::is_none)>
                 <button
                     class="mode"
                     class:active=composing
@@ -743,11 +827,80 @@ where
             })}
         </header>
 
+        // The platforms' pages (HLIN-S-0007, *Pages*), and the way back to the
+        // surface, whenever there is a page to open or one is open. Only a
+        // navigation entry with a module is a page; the others were never
+        // drawn by the shell and are not now.
+        {move || {
+            let offered = catalog.with(|catalog| route::pages(catalog));
+            if offered.is_empty() && open.with(Option::is_none) {
+                return None;
+            }
+            let surface = draft
+                .with(|draft| draft.surface_id().map(|id| format!("/s/{id}")))
+                .unwrap_or_else(|| "/".to_string());
+            let mut previous: Option<String> = None;
+            let links = offered
+                .into_iter()
+                .map(|entry| {
+                    // Each platform's name once, before its first page.
+                    let heading = (previous.as_deref() != Some(entry.platform.as_str())).then(|| {
+                        previous = Some(entry.platform.clone());
+                        view! { <span class="pages-platform">{entry.platform_name.clone()}</span> }
+                    });
+                    let target = entry.target();
+                    let href = route::page_address(&target);
+                    let current = {
+                        let target = target.clone();
+                        move || open.with(|open| open.as_ref() == Some(&target)).then_some("page")
+                    };
+                    view! {
+                        {heading}
+                        <a
+                            class="page-link"
+                            href=href
+                            data-page=format!("{}/{}", entry.platform, entry.path)
+                            title=format!("{} — {}", entry.label, entry.platform_name)
+                            aria-current=current
+                            on:click=move |event: leptos::ev::MouseEvent| {
+                                if plain_click(&event) {
+                                    event.prevent_default();
+                                    open_page(target.clone());
+                                }
+                            }
+                        >
+                            {entry.label.clone()}
+                        </a>
+                    }
+                })
+                .collect_view();
+            Some(view! {
+                <nav class="pages" aria-label="Pages">
+                    <a
+                        class="page-link surface-link"
+                        href=surface
+                        aria-current=move || open.with(Option::is_none).then_some("page")
+                        on:click=move |event: leptos::ev::MouseEvent| {
+                            if plain_click(&event) {
+                                event.prevent_default();
+                                close_page();
+                            }
+                        }
+                    >
+                        "Surface"
+                    </a>
+                    {links}
+                </nav>
+            })
+        }}
+
         {move || trouble.get().map(|reason| view! {
             <p class="trouble">{reason}</p>
         })}
 
-        <div class="stage" class:composing=composing>
+        // Hidden rather than dropped while a page is open, so its panels, and
+        // what their modules hold, are there to go back to.
+        <div class="stage" class:composing=composing hidden=move || open.with(Option::is_some)>
             <Show when=composing>
                 <aside class="catalog">
                     <input
@@ -893,6 +1046,7 @@ where
                                 entry: ui.entry,
                                 bridge: ui.bridge,
                                 declares_data: entry.kind.is_some(),
+                                page: false,
                                 limits: limits.unwrap_or_default(),
                             })
                         });
@@ -1165,7 +1319,199 @@ where
                 </Show>
             </main>
         </div>
+
+        {move || open.get().map(|target| view! {
+            <PageView
+                drawer=page_drawer.clone()
+                target=target
+                catalog=catalog
+                catalog_known=catalog_known
+                modules=modules
+            />
+        })}
     }
+}
+
+/// A platform's page, open at full width (HLIN-S-0007, *Pages*).
+///
+/// The same kind of frame as a panel's module, with the same bridge and the
+/// same states, and `init.page` set. Unlike a panel it has nothing to fall
+/// back to: a page whose module is unavailable says so, and offers to try it
+/// again, which is the only way `unavailable` recovers.
+#[component]
+fn PageView(
+    drawer: Drawer,
+    target: PageTarget,
+    catalog: ReadSignal<Vec<CatalogPlatform>>,
+    catalog_known: ReadSignal<bool>,
+    modules: RwSignal<BTreeMap<String, ModuleView>>,
+) -> impl IntoView {
+    // This opening's own instance: a page opened again is a new frame, and a
+    // new instance, like a panel put on a surface twice.
+    let instance = format!("page-{:x}", (js_sys::Math::random() * 2f64.powi(52)) as u64);
+
+    let found = Memo::new({
+        let target = target.clone();
+        move |_| catalog.with(|catalog| route::page_entry(catalog, &target))
+    });
+    let module = Memo::new({
+        let instance = instance.clone();
+        move |_| modules.with(|views| views.get(&instance).cloned().unwrap_or_default())
+    });
+
+    // The module to mount, while one is wanted: until it is given up on.
+    let mount = Memo::new({
+        let instance = instance.clone();
+        move |_| {
+            let page = found.get()?;
+            if matches!(module.get().state, hlin_view::PanelState::Unavailable(_)) {
+                return None;
+            }
+            Some(Mount {
+                platform: page.platform,
+                panel: page.path,
+                instance: instance.clone(),
+                entry: page.ui.entry,
+                bridge: page.ui.bridge,
+                declares_data: false,
+                page: true,
+                limits: page.limits.unwrap_or_default(),
+            })
+        }
+    });
+
+    on_cleanup({
+        let instance = instance.clone();
+        move || {
+            modules.update(|views| {
+                views.remove(&instance);
+            });
+        }
+    });
+
+    // Not a page this shell can open: a platform that offers none by that
+    // path, or an entry that is only a link. Said once the catalogue is known,
+    // and never before, or every link to a page would flash it.
+    let unknown = move || catalog_known.get() && found.with(Option::is_none);
+
+    let state = move || {
+        if !catalog_known.get() {
+            "loading"
+        } else if unknown() {
+            "unavailable"
+        } else {
+            state_name(module.get().state)
+        }
+    };
+    let cause = move || {
+        if unknown() {
+            return Some(hlin_view::Cause::Unknown.to_string());
+        }
+        match module.get().state {
+            hlin_view::PanelState::Unavailable(cause) if found.with(Option::is_some) => {
+                Some(cause.to_string())
+            }
+            _ => None,
+        }
+    };
+    let label = Memo::new({
+        let target = target.clone();
+        move |_| {
+            found.with(|page| {
+                page.as_ref()
+                    .map_or_else(|| target.path.clone(), |page| page.label.clone())
+            })
+        }
+    });
+    let platform = Memo::new({
+        let target = target.clone();
+        move |_| {
+            found.with(|page| {
+                page.as_ref().map_or_else(
+                    || target.platform.clone(),
+                    |page| page.platform_name.clone(),
+                )
+            })
+        }
+    });
+    let frame_title = Signal::derive(move || format!("{} — {}", label.get(), platform.get()));
+    let retried = instance.clone();
+
+    view! {
+        <section
+            class="page"
+            data-page=format!("{}/{}", target.platform, target.path)
+            data-instance=instance.clone()
+            data-state=state
+            data-module=move || found.with(Option::is_some).then(|| state_name(module.get().state))
+            data-module-cause=cause
+        >
+            <header class="page-head">
+                <h2>{label}</h2>
+                <span class="page-platform">{platform}</span>
+            </header>
+
+            // What the module asked to have said, as the platform's, exactly
+            // as a panel's module's notice is.
+            {move || {
+                let notice = module.get().notice?;
+                let level = match notice.level {
+                    hlin_bridge::NoticeLevel::Info => "info",
+                    hlin_bridge::NoticeLevel::Warning => "warning",
+                    hlin_bridge::NoticeLevel::Error => "error",
+                };
+                Some(view! {
+                    <p class="module-notice" data-level=level role="status">
+                        <span class="module-notice-from">{format!("{} says", platform.get())}</span>
+                        <span class="module-notice-text">{notice.text}</span>
+                    </p>
+                })
+            }}
+
+            {move || {
+                let drawer = drawer.clone();
+                if unknown() {
+                    let drawn = plan(
+                        hlin_view::PanelState::Unavailable(hlin_view::Cause::Unknown),
+                        Kind::Raw,
+                        None,
+                    );
+                    return view! {
+                        {drawer.draw(&drawn, None)}
+                        <p class="detail module-note">"There is no page here that Hlin can open."</p>
+                    }
+                    .into_any();
+                }
+                match module.get().state {
+                    hlin_view::PanelState::Unavailable(cause) => view! {
+                        <ModuleUnavailable
+                            drawer=drawer
+                            cause=cause
+                            instance=retried.clone()
+                            fallen_back=false
+                        />
+                    }
+                    .into_any(),
+                    _ => ().into_any(),
+                }
+            }}
+
+            {move || mount.get().map(|mount| view! {
+                <ModuleFrame mount=mount title=frame_title />
+            })}
+        </section>
+    }
+}
+
+/// Whether a click on a link is a plain one, which the shell handles itself,
+/// rather than one asking the browser for a new tab or window, which it
+/// leaves to the browser and the link's own address.
+fn plain_click(event: &leptos::ev::MouseEvent) -> bool {
+    event.button() == 0
+        && !event.ctrl_key()
+        && !event.meta_key()
+        && !event.shift_key()
+        && !event.alt_key()
 }
 
 /// A surface with nothing on it.
@@ -1540,9 +1886,28 @@ fn local(value: &str) -> Option<DateTime<Utc>> {
 /// `/s/{id}` is the surface route; anything else, including `/`, means "give me
 /// whichever surface is mine".
 fn requested_layout() -> Option<String> {
-    let path = web_sys::window()?.location().pathname().ok()?;
+    let path = current_path();
     let id = path.strip_prefix("/s/")?.trim_end_matches('/');
     (!id.is_empty()).then(|| id.to_string())
+}
+
+/// The path the address bar holds now, or nothing where there is no window.
+fn current_path() -> String {
+    web_sys::window()
+        .and_then(|window| window.location().pathname().ok())
+        .unwrap_or_default()
+}
+
+/// Put an address in the address bar as a new history entry, without
+/// navigating: somewhere a person went, so back brings them back. Ignored on
+/// failure for the same reason as [`show_address`].
+fn push_address(path: &str) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    if let Ok(history) = window.history() {
+        let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(path));
+    }
 }
 
 /// Put the surface's own address in the address bar, without navigating.
@@ -1601,39 +1966,31 @@ fn find_panel(
         .map(|(_, panel)| panel.clone())
 }
 
-/// Go where a module asked (HLIN-S-0007, `navigate`).
+/// The panel a module's `navigate` names, where this surface can show it
+/// (HLIN-S-0007, `navigate`). A page is opened by the caller, not here.
 ///
 /// A panel is opened by bringing it into view on this surface: the one other
 /// than the asker's own where there are several, the asker's own otherwise.
 /// Navigation grants nothing, so a module may name another platform's panel.
 /// Anything this shell cannot open — a panel no platform offers, one not on
-/// this surface, a page — is ignored, and said on the console for whoever is
-/// building the module, never to the person looking.
-fn navigate(
+/// this surface — is ignored, and said on the console for whoever is building
+/// the module, never to the person looking.
+fn panel_to_open(
     draft: &LayoutDraft,
     catalog: &[CatalogPlatform],
     asker: &str,
     to: &hlin_bridge::Target,
-) {
-    if let Some(page) = &to.page {
-        // Platform pages are opened by the shell's navigation, which does not
-        // host them yet.
-        leptos::logging::warn!(
-            "a module asked to open page `{page}` of `{}`, which this shell cannot open yet; ignored",
-            to.platform
-        );
-        return;
-    }
+) -> Option<String> {
     let Some(panel) = to.panel.as_deref() else {
         leptos::logging::warn!("a module asked to go nowhere in particular; ignored");
-        return;
+        return None;
     };
     if catalogued(catalog, &to.platform, panel).is_none() {
         leptos::logging::warn!(
             "a module asked to open `{}/{panel}`, which no platform offers; ignored",
             to.platform
         );
-        return;
+        return None;
     }
     let placed: Vec<String> = draft
         .panels()
@@ -1641,23 +1998,27 @@ fn navigate(
         .filter(|placed| placed.platform_id == to.platform && placed.panel_key == panel)
         .filter_map(|placed| placed.id.clone())
         .collect();
-    let Some(target) = placed
+    let target = placed
         .iter()
         .find(|id| id.as_str() != asker)
         .or_else(|| placed.first())
-    else {
+        .cloned();
+    if target.is_none() {
         leptos::logging::warn!(
             "a module asked to open `{}/{panel}`, which is not on this surface; ignored",
             to.platform
         );
-        return;
-    };
+    }
+    target
+}
 
+/// Scroll a panel on this surface into view, and mark it for a moment.
+fn bring_into_view(instance: &str) {
     let Some(element) = web_sys::window()
         .and_then(|window| window.document())
         .and_then(|document| {
             document
-                .query_selector(&format!("section.panel[data-instance=\"{target}\"]"))
+                .query_selector(&format!("section.panel[data-instance=\"{instance}\"]"))
                 .ok()
                 .flatten()
         })

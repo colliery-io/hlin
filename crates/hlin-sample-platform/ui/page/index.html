@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  A page: a navigation entry's module, which the shell opens at full width
+  rather than in a panel (specification HLIN-S-0007, *Pages*). Hand-written
+  against the bridge's wire format, like the probe, and for the same reason:
+  what the shell is tested against is the protocol, not a library that might
+  agree with it by accident.
+
+  The script is a file of its own because the module CSP allows scripts only
+  from this platform's module assets, never inline.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Module page</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0; padding: 12px 16px; font: 14px/1.5 system-ui, sans-serif;
+        background: var(--hlin-raised, Canvas); color: var(--hlin-text, CanvasText);
+        min-height: 100vh; box-sizing: border-box;
+      }
+      h1 { font-size: 18px; margin: 0 0 8px; }
+      p { margin: 0 0 4px; }
+      .label { color: var(--hlin-dim, #868e96); }
+      button { font: inherit; font-size: 12px; margin: 8px 4px 0 0; }
+    </style>
+  </head>
+  <body>
+    <h1>A page of this platform's own</h1>
+    <p><span class="label">Bridge:</span> <span id="state" data-state="waiting">waiting for init</span></p>
+    <p><span class="label">Opened as:</span> <span id="opened">not yet told</span></p>
+    <p><span class="label">Looking:</span> <span id="viewer">nobody yet</span></p>
+    <p><span class="label">The platform says:</span> <span id="whoami">not asked yet</span></p>
+    <p><span class="label">Range:</span> <span id="range">none</span></p>
+    <p><span class="label">Restored:</span> <span id="restored">nothing</span></p>
+    <button id="to-panel" type="button">Go to the probe panel</button>
+    <script src="page.js"></script>
+  </body>
+</html>
