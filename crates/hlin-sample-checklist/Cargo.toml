@@ -1,0 +1,44 @@
+[package]
+name = "hlin-sample-checklist"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "A reference platform for Hlin that accepts writes: shared checklists, with rules of their own"
+
+[[bin]]
+name = "hlin-sample-checklist"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_sample_checklist"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Accept unsigned requests as a fixed development principal, so the platform
+# can be driven with curl and no shell. Off by default, and refused in release
+# builds by `hlin-identity` itself.
+dev-identity = ["hlin-identity/dev-identity"]
+
+[dependencies]
+async-stream = "0.3"
+hlin-manifest = { workspace = true }
+hlin-identity = { workspace = true, features = ["axum"] }
+axum = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+# The router is driven in process: everything under test is a decision the
+# platform makes about one request, and none of it depends on a socket.
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

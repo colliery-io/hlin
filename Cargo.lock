@@ -1497,6 +1497,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-sample-checklist"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "axum",
+ "chrono",
+ "clap",
+ "hlin-identity",
+ "hlin-manifest",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "hlin-sample-platform"
 version = "0.0.1"
 dependencies = [
