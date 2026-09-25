@@ -6,11 +6,12 @@
 //
 // and skipped elsewhere, like the sign-in suites.
 //
-// Two claims. Every widget on the published "Twenty" surface reaches
+// Three claims. Every widget on the published "Twenty" surface reaches
 // `ready`: its platform served a module, the shell hosted it, and it drew.
-// And a shared widget is in step between browsers: a counter bumped or a
-// vote cast in one browser shows in another that is already open, without a
-// reload. What carries it is the widget's own event stream, followed by the
+// A shared widget is in step between browsers: a counter bumped, a vote cast
+// or a kanban card added in one browser shows in another that is already
+// open, without a reload. And the sparkline, the one widget that declares
+// `time_range`, follows the surface's time picker. What carries it is the widget's own event stream, followed by the
 // shell and delivered to each page's module as a bridge `changed`, which the
 // module answers by fetching again.
 //

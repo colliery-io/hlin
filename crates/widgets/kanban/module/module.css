@@ -2,11 +2,7 @@
  * classes in hlin-widget-module's widget.css. Nothing else. */
 
 .kanban__head {
-  justify-content: space-between;
-}
-
-.kanban__title {
-  font-weight: 600;
+  justify-content: flex-end;
 }
 
 /* A card: a raised tile on the panel's own surface, the accent down its side. */

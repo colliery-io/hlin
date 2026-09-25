@@ -12,7 +12,6 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 struct Board {
-    title: String,
     cards: Vec<Card>,
     most: usize,
 }
@@ -108,9 +107,10 @@ fn main() {
                 })
                 .collect_view();
             view! {
+                // The column's title is the panel's, in the shell's header; the
+                // module does not say it twice.
                 <div class="w-row kanban__head">
-                    <span class="kanban__title">{board.title}</span>
-                    <span class="w-quiet">{format!("{count} / {}", board.most)}</span>
+                    <span class="w-quiet">{format!("{count} of {} cards", board.most)}</span>
                 </div>
                 <ol class="w-list kanban__cards">{cards}</ol>
                 // Not a <form>: a sandboxed frame without `allow-forms` never
