@@ -1,0 +1,34 @@
+[package]
+name = "hlin-widget-deploys"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Widget 18 of twenty: a deploy log, streamed to its module"
+publish = false
+
+[[bin]]
+name = "hlin-widget-deploys"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_widget_deploys"
+path = "src/lib.rs"
+
+[dependencies]
+hlin-widget-support = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+# The log is a body written a line at a time, as the time for each comes.
+async-stream = "0.3"
+
+[dev-dependencies]
+hlin-widget-support = { workspace = true, features = ["testing"] }
+# To hold the log open the way the shell does, and let go of it.
+reqwest = { workspace = true }

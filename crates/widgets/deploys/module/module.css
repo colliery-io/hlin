@@ -1,0 +1,44 @@
+/* The deploy log's own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.deploys__status::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--hlin-faint, #5b6573);
+}
+
+.deploys__status--live::before {
+  background: var(--hlin-good, #4cc38a);
+}
+
+.deploys {
+  gap: 2px;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.deploys__line {
+  display: grid;
+  grid-template-columns: 8ch 1fr;
+  gap: 8px;
+  padding-left: 6px;
+  border-left: 2px solid var(--hlin-border, #2a3340);
+}
+
+.deploys__line--good {
+  border-left-color: var(--hlin-good, #4cc38a);
+}
+
+.deploys__line--bad {
+  border-left-color: var(--hlin-bad, #f06464);
+  color: var(--hlin-bad, #f06464);
+}
+
+.deploys__at,
+.deploys__version {
+  color: var(--hlin-dim, #8b95a3);
+  font-variant-numeric: tabular-nums;
+}

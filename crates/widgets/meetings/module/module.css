@@ -1,0 +1,45 @@
+/* The meetings widget's own look, against the shell's `--hlin-*` tokens and
+ * the shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.meeting {
+  display: grid;
+  grid-template-columns: 6.5em 1fr;
+  gap: 2px 8px;
+  align-items: baseline;
+  padding: 4px 0 4px 8px;
+  border-left: 3px solid var(--hlin-border, #2a3340);
+}
+
+.meeting--now {
+  border-left-color: var(--hlin-good, #4cc38a);
+}
+
+.meeting--next {
+  border-left-color: var(--hlin-accent, #7fb2ff);
+}
+
+.meeting--over {
+  color: var(--hlin-faint, #5b6573);
+}
+
+.meeting__time {
+  font-variant-numeric: tabular-nums;
+  color: var(--hlin-dim, #8b95a3);
+}
+
+.meeting__what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.meeting__answers {
+  grid-column: 2;
+  display: flex;
+  gap: 4px;
+}
+
+.meeting__answer {
+  padding: 2px 8px;
+  font-size: 12px;
+}

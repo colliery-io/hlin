@@ -109,6 +109,9 @@ WIDGETS = [
     {"name": "clock", "port": 8201},
     {"name": "counter", "port": 8202},
     {"name": "poll", "port": 8203},
+    {"name": "deploys", "port": 8218},
+    {"name": "converter", "port": 8219},
+    {"name": "meetings", "port": 8220},
 ]
 
 #: What the twenty-widget surface is called, and its grid: three widgets

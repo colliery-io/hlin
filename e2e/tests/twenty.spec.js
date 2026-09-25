@@ -22,7 +22,7 @@
 // nothing here assumes where the counter or the poll starts.
 
 const { test, expect } = require('@playwright/test');
-const { shot } = require('./helpers');
+const { shot, shotOf } = require('./helpers');
 
 /** How long another browser may take to show a change. */
 const PROPAGATION = 15_000;
@@ -156,5 +156,32 @@ test.describe('twenty widgets on one surface', () => {
 
     firstStayed();
     secondStayed();
+  });
+
+  test('the deploy log streams lines in as they happen, without a reload', async ({ page }) => {
+    // The deploy widget's module holds one streamed read open through the
+    // shell (HLIN-S-0007, *Streaming*), and its platform writes a line about
+    // once a second. So lines keep arriving on a page nobody touches.
+    test.skip(
+      !panels.some((panel) => panel.platform_id === 'deploys'),
+      'the deploy widget is not on this surface',
+    );
+    await openSurface(page, surface, panels);
+    const stayed = forbidReloads(page, 'the page');
+    const panel = widget(page, 'deploys', 'deploys');
+    await panel.scrollIntoViewIfNeeded();
+    const log = inside(panel);
+    await expect(log.locator('.deploys__status--live')).toBeVisible({ timeout: READY });
+
+    const newest = async () =>
+      Number(await log.locator('li.deploys__line').first().getAttribute('data-seq'));
+    await expect(log.locator('li.deploys__line').first()).toBeVisible();
+    const before = await newest();
+    await propagated('three more deploy lines arrive', (options) =>
+      expect.poll(newest, options).toBeGreaterThanOrEqual(before + 3),
+    );
+    await shotOf(panel, 218, 'twenty-deploys-streaming');
+
+    stayed();
   });
 });

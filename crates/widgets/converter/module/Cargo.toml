@@ -1,0 +1,19 @@
+[package]
+name = "hlin-widget-converter-module"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The converter's own UI, and all of its rules: a Leptos module that asks for nothing"
+publish = false
+
+[[bin]]
+name = "hlin-widget-converter-module"
+path = "src/main.rs"
+
+[dependencies]
+hlin-widget-module = { workspace = true }
+hlin-module = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }

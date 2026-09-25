@@ -1666,6 +1666,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-widget-converter"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hlin-widget-support",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-converter-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+]
+
+[[package]]
 name = "hlin-widget-counter"
 version = "0.0.1"
 dependencies = [
@@ -1683,6 +1702,58 @@ version = "0.0.1"
 dependencies = [
  "hlin-module",
  "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-deploys"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "axum",
+ "chrono",
+ "hlin-widget-support",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-deploys-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "js-sys",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-meetings"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-meetings-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "js-sys",
  "leptos",
  "serde",
  "serde_json",

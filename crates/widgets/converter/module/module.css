@@ -1,0 +1,28 @@
+/* The converter's own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.converter__quantities {
+  gap: 4px;
+}
+
+.converter__quantity {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.converter__sum {
+  display: grid;
+  grid-template-columns: minmax(4em, 1fr) minmax(0, 1.4fr) auto minmax(0, 1.4fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.converter__value {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.converter__answer {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
