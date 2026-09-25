@@ -4,14 +4,14 @@ level: task
 title: "Widgets eleven to seventeen"
 short_code: "HLIN-T-0082"
 created_at: 2026-09-25T02:43:01.966175+00:00
-updated_at: 2026-09-25T12:00:00.000000+00:00
+updated_at: 2026-09-25T11:50:56.549793+00:00
 parent: HLIN-I-0012
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0012
 
 Task 3 of [[HLIN-I-0012]]: `weather`, `pomodoro`, `shoutbox`,
 `reactions`, `bookmarks`, `oncall`, `picker`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
