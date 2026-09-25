@@ -1,4 +1,5 @@
-//! What the shell compresses, and what it must not (HLIN-T-0086).
+//! What the shell compresses, and what it must not (HLIN-T-0086), and that
+//! it compresses each file once (HLIN-T-0091).
 //!
 //! Module assets under `/m/` and the shell's own frontend are compressed as
 //! the browser accepts, unless the platform already did; a module's requests
@@ -15,6 +16,7 @@ use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode, header};
 use axum::response::IntoResponse;
+use hlin::compressed::{Compressed, CompressionConfig, Held};
 use hlin::config::{AuthConfig, Config, PlatformConfig, Timings};
 use hlin::identity::CredentialConfig;
 use hlin::manifest_client::{Fetched, ManifestClient};
@@ -42,12 +44,24 @@ fn big_text() -> String {
 
 type Asked = Arc<Mutex<Vec<(String, HeaderMap)>>>;
 
-async fn platform() -> (String, Asked) {
+/// Which version of `changing.js` the platform serves.
+type Version = Arc<Mutex<u32>>;
+
+/// A file that changes under the same name, as a platform's unhashed file
+/// does when it is deployed again.
+fn changing(version: u32) -> String {
+    format!("export const version = {version};\n") + &"// padding\n".repeat(400)
+}
+
+async fn platform() -> (String, Asked, Version) {
     let asked: Asked = Arc::default();
     let recorder = asked.clone();
+    let version: Version = Arc::new(Mutex::new(1));
+    let current = version.clone();
 
     let app = axum::Router::new().fallback(move |request: Request<Body>| {
         let recorder = recorder.clone();
+        let current = current.clone();
         async move {
             let path = request.uri().path().to_string();
             let headers = request.headers().clone();
@@ -75,6 +89,11 @@ async fn platform() -> (String, Asked) {
                     )
                         .into_response()
                 }
+                "/ui/items/changing.js" => (
+                    [(header::CONTENT_TYPE, "text/javascript")],
+                    changing(*current.lock().unwrap()),
+                )
+                    .into_response(),
                 "/ui/items/tiny.js" => (
                     [(header::CONTENT_TYPE, "text/javascript")],
                     "export default 1;",
@@ -108,7 +127,7 @@ async fn platform() -> (String, Asked) {
         .unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, app).await });
-    (base, asked)
+    (base, asked, version)
 }
 
 // -- A shell ------------------------------------------------------------------
@@ -141,6 +160,8 @@ impl ManifestClient for Declares {
 struct Shell {
     app: axum::Router,
     asked: Asked,
+    version: Version,
+    compressed: Arc<hlin::compressed::Compressed>,
     frontend: std::path::PathBuf,
 }
 
@@ -151,10 +172,15 @@ impl Drop for Shell {
 }
 
 async fn shell() -> Shell {
-    let (base, asked) = platform().await;
+    shell_keeping(CompressionConfig::default()).await
+}
+
+async fn shell_keeping(compression: CompressionConfig) -> Shell {
+    let (base, asked, version) = platform().await;
     let config = Arc::new(Config {
         public_url: Some(ORIGIN.to_string()),
         modules: Default::default(),
+        compression,
         bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
@@ -196,6 +222,7 @@ async fn shell() -> Shell {
         client: clients.fetching,
         stream_client: clients.streaming,
         proxy_client: clients.proxying,
+        compressed: Arc::new(Compressed::new(&config.compression)),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 
@@ -213,8 +240,10 @@ async fn shell() -> Shell {
     std::fs::write(frontend.join("hlin-ui_bg.wasm"), wasm()).unwrap();
 
     Shell {
-        app: hlin::server::with_frontend(router(state), &frontend, &config),
+        app: hlin::server::with_frontend(router(state.clone()), &frontend, &state),
         asked,
+        version,
+        compressed: state.compressed.clone(),
         frontend,
     }
 }
@@ -247,10 +276,34 @@ impl Shell {
     }
 
     async fn send(&self, path: &str, accepts: Option<&str>, extra: &[(&str, &str)]) -> Answered {
+        self.send_as("alice", path, accepts, extra).await
+    }
+
+    /// Until `entries` files are kept, every one at its best: the frontend
+    /// is compressed at its best from the start, and a module's file after
+    /// its first request has been answered.
+    async fn settled(&self, entries: usize) -> Held {
+        for _ in 0..1000 {
+            let held = self.compressed.held();
+            if held.entries >= entries && held.best == held.entries {
+                return held;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("never settled: {:?}", self.compressed.held());
+    }
+
+    async fn send_as(
+        &self,
+        who: &str,
+        path: &str,
+        accepts: Option<&str>,
+        extra: &[(&str, &str)],
+    ) -> Answered {
         let mut request = Request::builder()
             .uri(path)
             .header("sec-fetch-site", "same-origin")
-            .header(USER, "alice");
+            .header(USER, who);
         if let Some(accepts) = accepts {
             request = request.header(header::ACCEPT_ENCODING, accepts);
         }
@@ -441,4 +494,121 @@ async fn a_modules_request_is_never_compressed_whole_or_streamed() {
     assert_eq!(streamed.status, StatusCode::OK);
     assert!(streamed.header(header::CONTENT_ENCODING).is_none());
     assert!(!streamed.varies_by_encoding());
+}
+
+// -- Once per file --------------------------------------------------------------
+
+const BROWSER: Option<&str> = Some("gzip, deflate, br, zstd");
+
+#[tokio::test]
+async fn a_file_is_compressed_once_and_kept_for_everybody() {
+    let shell = shell().await;
+    // The frontend's wasm, compressed at its best since the shell started.
+    let frontend = shell.settled(1).await;
+    let path = "/m/checklist/ui/items/changing.js";
+
+    let first = shell.send_as("alice", path, BROWSER, &[]).await;
+    assert_eq!(first.header(header::CONTENT_ENCODING), Some("br"));
+    assert_eq!(unbrotli(&first.body), changing(1).as_bytes());
+    assert_eq!(shell.compressed.held().entries, frontend.entries + 1);
+
+    // Compressed again at its best, behind the first answer.
+    let settled = shell.settled(frontend.entries + 1).await;
+
+    // Somebody else, later: the same file, one entry, at its best.
+    let later = shell.send_as("bob", path, BROWSER, &[]).await;
+    assert_eq!(unbrotli(&later.body), changing(1).as_bytes());
+    assert!(
+        later.body.len() <= first.body.len(),
+        "{} > {}",
+        later.body.len(),
+        first.body.len()
+    );
+    let again = shell.send_as("carol", path, BROWSER, &[]).await;
+    assert_eq!(again.body, later.body, "served from what was kept");
+    assert_eq!(shell.compressed.held(), settled);
+
+    // gzip is its own entry, and kept the same way.
+    let gzip = shell.get(path, Some("gzip")).await;
+    assert_eq!(gunzip(&gzip.body), changing(1).as_bytes());
+    assert_eq!(shell.compressed.held().entries, settled.entries + 1);
+    let gzip_again = shell.get(path, Some("gzip")).await;
+    assert_eq!(gzip_again.body, gzip.body);
+    assert_eq!(shell.compressed.held().entries, settled.entries + 1);
+}
+
+#[tokio::test]
+async fn the_same_bytes_from_anywhere_are_kept_once() {
+    let shell = shell().await;
+    // The frontend and the module serve the same wasm here.
+    let held = shell.settled(1).await;
+    let module = shell.get(WASM, BROWSER).await;
+    assert_eq!(unbrotli(&module.body), wasm());
+    assert_eq!(module.body.len(), held.bytes);
+    assert_eq!(shell.compressed.held(), held);
+}
+
+#[tokio::test]
+async fn a_changed_file_is_compressed_afresh() {
+    let shell = shell().await;
+    let path = "/m/checklist/ui/items/changing.js";
+
+    let before = shell.get(path, BROWSER).await;
+    assert_eq!(before.header(header::CONTENT_ENCODING), Some("br"));
+    assert_eq!(unbrotli(&before.body), changing(1).as_bytes());
+
+    // Deployed again, under the same name.
+    *shell.version.lock().unwrap() = 2;
+    let after = shell.get(path, BROWSER).await;
+    assert_eq!(after.header(header::CONTENT_ENCODING), Some("br"));
+    assert_eq!(unbrotli(&after.body), changing(2).as_bytes());
+}
+
+#[tokio::test]
+async fn the_frontend_is_compressed_at_its_best_before_anybody_asks() {
+    let shell = shell().await;
+    let held = shell.settled(1).await;
+    assert_eq!(
+        held.entries, 1,
+        "the wasm, and not an index.html under 1 KB"
+    );
+
+    let answer = shell.get("/hlin-ui_bg.wasm", BROWSER).await;
+    assert_eq!(answer.header(header::CONTENT_ENCODING), Some("br"));
+    assert_eq!(unbrotli(&answer.body), wasm());
+    assert_eq!(
+        answer.body.len(),
+        held.bytes,
+        "what was kept, as it was kept"
+    );
+    assert_eq!(shell.compressed.held(), held);
+}
+
+#[tokio::test]
+async fn a_file_bigger_than_the_whole_budget_is_sent_as_it_is() {
+    let shell = shell_keeping(CompressionConfig { cache_bytes: 8192 }).await;
+    let big = shell.get(WASM, BROWSER).await;
+    assert_eq!(big.status, StatusCode::OK);
+    assert!(big.header(header::CONTENT_ENCODING).is_none());
+    assert_eq!(big.body, wasm());
+    assert!(big.varies_by_encoding());
+
+    // One that fits is still compressed.
+    let small = shell
+        .get("/m/checklist/ui/items/changing.js", BROWSER)
+        .await;
+    assert_eq!(small.header(header::CONTENT_ENCODING), Some("br"));
+    assert!(shell.compressed.held().bytes <= 8192);
+}
+
+#[tokio::test]
+async fn a_budget_of_nothing_turns_compression_off() {
+    let shell = shell_keeping(CompressionConfig { cache_bytes: 0 }).await;
+    for path in [WASM, "/hlin-ui_bg.wasm"] {
+        let answer = shell.get(path, BROWSER).await;
+        assert_eq!(answer.status, StatusCode::OK);
+        assert!(answer.header(header::CONTENT_ENCODING).is_none(), "{path}");
+        assert_eq!(answer.body, wasm());
+    }
+    assert_eq!(shell.compressed.held().entries, 0);
 }

@@ -97,6 +97,7 @@ fn config() -> Config {
     Config {
         public_url: None,
         modules: Default::default(),
+        compression: Default::default(),
         bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
@@ -155,6 +156,7 @@ async fn shell_with(configured: Config) -> (axum::Router, Arc<dyn Store>, Arc<Co
         client: reqwest::Client::new(),
         stream_client: reqwest::Client::new(),
         proxy_client: hlin::clients::Clients::plain().proxying,
+        compressed: Default::default(),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 
@@ -338,6 +340,7 @@ async fn a_module_only_panel_sits_on_a_surface_without_the_shell_fetching_for_it
         client: reqwest::Client::new(),
         stream_client: reqwest::Client::new(),
         proxy_client: hlin::clients::Clients::plain().proxying,
+        compressed: Default::default(),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
     let app = router(state.clone());
@@ -729,6 +732,7 @@ async fn two_requests_arriving_together_get_the_same_surface() {
         client: reqwest::Client::new(),
         stream_client: reqwest::Client::new(),
         proxy_client: hlin::clients::Clients::plain().proxying,
+        compressed: Default::default(),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 
@@ -797,6 +801,7 @@ async fn a_surface_nobody_is_watching_stops_asking_its_platforms() {
         client: reqwest::Client::new(),
         stream_client: reqwest::Client::new(),
         proxy_client: hlin::clients::Clients::plain().proxying,
+        compressed: Default::default(),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 

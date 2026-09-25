@@ -258,6 +258,7 @@ fn config_with(platform: PlatformConfig) -> Config {
     Config {
         public_url: None,
         modules: Default::default(),
+        compression: Default::default(),
         bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),

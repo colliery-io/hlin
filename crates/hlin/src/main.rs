@@ -188,6 +188,7 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
         client: clients.fetching.clone(),
         stream_client: clients.streaming.clone(),
         proxy_client: clients.proxying.clone(),
+        compressed: Arc::new(hlin::compressed::Compressed::new(&config.compression)),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 
@@ -210,7 +211,7 @@ async fn serve(config_path: &std::path::Path) -> anyhow::Result<()> {
     let assets = config.frontend.clone();
     let app = if assets.is_dir() {
         tracing::info!("serving the frontend from {}", assets.display());
-        hlin::server::with_frontend(router(state), &assets, &config)
+        hlin::server::with_frontend(router(state.clone()), &assets, &state)
     } else {
         tracing::warn!(
             "no frontend bundle at {}; the API is up but there is nothing to look at. \

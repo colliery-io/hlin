@@ -169,6 +169,7 @@ fn config(base: &str) -> Config {
     Config {
         public_url: Some(format!("{SHELL}/some/path")),
         modules: Default::default(),
+        compression: Default::default(),
         bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
@@ -226,6 +227,7 @@ async fn state(base: &str) -> AppState {
         client: client.clone(),
         stream_client: client,
         proxy_client,
+        compressed: Default::default(),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     }
 }
@@ -700,9 +702,8 @@ fn bundle() -> std::path::PathBuf {
 async fn the_shell_page_may_frame_only_module_assets() {
     let (base, _) = platform().await;
     let state = state(&base).await;
-    let config = state.config.clone();
     let directory = bundle();
-    let app = hlin::server::with_frontend(router(state), &directory, &config);
+    let app = hlin::server::with_frontend(router(state.clone()), &directory, &state);
 
     let page_csp = format!("frame-src {SHELL}/m/");
     for path in ["/", "/index.html", "/app.js", "/layouts/some-deep-link"] {
@@ -731,9 +732,8 @@ async fn the_shell_page_may_frame_only_module_assets() {
 async fn a_link_to_a_platform_page_loads_the_shell_page() {
     let (base, _) = platform().await;
     let state = state(&base).await;
-    let config = state.config.clone();
     let directory = bundle();
-    let app = hlin::server::with_frontend(router(state), &directory, &config);
+    let app = hlin::server::with_frontend(router(state.clone()), &directory, &state);
 
     // A page's address is the shell's own, beside `/s/`, and nothing the
     // request proxy (`/p/`) or the module assets (`/m/`) claim: sent to
@@ -783,9 +783,8 @@ fn at(host: &str, path: &str) -> Request<Body> {
 #[tokio::test]
 async fn with_no_public_url_both_policies_name_the_origin_the_page_was_opened_at() {
     let state = unconfigured().await;
-    let config = state.config.clone();
     let directory = bundle();
-    let app = hlin::server::with_frontend(router(state), &directory, &config);
+    let app = hlin::server::with_frontend(router(state.clone()), &directory, &state);
 
     for host in ["localhost:8080", "127.0.0.1:8080", "hlin.local:8080"] {
         let shell = format!("http://{host}");
@@ -818,9 +817,8 @@ async fn with_no_public_url_both_policies_name_the_origin_the_page_was_opened_at
 async fn a_configured_public_url_is_named_whatever_the_host() {
     let (base, _) = platform().await;
     let state = state(&base).await;
-    let config = state.config.clone();
     let directory = bundle();
-    let app = hlin::server::with_frontend(router(state), &directory, &config);
+    let app = hlin::server::with_frontend(router(state.clone()), &directory, &state);
 
     for host in ["localhost:8080", "127.0.0.1:8080", "evil.example"] {
         let page = get(&app, at(host, "/")).await;

@@ -299,6 +299,7 @@ async fn shell_at(auth: AuthConfig, public_url: Option<&str>) -> Shell {
     let config = Arc::new(Config {
         public_url: public_url.map(str::to_string),
         modules: Default::default(),
+        compression: Default::default(),
         bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
@@ -364,6 +365,7 @@ async fn shell_at(auth: AuthConfig, public_url: Option<&str>) -> Shell {
         client: clients.fetching,
         stream_client: clients.streaming,
         proxy_client: clients.proxying,
+        compressed: Default::default(),
         streams: Arc::new(hlin::stream::streams::Streams::new()),
     };
 
@@ -1550,6 +1552,7 @@ async fn a_stream_the_platform_breaks_off_ends_as_unreachable() {
     let config = Arc::new(Config {
         public_url: Some(ORIGIN.to_string()),
         modules: Default::default(),
+        compression: Default::default(),
         bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
@@ -1589,6 +1592,7 @@ async fn a_stream_the_platform_breaks_off_ends_as_unreachable() {
             client: clients.fetching,
             stream_client: clients.streaming,
             proxy_client: clients.proxying,
+            compressed: Default::default(),
             streams: Arc::new(hlin::stream::streams::Streams::new()),
         }),
         issuer,

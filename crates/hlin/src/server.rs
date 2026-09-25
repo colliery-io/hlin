@@ -49,6 +49,10 @@ pub struct AppState {
     /// One connection per platform for the whole shell (HLIN-S-0006 REQ-2.1),
     /// which is why it lives on the shell rather than on a surface.
     pub streams: std::sync::Arc<crate::stream::streams::Streams>,
+
+    /// What the shell has compressed and kept, shared by module assets and
+    /// its own frontend so one budget bounds both ([`crate::compressed`]).
+    pub compressed: Arc<crate::compressed::Compressed>,
 }
 
 /// The shell's routes.
@@ -88,15 +92,18 @@ pub fn router(state: AppState) -> Router {
                 .delete(crate::layouts::remove),
         )
         .route("/api/layouts/{id}/fork", post(crate::layouts::fork))
-        // Module assets, compressed on the way out. `/m` and `/m/` are routed
-        // only so they are refused here rather than answered with the
-        // frontend's index by the fallback.
+        // Module assets, compressed on the way out, once per file. `/m` and
+        // `/m/` are routed only so they are refused here rather than
+        // answered with the frontend's index by the fallback.
         .merge(
             Router::new()
                 .route("/m", get(crate::modules::assets::serve))
                 .route("/m/", get(crate::modules::assets::serve))
                 .route("/m/{*asset}", get(crate::modules::assets::serve))
-                .layer(crate::modules::assets::compression()),
+                .layer(axum::middleware::from_fn_with_state(
+                    state.compressed.clone(),
+                    crate::compressed::compress,
+                )),
         )
         // A module's requests to its own platform (HLIN-S-0007). Every method
         // reaches the handler, which refuses the ones it does not carry with
@@ -127,8 +134,12 @@ pub fn router(state: AppState) -> Router {
 /// the frontend's own routing can answer. The page's CSP goes on all of them
 /// because any of them can be the page a person loads. It names the origin the
 /// request arrived on ([`Config::origin_for`]), so it is built per request.
-pub fn with_frontend(router: Router, assets: &std::path::Path, config: &Config) -> Router {
-    let config = Arc::new(config.clone());
+///
+/// Compressed through the same cache as module assets, and compressed at its
+/// best in the background from now, so nobody waits for it.
+pub fn with_frontend(router: Router, assets: &std::path::Path, state: &AppState) -> Router {
+    let config = state.config.clone();
+    state.compressed.precompress(assets);
 
     let frontend = Router::new()
         .fallback_service(tower_http::services::ServeDir::new(assets).fallback(
@@ -150,8 +161,11 @@ pub fn with_frontend(router: Router, assets: &std::path::Path, config: &Config) 
                 }
             },
         ))
-        // Two megabytes of wasm, about a third of that compressed.
-        .layer(crate::modules::assets::compression());
+        // Two megabytes of wasm, a quarter of that compressed.
+        .layer(axum::middleware::from_fn_with_state(
+            state.compressed.clone(),
+            crate::compressed::compress,
+        ));
 
     router.fallback_service(frontend)
 }

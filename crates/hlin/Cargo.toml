@@ -45,11 +45,13 @@ getrandom = { workspace = true }
 jsonwebtoken = { workspace = true }
 bytes = "1"
 async-stream = "0.3"
+# Compressing what the shell serves, once per file (`compressed`).
+brotli = "8"
+flate2 = "1"
 
 [dev-dependencies]
 # `oneshot` drives the real router in a test without binding a port, so routing
 # and extraction are part of what the layout tests exercise.
 tower = { version = "0.5", features = ["util"] }
-# To read back what the shell compressed; the versions its compression uses.
-flate2 = "1"
+# To read back what the shell compressed; the version `brotli` uses.
 brotli-decompressor = "5"

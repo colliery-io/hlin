@@ -113,6 +113,11 @@ pub struct Config {
     /// Hosting platforms' own UI modules: the limits they run within.
     #[serde(default)]
     pub modules: crate::modules::ModulesConfig,
+
+    /// How much of what the shell compresses it keeps
+    /// ([`crate::compressed`]).
+    #[serde(default)]
+    pub compression: crate::compressed::CompressionConfig,
 }
 
 fn default_bind() -> String {
@@ -961,6 +966,13 @@ impl Config {
                 reason,
             })?;
 
+        self.compression
+            .check()
+            .map_err(|reason| ConfigError::Platform {
+                platform: "(the shell)".to_string(),
+                reason,
+            })?;
+
         if let Some(url) = &self.public_url
             && origin_of(url).is_none()
         {
@@ -1257,6 +1269,7 @@ mod trust_tests {
         Config {
             public_url: None,
             modules: Default::default(),
+            compression: Default::default(),
             bind: "127.0.0.1".to_string(),
             port: 8080,
             issuer: "hlin".to_string(),

@@ -64,7 +64,7 @@ toml = "1"
 
 # Web
 axum = "0.8"
-tower-http = { version = "0.7", features = ["fs", "trace", "cors", "compression-gzip", "compression-br"] }
+tower-http = { version = "0.7", features = ["fs", "trace", "cors"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots", "charset", "http2", "stream"] }
 
 # Store
@@ -108,6 +108,31 @@ hlin-pack-demo = { path = "crates/hlin-pack-demo" }
 hlin-sample-platform = { path = "crates/hlin-sample-platform" }
 hlin-bridge = { path = "crates/hlin-bridge" }
 hlin-module = { path = "crates/hlin-module" }
+
+# The shell compresses what it serves, and hashes it to know whether it has
+# already (HLIN-T-0091), and the demo's shell is a debug build. Over the
+# frontend's 1.7 MB wasm, optimising these few crates takes brotli 4 from 400
+# to 150 ms, gzip from 278 to 42, SHA-256 from 13 to under 1, and brotli 11
+# (done once, in the background) from 29 to 9 s; release is 17 ms and 1.5 s.
+# What is left is brotli's generic code, compiled in `hlin`. It costs a debug
+# build a few seconds, once.
+[profile.dev.package.brotli]
+opt-level = 3
+
+[profile.dev.package.alloc-no-stdlib]
+opt-level = 3
+
+[profile.dev.package.alloc-stdlib]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
+[profile.dev.package.crc32fast]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
 
 [profile.release]
 lto = true

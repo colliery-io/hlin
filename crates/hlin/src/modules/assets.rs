@@ -75,9 +75,9 @@
 //! compresses its own files (or keeps them compressed) is taken at its word:
 //! its `Content-Encoding` and `Vary` come back with the bytes as they were
 //! sent, and the limits bound what crossed the wire. Anything the platform
-//! sent as it is, the shell compresses on the way out ([`compression`]),
-//! which is what makes the twenty-widget surface a third of the bytes it was
-//! ([[HLIN-T-0086]]).
+//! sent as it is, the shell compresses on the way out, once per file
+//! ([`crate::compressed`]), which is what makes the twenty-widget surface a
+//! third of the bytes it was ([[HLIN-T-0086]]).
 
 use axum::body::Body;
 use axum::extract::State;
@@ -232,29 +232,6 @@ const PASSED_BACK: [header::HeaderName; 4] = [
     header::CONTENT_ENCODING,
     header::VARY,
 ];
-
-/// Compression for what the shell sends a browser that it did not get
-/// compressed: module assets here, and the shell's own frontend
-/// ([`crate::server::with_frontend`]).
-///
-/// gzip, and brotli where the browser accepts it (at quality 4, as a server
-/// compressing as it goes should: the default of 11 takes seconds over a
-/// frontend's wasm). Nothing under a kilobyte, where the headers cost more
-/// than the saving; nothing already encoded; no images, which are; and never
-/// an event stream, which would be held until a compressor's buffer filled.
-/// Never on `/p/`, where an answer may be streamed and every piece must reach
-/// the module as it arrives: that route is outside this layer, not excluded
-/// by it.
-pub fn compression()
--> tower_http::compression::CompressionLayer<impl tower_http::compression::Predicate> {
-    use tower_http::compression::predicate::{NotForContentType, Predicate, SizeAbove};
-    tower_http::compression::CompressionLayer::new().compress_when(
-        SizeAbove::new(1024)
-            .and(NotForContentType::IMAGES)
-            .and(NotForContentType::SSE)
-            .and(NotForContentType::GRPC),
-    )
-}
 
 async fn fetch(state: &AppState, asked: Asked, headers: &HeaderMap) -> Response {
     // As the shell, like a manifest: nothing from the viewer but whether the
