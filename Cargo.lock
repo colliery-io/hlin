@@ -406,6 +406,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono-tz"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6139a8597ed92cf816dfb33f5dd6cf0bb93a6adc938f11039f371bc5bcd26c3"
+dependencies = [
+ "chrono",
+ "phf",
+]
+
+[[package]]
 name = "clap"
 version = "4.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1630,6 +1640,110 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-widget-clock"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "chrono-tz",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-clock-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "js-sys",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-counter"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-counter-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-module"
+version = "0.0.1"
+dependencies = [
+ "console_error_panic_hook",
+ "hlin-module",
+ "leptos",
+ "serde",
+ "serde_json",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "hlin-widget-poll"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "hlin-widget-support",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hlin-widget-poll-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-module",
+ "hlin-widget-module",
+ "leptos",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-support"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "axum",
+ "clap",
+ "futures",
+ "hlin-identity",
+ "hlin-manifest",
+ "hlin-widget-support",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2552,6 +2666,24 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "phf"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "913273894cec178f401a31ec4b656318d95473527be05c0752cc41cdc32be8b7"
+dependencies = [
+ "phf_shared",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06005508882fb681fd97892ecff4b7fd0fee13ef1aa569f8695dae7ab9099981"
+dependencies = [
+ "siphasher",
+]
 
 [[package]]
 name = "pin-project"
@@ -3488,6 +3620,12 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "siphasher"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "slab"

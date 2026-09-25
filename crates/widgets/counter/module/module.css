@@ -1,0 +1,13 @@
+/* The counter's own look, against the shell's `--hlin-*` tokens and the
+ * shared classes in hlin-widget-module's widget.css. Nothing else. */
+
+.counter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.counter .w-big {
+  min-width: 2ch;
+  text-align: center;
+}

@@ -1,0 +1,317 @@
+//! What every widget gets from this crate, checked once on a toy widget: a
+//! list anyone may add a word to.
+//!
+//! The widgets' own tests check their rules. These check what none of them
+//! should have to: that a write needs a token bound to it and a key, that a
+//! key is honoured per person and bound to its request, that a refusal
+//! changes nothing and is not remembered, and that the manifest, the module's
+//! files and the event stream are where the manifest says.
+
+use axum::Router;
+use axum::extract::State;
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use hlin_widget_support::envelope::{ColumnType, Envelope, Records};
+use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{Fallback, ModuleFiles, Platform, Refusal, Reply, Viewer, Widget, Write};
+use serde_json::json;
+
+type Words = Vec<String>;
+
+fn widget() -> Widget<Words> {
+    Widget {
+        panel: "words",
+        name: "Words",
+        icon: "list",
+        title: "Words",
+        description: "Words anyone may add",
+        shared: true,
+        fallback: Some(Fallback {
+            kind: "table",
+            envelope: "records.v1",
+            refresh_ms: None,
+            data: |words, _| {
+                Envelope::Records(Records {
+                    columns: vec![hlin_widget_support::envelope::Column {
+                        key: "word".to_string(),
+                        label: "Word".to_string(),
+                        value_type: ColumnType::String,
+                        unit: None,
+                        extra: Default::default(),
+                    }],
+                    rows: words
+                        .iter()
+                        .map(|word| {
+                            let mut row = serde_json::Map::new();
+                            row.insert("word".to_string(), json!(word));
+                            row
+                        })
+                        .collect(),
+                    as_of: None,
+                    extra: Default::default(),
+                })
+            },
+        }),
+        built: "/nowhere",
+    }
+}
+
+fn api() -> Router<Platform<Words>> {
+    async fn list(State(platform): State<Platform<Words>>, Viewer(_): Viewer) -> Response {
+        axum::Json(platform.read(Words::clone)).into_response()
+    }
+    async fn add(State(platform): State<Platform<Words>>, write: Write) -> Response {
+        platform.write(&write, |words, _| {
+            let word: String = write.json("A word is a JSON string")?;
+            if word.contains(' ') {
+                return Err(Refusal::bad_request("One word, no spaces"));
+            }
+            words.push(word);
+            Ok(Reply::created(&*words))
+        })
+    }
+    Router::new()
+        .route("/api/words", get(list))
+        .route("/api/words/add", post(add))
+}
+
+async fn words() -> Running {
+    testing::start(widget(), Words::new(), api()).await
+}
+
+#[test]
+fn the_toy_widget_is_a_manifest_the_shell_accepts() {
+    assert_eq!(widget().defects("words"), None);
+}
+
+#[tokio::test]
+async fn the_manifest_and_health_are_served_to_anyone() {
+    let words = words().await;
+    let manifest = words
+        .send("GET", "/.well-known/hlin.json", None, None, None)
+        .await;
+    assert_eq!(manifest.status, 200);
+    assert_eq!(manifest.body["platform"]["id"], "words");
+    assert_eq!(
+        manifest.body["panels"][0]["ui"]["entry"],
+        "/ui/words/index.html"
+    );
+    assert_eq!(manifest.body["events"], "api/events");
+
+    let health = words.send("GET", "/api/health", None, None, None).await;
+    assert_eq!(health.status, 200);
+}
+
+#[tokio::test]
+async fn reads_and_the_event_stream_need_a_token() {
+    let words = words().await;
+    for path in ["/api/words", "/api/events", "/api/panels/words"] {
+        let answer = words.send("GET", path, None, None, None).await;
+        assert_eq!(answer.status, 401, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn a_write_needs_a_token_bound_to_it() {
+    let words = words().await;
+    let alice = person("u-alice", "Alice");
+
+    // An ordinary read token, as might be lifted from a log.
+    let read_token = words.read_token(&alice);
+    let refused = words
+        .send(
+            "POST",
+            "/api/words/add",
+            Some(&read_token),
+            Some("k1"),
+            Some(json!("hi")),
+        )
+        .await;
+    assert_eq!(refused.status, 401);
+
+    // Bound, but to somewhere else.
+    let elsewhere = words.write_token(&alice, "POST", "/api/other");
+    let refused = words
+        .send(
+            "POST",
+            "/api/words/add",
+            Some(&elsewhere),
+            Some("k1"),
+            Some(json!("hi")),
+        )
+        .await;
+    assert_eq!(refused.status, 401);
+
+    assert_eq!(words.get(&alice, "/api/words").await.body, json!([]));
+}
+
+#[tokio::test]
+async fn a_write_needs_an_idempotency_key_it_can_keep() {
+    let words = words().await;
+    let alice = person("u-alice", "Alice");
+    let token = words.write_token(&alice, "POST", "/api/words/add");
+
+    let none = words
+        .send(
+            "POST",
+            "/api/words/add",
+            Some(&token),
+            None,
+            Some(json!("hi")),
+        )
+        .await;
+    assert_eq!(none.status, 400);
+    assert_eq!(
+        none.body,
+        json!({ "message": "Writes need an Idempotency-Key" })
+    );
+
+    let spaced = words
+        .send(
+            "POST",
+            "/api/words/add",
+            Some(&token),
+            Some("has space"),
+            Some(json!("hi")),
+        )
+        .await;
+    assert_eq!(spaced.status, 400);
+}
+
+#[tokio::test]
+async fn a_key_is_per_person_and_bound_to_its_request() {
+    let words = words().await;
+    let (alice, bob) = (person("u-alice", "Alice"), person("u-bob", "Bob"));
+    let add = |word: &str| Some(json!(word));
+
+    let first = words
+        .write_keyed(&alice, "POST", "/api/words/add", add("one"), "k1")
+        .await;
+    assert_eq!(first.status, 201);
+
+    // Alice again, same request: answered as before, not done twice.
+    let again = words
+        .write_keyed(&alice, "POST", "/api/words/add", add("one"), "k1")
+        .await;
+    assert!(again.replayed);
+    assert_eq!(again.body, first.body);
+
+    // Alice, same key, different request: a client bug, said so.
+    let conflict = words
+        .write_keyed(&alice, "POST", "/api/words/add", add("two"), "k1")
+        .await;
+    assert_eq!(conflict.status, 422);
+
+    // Bob's k1 is his own.
+    let bobs = words
+        .write_keyed(&bob, "POST", "/api/words/add", add("two"), "k1")
+        .await;
+    assert_eq!(bobs.status, 201);
+    assert!(!bobs.replayed);
+
+    assert_eq!(
+        words.get(&alice, "/api/words").await.body,
+        json!(["one", "two"])
+    );
+}
+
+#[tokio::test]
+async fn a_refusal_changes_nothing_and_a_retry_is_decided_again() {
+    let words = words().await;
+    let alice = person("u-alice", "Alice");
+
+    let refused = words
+        .write_keyed(
+            &alice,
+            "POST",
+            "/api/words/add",
+            Some(json!("two words")),
+            "k1",
+        )
+        .await;
+    assert_eq!(refused.status, 400);
+    assert_eq!(refused.body, json!({ "message": "One word, no spaces" }));
+
+    let malformed = words
+        .write(
+            &alice,
+            "POST",
+            "/api/words/add",
+            Some(json!({ "not": "a string" })),
+        )
+        .await;
+    assert_eq!(
+        malformed.body,
+        json!({ "message": "A word is a JSON string" })
+    );
+
+    let again = words
+        .write_keyed(
+            &alice,
+            "POST",
+            "/api/words/add",
+            Some(json!("two words")),
+            "k1",
+        )
+        .await;
+    assert!(!again.replayed, "a refusal is not remembered");
+    assert_eq!(words.get(&alice, "/api/words").await.body, json!([]));
+}
+
+#[tokio::test]
+async fn a_write_that_happened_is_announced_and_a_refusal_is_not() {
+    let words = words().await;
+    let alice = person("u-alice", "Alice");
+    let mut events = words.listen(&alice).await;
+
+    words
+        .write(&alice, "POST", "/api/words/add", Some(json!("two words")))
+        .await;
+    words
+        .write(&alice, "POST", "/api/words/add", Some(json!("one")))
+        .await;
+
+    // The first `changed` is the add; had the refusal been announced, a
+    // second would follow at once.
+    assert_eq!(events.changed().await, Some(json!({ "panel": "words" })));
+    words
+        .write(&alice, "POST", "/api/words/add", Some(json!("more")))
+        .await;
+    assert_eq!(events.changed().await, Some(json!({ "panel": "words" })));
+}
+
+#[tokio::test]
+async fn the_fallback_is_the_envelope_the_manifest_promised() {
+    let words = words().await;
+    let alice = person("u-alice", "Alice");
+    words
+        .write(&alice, "POST", "/api/words/add", Some(json!("one")))
+        .await;
+
+    let Envelope::Records(table) = words.fallback(&alice).await else {
+        panic!("a records envelope");
+    };
+    assert_eq!(table.rows.len(), 1);
+}
+
+#[tokio::test]
+async fn the_modules_files_are_served_to_anyone_and_nothing_else_is() {
+    let files = ModuleFiles::from_files([
+        ("index.html".to_string(), b"<!doctype html>".to_vec()),
+        ("boot.js".to_string(), b"// boot".to_vec()),
+    ]);
+    let words = testing::start_with(widget(), Words::new(), api(), files).await;
+
+    let entry = words
+        .send("GET", "/ui/words/index.html", None, None, None)
+        .await;
+    assert_eq!(entry.status, 200);
+    for missing in [
+        "/ui/words/missing.js",
+        "/ui/words/%2E%2E%2Fboot.js",
+        "/ui/boot.js",
+    ] {
+        let answer = words.send("GET", missing, None, None, None).await;
+        assert_eq!(answer.status, 404, "{missing}");
+    }
+}

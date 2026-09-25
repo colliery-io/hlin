@@ -1,0 +1,101 @@
+/* Every widget's stylesheet, injected by `hlin_widget_module::start`.
+ *
+ * Written against the shell's `--hlin-*` tokens and nothing else
+ * (HLIN-S-0007, *theme*): the SDK sets whatever tokens the shell sends as
+ * custom properties on <html>, so a widget follows the surface it sits on,
+ * and one that drifts from its neighbours shows it. Each has a fallback, for a
+ * pack that does not send it. A widget's own `module.css` uses the same
+ * tokens, and these classes, rather than colours of its own. */
+
+html,
+body {
+  margin: 0;
+  /* Raised, not surface: the frame fills a panel, and a panel is raised. */
+  background: var(--hlin-raised, #161a21);
+  color: var(--hlin-text, #e6e9ee);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.widget {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+/* A number or word the widget is about. */
+.w-big {
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--hlin-text, #e6e9ee);
+}
+
+.w-quiet {
+  margin: 0;
+  color: var(--hlin-dim, #8b95a3);
+  font-size: 12px;
+}
+
+.w-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.w-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.w-button {
+  font: inherit;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--hlin-accent, #7fb2ff);
+  background: var(--hlin-accent, #7fb2ff);
+  color: var(--hlin-on-accent, #0b0e13);
+  cursor: pointer;
+}
+
+.w-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.w-button--quiet {
+  background: transparent;
+  color: var(--hlin-text, #e6e9ee);
+  border-color: var(--hlin-border, #2a3340);
+}
+
+.w-input {
+  font: inherit;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--hlin-border, #2a3340);
+  background: var(--hlin-raised, #161a21);
+  color: var(--hlin-text, #e6e9ee);
+}
+
+.w-refusal,
+.w-problem p {
+  margin: 0;
+  color: var(--hlin-bad, #f06464);
+}
+
+.w-problem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border: 1px solid var(--hlin-bad, #f06464);
+  border-radius: 6px;
+}

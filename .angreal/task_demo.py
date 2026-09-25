@@ -35,6 +35,9 @@ CONFIGS = {
     "gallery": "demo/hlin-gallery.toml",
     "live": "demo/hlin-live.toml",
     "collab": "demo/hlin-collab.toml",
+    # Not run as it is: `up` writes demo/state/hlin-twenty.toml, this plus one
+    # `[[platforms]]` per entry in `WIDGETS`.
+    "twenty": "demo/hlin-twenty.toml",
 }
 
 #: Flavours where people sign in through Dex rather than being the development
@@ -90,6 +93,35 @@ COLLAB_PANELS = [
     ("checklist", "items", {"list": ["team"]}, 0, 0, 6, 6),
     ("feed", "posts", {}, 6, 0, 6, 6),
 ]
+
+#: The twenty widgets of HLIN-I-0012, in the order "Twenty" shows them.
+#:
+#: The one list of them: `up --with twenty` builds each one's module, starts
+#: it on its port, lists it in the shell's configuration and puts it on the
+#: surface, and `down` stops it. Adding a widget is one entry here, with the
+#: port 8200 plus its number in the initiative's table (the steps are in
+#: crates/widgets/hlin-widget-support/src/lib.rs, *Adding a widget*).
+#:
+#: Everything else is by convention from the name: the crate is
+#: crates/widgets/{name}, its binary hlin-widget-{name}, its module the package
+#: hlin-widget-{name}-module in its `module/`, and its one panel `{name}`.
+WIDGETS = [
+    {"name": "clock", "port": 8201},
+    {"name": "counter", "port": 8202},
+    {"name": "poll", "port": 8203},
+]
+
+#: What the twenty-widget surface is called, and its grid: three widgets
+#: across a twelve-column grid, each five 60px rows tall, so twenty make a
+#: page about three times the height of a laptop screen, with eight or nine in
+#: view at a time (HLIN-I-0012 decision 3).
+TWENTY_TITLE = "Twenty"
+TWENTY_ACROSS = 3
+TWENTY_WIDTH = 4
+TWENTY_HEIGHT = 5
+
+#: Where `up --with twenty` writes the shell configuration it runs.
+TWENTY_CONFIG = os.path.join(STATE, "hlin-twenty.toml")
 
 demo = angreal.command_group(name="demo", about="the running demo")
 
@@ -345,10 +377,17 @@ def _wait_for_panels(seconds=30):
         sample platforms, and signs in as Alice to publish a surface with both
         side by side, which is what Alice lands on.
 
+        `--with twenty` starts the widget platforms listed in `WIDGETS`
+        (8201 upward), each its own process, after building their modules
+        in parallel (skipping any whose sources have not changed), and the
+        shell on `dev` sign-in with a configuration listing them all; then
+        publishes "Twenty", a scrolling surface with every widget on it.
+
         ## When to use
         - To see the product running
         - Before `angreal demo walkthrough` (standard flavour)
         - Before `angreal e2e signin` (`--with collab`)
+        - Before `angreal e2e twenty` (`--with twenty`)
 
         Safe to run repeatedly; it stops whatever it previously started first.
         """,
@@ -359,7 +398,7 @@ def _wait_for_panels(seconds=30):
     name="with_",
     long="with",
     takes_value=True,
-    help="which shell configuration to run: demo, aurora, gallery, live or collab",
+    help="which shell configuration to run: demo, aurora, gallery, live, collab or twenty",
 )
 def demo_up(with_=None):
     flavour = with_ or "demo"
@@ -367,6 +406,9 @@ def demo_up(with_=None):
         print(f"no configuration called `{flavour}`. One of: {', '.join(CONFIGS)}")
         return 1
     config = os.path.join(cwd, CONFIGS[flavour])
+    twenty = flavour == "twenty"
+    if twenty:
+        config = _write_twenty_config(config)
 
     # Which front end to build is read from the configuration rather than
     # guessed, so the one that gets built is the one that gets served.
@@ -403,11 +445,13 @@ def demo_up(with_=None):
         return 1
 
     print("building the binaries", flush=True)
-    binaries = ["hlin"] + (
-        [platform["binary"] for platform in COLLAB_PLATFORMS]
-        if signed_in
-        else ["hlin-sample-platform"]
-    )
+    if twenty:
+        platforms = [f"hlin-widget-{widget['name']}" for widget in WIDGETS]
+    elif signed_in:
+        platforms = [platform["binary"] for platform in COLLAB_PLATFORMS]
+    else:
+        platforms = ["hlin-sample-platform"]
+    binaries = ["hlin"] + platforms
     build = subprocess.run(
         ["cargo", "build"] + [flag for binary in binaries for flag in ("--bin", binary)],
         cwd=cwd,
@@ -417,6 +461,9 @@ def demo_up(with_=None):
 
     if signed_in and _build_modules() != 0:
         return 1
+
+    if twenty:
+        return _twenty_up(config)
 
     # The platforms verify the shell's tokens, and the shell is not up yet. That
     # is deliberate and worth seeing: a platform that cannot reach the issuer's
@@ -547,7 +594,9 @@ def demo_status():
     tool=angreal.ToolDescription(
         """
         Stop the shell, the sample platforms (or the checklist and feed, and
-        Dex, if `--with collab` started them), and the development database, and forget the process registry.
+        Dex, if `--with collab` started them, or the widgets, if `--with
+        twenty` did), and the development database, and forget the process
+        registry.
 
         ## When to use
         - When finished with the demo
@@ -579,7 +628,8 @@ def _stop_everything(keep_database=False):
 
     # The shell goes first, so the platforms are not left answering a shell that
     # is halfway through shutting down.
-    for name in ["shell"] + [platform["name"] for platform in PLATFORMS + COLLAB_PLATFORMS]:
+    everything = PLATFORMS + COLLAB_PLATFORMS + WIDGETS
+    for name in ["shell"] + [platform["name"] for platform in everything]:
         entry = processes.get(name)
         if entry and _stop(name, entry):
             print(f"stopped {name}", flush=True)
@@ -773,6 +823,272 @@ def _publish_collab_surface():
                 for platform, key, selections, x, y, w, h in COLLAB_PANELS
             ],
         },
+    )
+    if status != 200:
+        print(f"could not publish the surface: {status} {written}", flush=True)
+        return 1
+
+    print(f"  published {SHELL}/s/{layout}", flush=True)
+    return 0
+
+
+# -- Twenty widgets on one surface ----------------------------------------
+
+
+def _write_twenty_config(head):
+    """Write the shell configuration for the twenty-widget demo, and say where.
+
+    The committed file holds everything but the platforms, which are appended
+    from `WIDGETS`, so the list of widgets is written down once and a new one
+    cannot be started without the shell being told about it.
+    """
+    with open(head) as handle:
+        text = handle.read()
+    for widget in WIDGETS:
+        text += (
+            "\n[[platforms]]\n"
+            f'id = "{widget["name"]}"\n'
+            f'base_url = "http://127.0.0.1:{widget["port"]}"\n'
+            'auth = { strategy = "hlin-token" }\n'
+        )
+    os.makedirs(STATE, exist_ok=True)
+    with open(TWENTY_CONFIG, "w") as handle:
+        handle.write(text)
+    return TWENTY_CONFIG
+
+
+def _widget_module(widget):
+    return os.path.join(cwd, "crates", "widgets", widget["name"], "module")
+
+
+#: What a widget's module is built from, beyond its own `module/`: the crates
+#: every widget module is built on, and the lockfile that pins everything else.
+#: A change to any of them rebuilds every module.
+MODULE_INPUTS = [
+    "crates/widgets/hlin-widget-module",
+    "crates/hlin-module/src",
+    "crates/hlin-bridge/src",
+    "Cargo.lock",
+]
+
+#: The file in a widget's `dist` that says which sources it was built from. A
+#: dotfile, which the widget does not serve (`ModuleFiles::read`).
+STAMP = ".built-from"
+
+
+def _module_fingerprint(widget):
+    """A hash of everything a widget's module is built from.
+
+    Content rather than modification times, so a checkout, a rebase or a
+    `touch` that changes nothing does not cost a rebuild, and an edit always
+    does.
+    """
+    import hashlib
+
+    digest = hashlib.sha256()
+    roots = [_widget_module(widget)] + [os.path.join(cwd, path) for path in MODULE_INPUTS]
+    for root in roots:
+        paths = [root] if os.path.isfile(root) else []
+        for directory, subdirectories, files in os.walk(root):
+            subdirectories[:] = sorted(d for d in subdirectories if d not in ("dist", "target"))
+            paths += [os.path.join(directory, name) for name in sorted(files)]
+        for path in paths:
+            digest.update(os.path.relpath(path, cwd).encode())
+            with open(path, "rb") as handle:
+                digest.update(handle.read())
+    return digest.hexdigest()
+
+
+def _module_is_current(widget, fingerprint):
+    dist = os.path.join(_widget_module(widget), "dist")
+    try:
+        with open(os.path.join(dist, STAMP)) as handle:
+            stamped = handle.read().strip()
+    except OSError:
+        return False
+    return stamped == fingerprint and os.path.isfile(os.path.join(dist, "index.html"))
+
+
+def _build_widget_modules():
+    """Build every widget's module whose sources changed since its last build.
+
+    The slow part of the demo, so done in two steps that each run in
+    parallel: one `cargo build` for every stale module at once, which compiles
+    the dependencies they share once and uses every core; then one `trunk
+    build` per module, all at once, each finding the compiling done and only
+    running wasm-bindgen and writing `dist`. Run the other way round, twenty
+    Trunks would queue on cargo's lock and compile one after another.
+    """
+    started = time.time()
+    fingerprints = {widget["name"]: _module_fingerprint(widget) for widget in WIDGETS}
+    stale = [w for w in WIDGETS if not _module_is_current(w, fingerprints[w["name"]])]
+    current = len(WIDGETS) - len(stale)
+    if current:
+        print(f"  {current} widget modules unchanged since their last build", flush=True)
+    if not stale:
+        return 0
+
+    names = ", ".join(widget["name"] for widget in stale)
+    print(f"building {len(stale)} widget modules: {names}", flush=True)
+    packages = [flag for w in stale for flag in ("-p", f"hlin-widget-{w['name']}-module")]
+    compiled = subprocess.run(
+        ["cargo", "build", "--target", "wasm32-unknown-unknown"] + packages, cwd=cwd
+    )
+    if compiled.returncode != 0:
+        print("The widget modules did not compile.\n  rustup target add wasm32-unknown-unknown")
+        return 1
+
+    os.makedirs(LOGS, exist_ok=True)
+    running = []
+    for widget in stale:
+        log_path = os.path.join(LOGS, f"module-{widget['name']}.log")
+        log = open(log_path, "w")
+        process = subprocess.Popen(
+            ["trunk", "build"],
+            cwd=_widget_module(widget),
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+        running.append((widget, process, log, log_path))
+
+    failed = []
+    for widget, process, log, log_path in running:
+        process.wait()
+        log.close()
+        if process.returncode != 0:
+            failed.append((widget["name"], log_path))
+            continue
+        # Written last, so a build that failed halfway is never taken as
+        # current.
+        with open(os.path.join(_widget_module(widget), "dist", STAMP), "w") as handle:
+            handle.write(fingerprints[widget["name"]])
+
+    if failed:
+        for name, log_path in failed:
+            print(f"{name}'s module did not build; see {log_path}", flush=True)
+        print("  cargo install trunk")
+        return 1
+
+    print(f"  built in {time.time() - started:.1f}s", flush=True)
+    return 0
+
+
+def _twenty_up(config):
+    """The rest of `up --with twenty`, once the shell and widgets are built."""
+    if _build_widget_modules() != 0:
+        return 1
+
+    # The widgets verify the shell's tokens, and the shell is not up yet. As
+    # with the sample platforms that is fine: each fetches the keys when the
+    # first token arrives.
+    for widget in WIDGETS:
+        name = widget["name"]
+        argv = [
+            f"./target/debug/hlin-widget-{name}",
+            "--name",
+            name,
+            "--port",
+            str(widget["port"]),
+            "--shell-keys",
+            f"{SHELL}/.well-known/hlin-keys.json",
+            "--module-dir",
+            os.path.join(_widget_module(widget), "dist"),
+        ]
+        pid = _start(name, argv, widget["port"])
+        print(f"  {name} on {widget['port']} (pid {pid})", flush=True)
+
+    for widget in WIDGETS:
+        url = f"http://127.0.0.1:{widget['port']}/.well-known/hlin.json"
+        if not _wait_for(url, seconds=30):
+            print(f"{widget['name']} did not come up. See demo/state/logs/{widget['name']}.log.")
+            return 1
+
+    pid = _start("shell", ["./target/debug/hlin", "serve", "--config", config], 8080)
+    print(f"  shell on 8080 (pid {pid})")
+    # The process is checked as well as the port, for the reason `up` gives:
+    # an old shell holding 8080 would answer for a new one that exited.
+    if not _wait_for(f"{SHELL}/api/health", seconds=30) or not _alive(pid):
+        print("The shell did not come up. See demo/state/logs/shell.log and `lsof -i :8080`.")
+        return 1
+
+    print(f"publishing `{TWENTY_TITLE}`", flush=True)
+    if _publish_twenty() != 0:
+        return 1
+
+    print(f"\nHlin is running at {SHELL}, with {len(WIDGETS)} widgets on `{TWENTY_TITLE}`.")
+    print("`angreal e2e twenty` proves it in a browser.")
+    print("`angreal demo down` stops everything.")
+    return 0
+
+
+def _twenty_panels():
+    """Every widget's panel, placed in reading order, three across."""
+    return [
+        {
+            "platform_id": widget["name"],
+            "panel_key": widget["name"],
+            "selections": {},
+            "position": {
+                "x": (index % TWENTY_ACROSS) * TWENTY_WIDTH,
+                "y": (index // TWENTY_ACROSS) * TWENTY_HEIGHT,
+                "w": TWENTY_WIDTH,
+                "h": TWENTY_HEIGHT,
+            },
+        }
+        for index, widget in enumerate(WIDGETS)
+    ]
+
+
+def _publish_twenty():
+    """Publish "Twenty" as the development user.
+
+    With `dev` sign-in every request is that user, so the shell's own API is
+    enough, with none of the collaborative demo's signing in first, and
+    nothing here a person could not have done by hand. Their "Twenty" is
+    replaced rather than a new one created, so running `up` again leaves one
+    surface; and replacing it makes it their most recently changed layout,
+    which is where they land.
+    """
+    opener = urllib.request.build_opener()
+
+    # The registry polls on its own schedule; a panel it has not seen yet
+    # would be accepted and drawn as gone.
+    wanted = {(widget["name"], widget["name"]) for widget in WIDGETS}
+    deadline = time.time() + 30
+    while True:
+        status, catalog = _as(opener, "GET", "/api/panels")
+        offered = (
+            {(p["id"], panel["key"]) for p in catalog for panel in p["panels"]}
+            if status == 200
+            else set()
+        )
+        if wanted <= offered:
+            break
+        if time.time() > deadline:
+            missing = ", ".join(f"{p}/{k}" for p, k in sorted(wanted - offered))
+            print(f"the shell is not offering {missing}. See demo/state/logs.", flush=True)
+            return 1
+        time.sleep(0.5)
+
+    status, owned = _as(opener, "GET", "/api/layouts")
+    if status != 200:
+        print(f"could not list the layouts: {status} {owned}", flush=True)
+        return 1
+    existing = next((layout for layout in owned if layout["title"] == TWENTY_TITLE), None)
+    if existing:
+        layout = existing["id"]
+    else:
+        status, created = _as(opener, "POST", "/api/layouts", {"title": TWENTY_TITLE})
+        if status != 201:
+            print(f"could not create the surface: {status} {created}", flush=True)
+            return 1
+        layout = created["id"]
+
+    status, written = _as(
+        opener,
+        "PUT",
+        f"/api/layouts/{layout}",
+        {"title": TWENTY_TITLE, "visibility": "published", "panels": _twenty_panels()},
     )
     if status != 200:
         print(f"could not publish the surface: {status} {written}", flush=True)

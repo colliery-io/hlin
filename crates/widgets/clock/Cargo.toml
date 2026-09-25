@@ -1,0 +1,33 @@
+[package]
+name = "hlin-widget-clock"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Widget 1 of twenty: world clocks"
+publish = false
+
+[[bin]]
+name = "hlin-widget-clock"
+path = "src/main.rs"
+
+[lib]
+name = "hlin_widget_clock"
+path = "src/lib.rs"
+
+[dependencies]
+hlin-widget-support = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+# Real zones, daylight saving included, so a clock is right in March and
+# October too. Only the server needs them: the module is sent the offset.
+chrono-tz = "0.10"
+
+[dev-dependencies]
+hlin-widget-support = { workspace = true, features = ["testing"] }

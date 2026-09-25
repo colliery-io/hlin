@@ -1,0 +1,34 @@
+# The twenty-widget demo shell (HLIN-I-0012).
+#
+# Twenty small platforms, each its own crate, process and module, on one
+# scrolling surface. `angreal demo up --with twenty` does not read this file
+# as it is: it writes demo/state/hlin-twenty.toml, which is this followed by
+# one `[[platforms]]` per entry in `WIDGETS` in .angreal/task_demo.py, so the
+# list of widgets is written down once. Add a widget there, not here.
+#
+# Everybody is the development user, as in the standard demo: the
+# collaborative demo already proves `oidc`, and this one is about how many
+# modules one page can hold. The relay that keeps a shared widget in step
+# between browsers is per surface, not per person, so one user in two
+# browsers shows it as well as two would.
+
+port = 8080
+# Where people open the demo, which is the origin modules are confined to: a
+# module's CSP names it, and the request proxy refuses a caller from any
+# other.
+public_url = "http://127.0.0.1:8080"
+issuer = "hlin"
+key_path = "demo/state/shell.key"
+
+database_url = "postgres://hlin:hlin@localhost:55432/hlin"
+
+[auth]
+strategy = "dev"
+sub = "u_dev"
+name = "Development User"
+groups = ["platform-engineering", "oncall"]
+
+[timings]
+poll_seconds = 10
+debounce_observations = 2
+upstream_timeout_seconds = 10

@@ -183,6 +183,15 @@ def e2e_test(headed=False, filter=None):
         )
         return 1
 
+    if _is_twenty():
+        print(
+            f"The shell at {SHELL} is the twenty-widget demo (`demo up --with twenty`),\n"
+            "and this suite composes from the sample platforms, which it does not run.\n"
+            "Run `angreal e2e twenty` against it, or `angreal demo up` for this suite.",
+            flush=True,
+        )
+        return 1
+
     argv = ["npx", "playwright", "test"]
     if headed:
         argv.append("--headed")
@@ -300,6 +309,86 @@ def e2e_walkthrough(headed=False):
         return 1
 
     argv = ["npx", "playwright", "test", "walkthrough.spec.js"]
+    if headed:
+        argv.append("--headed")
+
+    return _playwright(argv)
+
+
+def _offered_platforms():
+    """The ids of the platforms the running shell offers panels from."""
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"{SHELL}/api/panels", timeout=3) as answer:
+            return {platform["id"] for platform in json.loads(answer.read().decode("utf-8"))}
+    except Exception:
+        return set()
+
+
+def _is_twenty():
+    """Whether the running shell is the twenty-widget demo.
+
+    Told by what it offers rather than by a layout's title, because layouts
+    outlive the demo that made them in the database, and the platforms do not.
+    """
+    return {"counter", "poll"} <= _offered_platforms()
+
+
+@e2e()
+@angreal.command(
+    name="twenty",
+    about="every widget ready, and shared ones in step, against the twenty-widget demo",
+    tool=angreal.ToolDescription(
+        """
+        Open the published "Twenty" surface in a browser and assert every
+        widget on it reaches `ready`, scrolling each into view; then open it
+        in a second browser context and show that bumping the counter and
+        voting in the poll in one reaches the other without a reload,
+        printing how long each took. Writes a screenshot per step.
+
+        ## When to use
+        - After `angreal demo up --with twenty`
+        - After adding a widget, or changing hlin-widget-support or
+          hlin-widget-module
+
+        Bumps the counter and moves the development user's vote, in the
+        widgets' memory, which `demo down` forgets.
+        """,
+        risk_level="safe",
+    ),
+)
+@angreal.argument(
+    name="headed",
+    long="headed",
+    takes_value=False,
+    is_flag=True,
+    help="show the browsers rather than running them headless",
+)
+def e2e_twenty(headed=False):
+    if not _npm_available():
+        return 1
+
+    if not _installed():
+        print("Playwright is not installed here. Run `angreal e2e install` first.", flush=True)
+        return 1
+
+    if not _demo_running():
+        print(f"Nothing is answering at {SHELL}. Start it with `angreal demo up --with twenty`.", flush=True)
+        return 1
+
+    # Checked here rather than left to the spec, which skips itself against
+    # another demo: a run that skipped everything would report success.
+    if _signs_people_in() or not _is_twenty():
+        print(
+            f"The shell at {SHELL} is not the twenty-widget demo. Start it with\n"
+            "`angreal demo up --with twenty`.",
+            flush=True,
+        )
+        return 1
+
+    argv = ["npx", "playwright", "test", "twenty.spec.js"]
     if headed:
         argv.append("--headed")
 

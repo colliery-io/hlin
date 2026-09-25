@@ -1,0 +1,25 @@
+/* The clock's own look, against the shell's `--hlin-*` tokens and the shared
+ * classes in hlin-widget-module's widget.css. Nothing else. */
+
+.clock {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--hlin-border, #2a3340);
+}
+
+.clock__name {
+  color: var(--hlin-dim, #8b95a3);
+}
+
+.clock__time {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.clock__remove {
+  padding: 0 8px;
+}

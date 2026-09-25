@@ -1,0 +1,20 @@
+[package]
+name = "hlin-widget-module"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The module side of the twenty widgets: connect, fetch again when told, write with a retry, and one stylesheet"
+publish = false
+
+[dependencies]
+hlin-module = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Runs `start`'s wait for `init`. Leptos's own `spawn_local` needs the executor
+# that `mount_to_body` starts, and nothing is mounted until `init` arrives.
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"

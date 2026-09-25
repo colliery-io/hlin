@@ -1,0 +1,40 @@
+/* The poll's own look, against the shell's `--hlin-*` tokens and the shared
+ * classes in hlin-widget-module's widget.css. Nothing else. */
+
+.poll__question {
+  margin: 0;
+  font-weight: 600;
+}
+
+.poll__option {
+  display: grid;
+  grid-template-columns: 8em 1fr 2ch;
+  align-items: center;
+  gap: 8px;
+}
+
+.poll__option .w-button {
+  text-align: left;
+}
+
+/* The bar is its share of the votes, set inline as `--share`, which the
+ * module CSP allows: styles are the one thing it lets be inline. */
+.poll__bar {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(
+    to right,
+    var(--hlin-accent, #7fb2ff) var(--share, 0%),
+    var(--hlin-border, #2a3340) var(--share, 0%)
+  );
+}
+
+.poll__votes {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--hlin-dim, #8b95a3);
+}
+
+.poll__total {
+  flex: 1;
+}
