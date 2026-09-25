@@ -14,6 +14,7 @@
 //! | `events` | `api/events` |
 //! | `health` | `api/health` |
 //! | fallback `data` | `api/panels/{panel}`, where there is a fallback |
+//! | `params` | `time_range` where the fallback is a series, none otherwise |
 //!
 //! One prefix for reads and writes, because a widget authorizes every request
 //! itself and needs no protecting from its own module; what is outside it (the
@@ -22,7 +23,7 @@
 use hlin_identity::Claims;
 use hlin_manifest::envelope::Envelope;
 use hlin_manifest::manifest::{
-    Lifecycle, Manifest, ModuleUi, Panel, Platform, Routes, SUPPORTED_SCHEMA_VERSION,
+    Lifecycle, Manifest, ModuleUi, Panel, ParamDecl, Platform, Routes, SUPPORTED_SCHEMA_VERSION,
 };
 
 /// The contract version every widget declares.
@@ -75,6 +76,12 @@ pub struct Widget<S> {
 }
 
 /// A shell-drawn view of the panel, for when the module is not there.
+///
+/// A fallback whose envelope is `series.v1` is over time, and so over the
+/// surface's time range: the panel declares `time_range`, which is also what
+/// makes the shell show its time picker and send the range to the module in
+/// `context`. `data` answers everything the widget has, and the fallback route
+/// keeps the points between the `from` and `to` the shell asked for.
 pub struct Fallback<S> {
     /// The view kind: `stat`, `table`, `chart`, `status`.
     pub kind: &'static str,
@@ -103,6 +110,14 @@ impl<S> Widget<S> {
         format!("api/panels/{}", self.panel)
     }
 
+    /// Whether the panel follows the surface's time range: whether its
+    /// fallback is a series (see [`Fallback`]).
+    pub fn over_time(&self) -> bool {
+        self.fallback
+            .as_ref()
+            .is_some_and(|fallback| fallback.envelope == hlin_manifest::envelope::SERIES_V1)
+    }
+
     /// The manifest for this widget, served as the platform called `id`.
     pub fn manifest(&self, id: &str) -> Manifest {
         let fallback = self.fallback.as_ref();
@@ -128,7 +143,11 @@ impl<S> Widget<S> {
                 }),
                 envelope: fallback.map(|fallback| fallback.envelope.to_string()),
                 data: fallback.map(|_| self.fallback_data()),
-                params: vec![],
+                params: if self.over_time() {
+                    vec![ParamDecl::bare(hlin_manifest::params::TIME_RANGE)]
+                } else {
+                    vec![]
+                },
                 refresh_ms: fallback.and_then(|fallback| fallback.refresh_ms),
                 pushed: self.shared,
                 component: None,

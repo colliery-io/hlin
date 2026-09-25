@@ -29,13 +29,15 @@
 use std::sync::{Arc, Mutex};
 
 use axum::body::Bytes;
-use axum::extract::{FromRef, FromRequest, FromRequestParts, Path, Request, State};
+use axum::extract::{FromRef, FromRequest, FromRequestParts, Path, Query, Request, State};
 use axum::http::{HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
+use chrono::{DateTime, Utc};
 use hlin_identity::extract::{HlinRequestIdentity, IdentityState};
 use hlin_identity::{Claims, Verifier};
+use hlin_manifest::envelope::Envelope;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -247,15 +249,40 @@ async fn asset<S: Send + 'static>(
 }
 
 /// The fallback's data, as the person asking would see it.
+///
+/// A series is cut to the time range the shell asked for, where it asked for
+/// one (`from` and `to`, [[HLIN-S-0002]]); `step` is a hint, and not taken.
 async fn fallback<S: Send + 'static>(
     State(platform): State<Platform<S>>,
     Viewer(claims): Viewer,
+    Query(range): Query<Range>,
 ) -> Response {
     let Some(fallback) = platform.widget().fallback.as_ref() else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let envelope = platform.read(|state| (fallback.data)(state, &claims));
+    let mut envelope = platform.read(|state| (fallback.data)(state, &claims));
+    if let Envelope::Series(series) = &mut envelope {
+        for line in &mut series.series {
+            line.points.retain(|point| range.holds(point.at()));
+        }
+    }
     Json(serde_json::to_value(envelope).expect("an envelope serialises")).into_response()
+}
+
+/// The time range on a fallback's request, where the panel declares one.
+#[derive(Debug, Default, serde::Deserialize)]
+struct Range {
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+}
+
+impl Range {
+    /// Whether an instant, in epoch milliseconds, is inside: from inclusive,
+    /// to exclusive, as the bridge's `TimeRange` is.
+    fn holds(&self, at: i64) -> bool {
+        self.from.is_none_or(|from| at >= from.timestamp_millis())
+            && self.to.is_none_or(|to| at < to.timestamp_millis())
+    }
 }
 
 /// `changed` for the panel, whenever anything changes.

@@ -192,11 +192,22 @@ impl Running {
     /// The fallback's data as `who` would see it, read the way the shell
     /// reads it: an envelope that must be the one the manifest promised.
     pub async fn fallback(&self, who: &Principal) -> hlin_manifest::Envelope {
+        self.fallback_asking(who, "").await
+    }
+
+    /// [`Running::fallback`], with this query on the request, as the shell
+    /// adds `from`, `to` and `step` for a panel that declares `time_range`.
+    pub async fn fallback_asking(&self, who: &Principal, query: &str) -> hlin_manifest::Envelope {
         let (path, promised) = self.fallback.as_ref().expect("this widget has a fallback");
         let token = self.read_token(who);
+        let query = if query.is_empty() {
+            String::new()
+        } else {
+            format!("?{query}")
+        };
         let response = self
             .client
-            .get(format!("{}{}", self.base, path))
+            .get(format!("{}{}{}", self.base, path, query))
             .header(hlin_identity::IDENTITY_HEADER, token)
             .send()
             .await

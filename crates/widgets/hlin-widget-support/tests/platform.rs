@@ -11,7 +11,7 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use hlin_widget_support::envelope::{ColumnType, Envelope, Records};
+use hlin_widget_support::envelope::{ColumnType, Envelope, Line, Point, Records, Series};
 use hlin_widget_support::testing::{self, Running, person};
 use hlin_widget_support::{Fallback, ModuleFiles, Platform, Refusal, Reply, Viewer, Widget, Write};
 use serde_json::json;
@@ -314,4 +314,78 @@ async fn the_modules_files_are_served_to_anyone_and_nothing_else_is() {
         let answer = words.send("GET", missing, None, None, None).await;
         assert_eq!(answer.status, 404, "{missing}");
     }
+}
+
+/// A widget whose fallback is a series: one point a minute, from the epoch.
+fn ticks() -> Widget<Vec<i64>> {
+    Widget {
+        panel: "ticks",
+        name: "Ticks",
+        icon: "chart",
+        title: "Ticks",
+        description: "A point a minute",
+        shared: false,
+        fallback: Some(Fallback {
+            kind: "timeseries",
+            envelope: "series.v1",
+            refresh_ms: None,
+            data: |minutes, _| {
+                Envelope::Series(Series {
+                    series: vec![Line {
+                        name: "ticks".to_string(),
+                        points: minutes
+                            .iter()
+                            .map(|minute| Point(minute * 60_000, Some(*minute as f64)))
+                            .collect(),
+                        extra: Default::default(),
+                    }],
+                    unit: None,
+                    as_of: None,
+                    extra: Default::default(),
+                })
+            },
+        }),
+        built: "/nowhere",
+    }
+}
+
+#[tokio::test]
+async fn a_series_fallback_follows_the_time_range_and_is_cut_to_it() {
+    let document = ticks().manifest("ticks");
+    let params: Vec<_> = document.panel("ticks").unwrap().params.clone();
+    assert_eq!(
+        params.iter().map(|p| p.param.as_str()).collect::<Vec<_>>(),
+        ["time_range"],
+        "a series is over the surface's time range"
+    );
+    assert_eq!(ticks().defects("ticks"), None);
+    let words = widget().manifest("words");
+    assert!(
+        words.panel("words").unwrap().params.is_empty(),
+        "a table is not"
+    );
+
+    let ticks = testing::start(ticks(), (0..10).collect(), Router::new()).await;
+    let alice = person("u-alice", "Alice");
+    let minutes = |envelope: Envelope| match envelope {
+        Envelope::Series(series) => series.series[0]
+            .points
+            .iter()
+            .map(|point| point.at() / 60_000)
+            .collect::<Vec<_>>(),
+        other => panic!("a series, not {other:?}"),
+    };
+
+    assert_eq!(
+        minutes(ticks.fallback(&alice).await),
+        (0..10).collect::<Vec<_>>()
+    );
+    // From inclusive, to exclusive; `step` is only a hint.
+    let asked = ticks
+        .fallback_asking(
+            &alice,
+            "from=1970-01-01T00:03:00Z&to=1970-01-01T00:06:00Z&step=60",
+        )
+        .await;
+    assert_eq!(minutes(asked), [3, 4, 5]);
 }
