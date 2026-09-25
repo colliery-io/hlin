@@ -208,7 +208,12 @@ is dropped without reply.
 
 ### Shell to module
 
-**`init`**, once, after the frame loads:
+**`init`**, after the frame loads, and again every 250 ms until the module
+answers `ready` or the `ready` timeout passes. A module's code starts
+asynchronously (a Trunk-built module compiles its WASM after the load event),
+so an `init` sent once can arrive before anything is listening and be lost,
+which would look exactly like a module that never answers. A module acts on
+the first `init` it receives and ignores the rest:
 
 ```json
 { "bridge": [1, 0], "id": "s-1", "type": "init", "data": {
