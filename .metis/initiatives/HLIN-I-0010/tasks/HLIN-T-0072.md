@@ -134,3 +134,15 @@ Decisions the task left open:
   shell is the opt-in `dev-identity` feature (development principal
   `alice@example.com`), which `hlin-identity` refuses in release builds.
 - Not added to `[workspace.dependencies]`: nothing depends on it.
+
+### 2026-09-24 — decisions after merge
+
+- **Idempotency keys are now required** on every write, by the owner's
+  decision, so the checklist and the feed teach one rule. A write with none is
+  400 and changes nothing (tested). The test harness sends a fresh key with
+  every write that names none, as the shell does.
+- **Viewer hints kept.** `viewer.id` and `viewer.owner` go to the checklist's
+  own module only, never the shell, so they are consistent with decision 5.
+- One difference from the feed remains, deliberately left: the checklist
+  replays a refused write's first answer on retry, where the feed decides a
+  retried refusal again.

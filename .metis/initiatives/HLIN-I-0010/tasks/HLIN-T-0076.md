@@ -104,3 +104,12 @@ branch's rule applied to someone with nothing of their own, and it also stops
 `home` writing a row for everyone who merely signs in. Once they fork or
 create a layout, `home` returns theirs as now. The e2e would then assert
 Carol lands on The team from `/` rather than opening it by link.
+
+### 2026-09-24 — where a newcomer lands: decided
+
+The owner kept today's behaviour: someone who owns no surface lands on an
+empty one of their own, and reaches published surfaces by link or gallery.
+`home` is unchanged. So Alice, who published "The team", lands on it; Bob and
+Carol open it by its link, which the README already says. The "what a person
+lands on" criterion is met as decided, not as first written. Still open: the
+module build step, which waits on [[HLIN-T-0074]] and [[HLIN-T-0075]].

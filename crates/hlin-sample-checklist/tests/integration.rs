@@ -65,6 +65,9 @@ struct Platform {
     issuer: Issuer,
     app: App,
     router: Router,
+    /// Whether a write that names no key is sent with none, rather than with
+    /// a fresh one as the shell would.
+    keyless: bool,
 }
 
 struct Answer {
@@ -87,6 +90,7 @@ impl Platform {
             issuer,
             router: router(app.clone()),
             app,
+            keyless: false,
         }
     }
 
@@ -123,6 +127,18 @@ impl Platform {
         if let Some(token) = self.token(who, &method, path, token) {
             request = request.header(IDENTITY_HEADER, token);
         }
+        // A write with no key named gets a fresh one, as it would from the
+        // shell, which sends one with every write. `send_keyless` is how a
+        // test sends none at all.
+        let fresh;
+        let key = match key {
+            Some(key) => Some(key),
+            None if method != Method::GET && method != Method::HEAD && !self.keyless => {
+                fresh = uuid::Uuid::new_v4().to_string();
+                Some(fresh.as_str())
+            }
+            None => None,
+        };
         if let Some(key) = key {
             request = request.header(IDEMPOTENCY_KEY, key);
         }
@@ -562,6 +578,33 @@ async fn a_read_needs_no_binding_but_does_need_a_token() {
 }
 
 // -- A retried write is applied once ------------------------------------------
+
+#[tokio::test]
+async fn a_write_without_a_key_is_refused_and_changes_nothing() {
+    let platform = Platform {
+        keyless: true,
+        ..Platform::new()
+    };
+
+    let refused = platform.add(&alice(), "team", "Keyless").await;
+
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST);
+    assert!(
+        refused.body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("Idempotency-Key")),
+        "the refusal says what was missing: {}",
+        refused.body
+    );
+    let items = platform.get(&alice(), "/api/lists/team/items").await;
+    assert!(
+        items.body["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .all(|item| item["text"] != "Keyless")
+    );
+}
 
 #[tokio::test]
 async fn a_toggle_retried_with_its_key_is_applied_once() {

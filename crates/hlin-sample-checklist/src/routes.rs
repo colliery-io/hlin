@@ -272,7 +272,7 @@ impl Done {
 /// One write, as the platform sees it before doing anything.
 struct Write<'a> {
     caller: Caller,
-    key: Result<Option<&'a str>, Refused>,
+    key: Result<&'a str, Refused>,
     /// What identifies this write for its key: method, path and body. A key
     /// sent again with any of these different is a different write.
     request: String,
@@ -311,21 +311,19 @@ impl<'a> Write<'a> {
         let (answer, changed) = {
             let mut store = app.store.lock().expect("the store lock is not poisoned");
 
-            if let Some(key) = key {
-                match store.remembered.recall(&self.caller.id, key, &self.request) {
-                    Recall::Fresh => {}
-                    Recall::Replay(answer) => return respond(answer, true),
-                    Recall::Reused => {
-                        return respond(
-                            Answer {
-                                status: StatusCode::UNPROCESSABLE_ENTITY.as_u16(),
-                                body: Some(message(
-                                    "This idempotency key was already used for a different change.",
-                                )),
-                            },
-                            false,
-                        );
-                    }
+            match store.remembered.recall(&self.caller.id, key, &self.request) {
+                Recall::Fresh => {}
+                Recall::Replay(answer) => return respond(answer, true),
+                Recall::Reused => {
+                    return respond(
+                        Answer {
+                            status: StatusCode::UNPROCESSABLE_ENTITY.as_u16(),
+                            body: Some(message(
+                                "This idempotency key was already used for a different change.",
+                            )),
+                        },
+                        false,
+                    );
                 }
             }
 
@@ -346,11 +344,9 @@ impl<'a> Write<'a> {
                 ),
             };
 
-            if let Some(key) = key {
-                store
-                    .remembered
-                    .remember(&self.caller.id, key, &self.request, answer.clone());
-            }
+            store
+                .remembered
+                .remember(&self.caller.id, key, &self.request, answer.clone());
             (answer, changed)
         };
 
@@ -361,19 +357,22 @@ impl<'a> Write<'a> {
     }
 }
 
-/// The write's key, if it sent one.
+/// The write's key.
 ///
-/// Optional: the shell always sends one, but a platform that refused writes
-/// without a key would be unusable from curl, and a write without one is
-/// simply not protected against retries. An unusable key is refused rather
-/// than ignored, because ignoring it would quietly drop the protection the
-/// sender asked for.
-fn idempotency_key(headers: &HeaderMap) -> Result<Option<&str>, Refused> {
+/// Required. The shell sends one with every write, and a toggle applied twice
+/// undoes itself, so a write that cannot be told apart from its own retry is
+/// one this platform will not make. A caller using curl sends a header, which
+/// is a small price for a list that stays the way people left it. The feed
+/// requires one for the same reason, so the two reference platforms teach
+/// one rule.
+fn idempotency_key(headers: &HeaderMap) -> Result<&str, Refused> {
     let Some(value) = headers.get(IDEMPOTENCY_KEY) else {
-        return Ok(None);
+        return Err(Refused::Invalid(
+            "Every change needs an Idempotency-Key header, so a retry is never applied twice.",
+        ));
     };
     match value.to_str() {
-        Ok(key) if !key.is_empty() && key.len() <= MAX_KEY => Ok(Some(key)),
+        Ok(key) if !key.is_empty() && key.len() <= MAX_KEY => Ok(key),
         _ => Err(Refused::Invalid(
             "The Idempotency-Key header must be between 1 and 255 visible characters.",
         )),

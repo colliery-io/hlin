@@ -48,3 +48,8 @@ Task 8 of [[HLIN-I-0010]]: the initiative's exit criterion, asserted.
 ### 2026-09-24
 
 Created from [[HLIN-I-0010]]'s plan. Not started.
+
+### 2026-09-24 — note
+
+Newcomers land on a surface of their own ([[HLIN-T-0076]], decided). Bob and
+Carol reach "The team" by its link in the walkthrough, not by signing in.
