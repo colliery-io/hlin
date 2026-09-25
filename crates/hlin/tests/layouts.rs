@@ -64,6 +64,8 @@ fn manifest(id: &str) -> Manifest {
 
 fn config() -> Config {
     Config {
+        public_url: None,
+        modules: Default::default(),
         bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
@@ -81,11 +83,13 @@ fn config() -> Config {
         },
         platforms: vec![
             PlatformConfig {
+                modules: Default::default(),
                 id: PLATFORM.to_string(),
                 base_url: "http://127.0.0.1:9999".to_string(),
                 auth: CredentialConfig::HlinToken,
             },
             PlatformConfig {
+                modules: Default::default(),
                 id: OTHER.to_string(),
                 base_url: "http://127.0.0.1:9998".to_string(),
                 auth: CredentialConfig::HlinToken,

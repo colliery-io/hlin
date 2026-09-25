@@ -34,6 +34,7 @@ pub mod config;
 pub mod identity;
 pub mod layouts;
 pub mod manifest_client;
+pub mod modules;
 pub mod options;
 pub mod registry;
 pub mod server;
@@ -44,4 +45,5 @@ pub mod visitor;
 
 /// What Hlin is, in one line. Shown by the binary and by the shell's own
 /// about page.
-pub const TAGLINE: &str = "One vantage over many systems, assembled by the people who use them.";
+pub const TAGLINE: &str =
+    "One place to work across many systems, assembled by the people who use them.";

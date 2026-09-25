@@ -560,7 +560,7 @@ Specified in the [[HLIN-S-0001]] amendment; summarised here:
     "key": "items", "title": "To do",
     "ui": { "entry": "/ui/items/index.html", "bridge": 1 },
     "kind": "table", "envelope": "records.v1", "data": "/panels/items",
-    "params": [ { "param": "select", "id": "list", "options": "/options/lists" } ]
+    "params": [ { "param": "select", "id": "list", "label": "List", "options": "/options/lists" } ]
   } ]
 }
 ```

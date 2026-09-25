@@ -1,6 +1,6 @@
 apiVersion: v2
 name: hlin
-description: One vantage over many systems, assembled by the people who use them.
+description: One place to work across many systems, assembled by the people who use them.
 type: application
 
 # The chart's own version, and the application's. They move independently: a

@@ -10,7 +10,7 @@ rust-version = "1.93"
 license = "MIT"
 authors = ["Dylan Storey <contact@colliery.io>"]
 repository = "https://github.com/colliery-io/hlin"
-description = "One vantage over many systems, assembled by the people who use them."
+description = "One place to work across many systems, assembled by the people who use them."
 
 [workspace.dependencies]
 # Async runtime

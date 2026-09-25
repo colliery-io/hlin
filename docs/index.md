@@ -1,6 +1,6 @@
 # Hlin
 
-One vantage over many systems, assembled by the people who use them.
+One place to work across many systems, assembled by the people who use them.
 
 Hlin is a composition shell. Each platform declares, at runtime, what it can
 show; Hlin discovers those declarations, renders every declared panel through a

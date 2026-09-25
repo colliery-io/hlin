@@ -94,6 +94,21 @@ pub struct Config {
     /// The platforms this shell knows about.
     #[serde(default)]
     pub platforms: Vec<PlatformConfig>,
+
+    /// The address people reach this shell at, such as
+    /// `https://hlin.example.com`.
+    ///
+    /// Hosting modules needs it (HLIN-S-0007): a module's CSP names the
+    /// shell's origin explicitly, because `'self'` means different things in a
+    /// sandboxed frame in different browsers, and the request proxy accepts
+    /// only requests whose `Origin` is this one. Where `oidc` is configured its
+    /// `public_url` is used if this is absent, since they must agree anyway.
+    #[serde(default)]
+    pub public_url: Option<String>,
+
+    /// Hosting platforms' own UI modules: the limits they run within.
+    #[serde(default)]
+    pub modules: crate::modules::ModulesConfig,
 }
 
 fn default_bind() -> String {
@@ -541,6 +556,31 @@ fn is_loopback_http(address: &str) -> bool {
     matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
+/// The origin of an http or https address: `https://hlin.example.com:8443`
+/// from `https://hlin.example.com:8443/some/path`.
+///
+/// `None` for anything else, or for an address with no host. Lowercased,
+/// because browsers send `Origin` lowercased and a comparison against a
+/// configured `https://Hlin.Example.com` would otherwise refuse everyone.
+fn origin_of(address: &str) -> Option<String> {
+    let (scheme, rest) = address.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    let authority = authority.to_ascii_lowercase();
+    let default_port = if scheme == "https" { ":443" } else { ":80" };
+    let authority = authority
+        .strip_suffix(default_port)
+        .unwrap_or(&authority)
+        .to_string();
+    Some(format!("{scheme}://{authority}"))
+}
+
 fn default_dev_sub() -> String {
     "u_dev".to_string()
 }
@@ -570,6 +610,11 @@ pub struct PlatformConfig {
     /// What credential the shell attaches when calling it (HLIN-S-0005).
     #[serde(default)]
     pub auth: CredentialConfig,
+
+    /// Where this platform's modules run within different limits from the
+    /// shell's.
+    #[serde(default)]
+    pub modules: crate::modules::PlatformModules,
 }
 
 /// The intervals from the specifications, all overridable.
@@ -890,9 +935,68 @@ impl Config {
                     platform: platform.id.clone(),
                     reason,
                 })?;
+
+            // Checked per platform, with its overrides applied, so a bad
+            // override is reported against the platform that has it.
+            self.module_limits(&platform.id)
+                .check()
+                .map_err(|reason| ConfigError::Platform {
+                    platform: platform.id.clone(),
+                    reason,
+                })?;
+        }
+
+        self.modules
+            .limits
+            .check()
+            .map_err(|reason| ConfigError::Platform {
+                platform: "(every platform)".to_string(),
+                reason,
+            })?;
+
+        if let Some(url) = &self.public_url
+            && origin_of(url).is_none()
+        {
+            return Err(ConfigError::Platform {
+                platform: "(the shell)".to_string(),
+                reason: format!(
+                    "public_url `{url}` is not an http or https address this shell could be \
+                     reached at"
+                ),
+            });
         }
 
         Ok(())
+    }
+
+    /// The origin people reach this shell at: scheme, host and port, with no
+    /// path.
+    ///
+    /// From `public_url`, else from `oidc`'s, else `http://localhost:{port}`,
+    /// which is what a developer's browser uses. A deployment hosting modules
+    /// should set `public_url`: a module's CSP and the request proxy's origin
+    /// check are both built from this, and a wrong one refuses every module
+    /// request as not coming from the shell.
+    pub fn origin(&self) -> String {
+        let configured = self.public_url.as_deref().or(match &self.auth {
+            AuthConfig::Oidc(oidc) => Some(oidc.public_url.as_str()),
+            _ => None,
+        });
+        configured
+            .and_then(origin_of)
+            .unwrap_or_else(|| format!("http://localhost:{}", self.port))
+    }
+
+    /// The limits one platform's modules run within: the shell's, with that
+    /// platform's overrides applied.
+    pub fn module_limits(&self, platform_id: &str) -> crate::modules::ModuleLimits {
+        let overrides = self
+            .platforms
+            .iter()
+            .find(|platform| platform.id == platform_id)
+            .map(|platform| platform.modules.limits.clone())
+            .unwrap_or_default();
+        self.modules.limits.with(&overrides)
     }
 
     /// Whether this shell refuses every write.
@@ -1098,6 +1202,8 @@ mod trust_tests {
 
     fn config() -> Config {
         Config {
+            public_url: None,
+            modules: Default::default(),
             bind: "127.0.0.1".to_string(),
             port: 8080,
             issuer: "hlin".to_string(),
@@ -1122,6 +1228,62 @@ mod trust_tests {
     /// opens a panel. A bundle that could not be read is a shell trusting
     /// nothing extra, which then fails against every platform at once and
     /// looks like an outage rather than like a misconfiguration.
+    #[test]
+    fn the_origin_is_the_address_without_its_path() {
+        let mut config = config();
+        assert_eq!(config.origin(), format!("http://localhost:{}", config.port));
+
+        config.public_url = Some("https://Hlin.Example.com/some/path".to_string());
+        assert_eq!(config.origin(), "https://hlin.example.com");
+
+        config.public_url = Some("https://hlin.example.com:443".to_string());
+        assert_eq!(config.origin(), "https://hlin.example.com");
+
+        config.public_url = Some("http://127.0.0.1:8080/".to_string());
+        assert_eq!(config.origin(), "http://127.0.0.1:8080");
+    }
+
+    #[test]
+    fn a_public_url_that_is_not_an_address_refuses_to_start() {
+        for bad in [
+            "hlin.example.com",
+            "ftp://hlin.example.com",
+            "https://",
+            "https://user@host",
+        ] {
+            let refused = Config {
+                public_url: Some(bad.to_string()),
+                ..config()
+            };
+            assert!(refused.check().is_err(), "{bad} should be refused");
+        }
+    }
+
+    #[test]
+    fn a_platforms_limits_are_the_shells_with_its_own_overrides() {
+        let mut config = config();
+        config.platforms.push(PlatformConfig {
+            id: "exports".to_string(),
+            base_url: "http://127.0.0.1:9000".to_string(),
+            auth: CredentialConfig::None,
+            modules: crate::modules::PlatformModules {
+                limits: crate::modules::LimitOverrides {
+                    response_bytes: Some(64 * 1024 * 1024),
+                    ..Default::default()
+                },
+            },
+        });
+        assert_eq!(
+            config.module_limits("exports").response_bytes,
+            64 * 1024 * 1024
+        );
+        assert_eq!(
+            config.module_limits("exports").request_bytes,
+            config.modules.limits.request_bytes
+        );
+        assert_eq!(config.module_limits("nobody"), config.modules.limits);
+    }
+
     #[test]
     fn a_bundle_that_cannot_be_read_refuses_to_start() {
         let refused = Config {

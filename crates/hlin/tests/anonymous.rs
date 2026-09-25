@@ -58,6 +58,8 @@ fn manifest() -> Manifest {
 
 fn anonymous() -> Config {
     Config {
+        public_url: None,
+        modules: Default::default(),
         bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
@@ -76,6 +78,7 @@ fn anonymous() -> Config {
         },
         timings: Timings::default(),
         platforms: vec![PlatformConfig {
+            modules: Default::default(),
             id: PLATFORM.to_string(),
             base_url: "http://127.0.0.1:9999".to_string(),
             auth: CredentialConfig::None,

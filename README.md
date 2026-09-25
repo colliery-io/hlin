@@ -1,6 +1,6 @@
 # Hlin
 
-**One vantage over many systems, assembled by the people who use them.**
+**One place to work across many systems, assembled by the people who use them.**
 
 Hlin is named for the Norse goddess who watches over those she is named to protect.
 

@@ -214,6 +214,8 @@ fn hlin_token_mints_a_fresh_token_each_time() {
 
 fn config_with(platform: PlatformConfig) -> Config {
     Config {
+        public_url: None,
+        modules: Default::default(),
         bind: "127.0.0.1".to_string(),
         port: 8080,
         issuer: "hlin".to_string(),
@@ -234,6 +236,7 @@ fn forward_session_is_refused_across_an_origin_boundary() {
     // one elsewhere hands that everything to whoever answers. Refused when an
     // operator is watching, not at the first request.
     let config = config_with(PlatformConfig {
+        modules: Default::default(),
         id: "orebank".to_string(),
         base_url: "https://somewhere-else.example.com/orebank".to_string(),
         auth: CredentialConfig::ForwardSession {
@@ -253,6 +256,7 @@ fn forward_session_is_refused_across_an_origin_boundary() {
 #[test]
 fn forward_session_is_allowed_on_the_shells_own_origin() {
     let config = config_with(PlatformConfig {
+        modules: Default::default(),
         id: "orebank".to_string(),
         base_url: "http://localhost:8080/orebank".to_string(),
         auth: CredentialConfig::ForwardSession {
@@ -267,6 +271,7 @@ fn static_bearer_must_be_acknowledged() {
     unsafe { std::env::set_var("HLIN_TEST_BEARER", "a-shared-key") };
 
     let config = config_with(PlatformConfig {
+        modules: Default::default(),
         id: "orebank".to_string(),
         base_url: "http://127.0.0.1:9000".to_string(),
         auth: CredentialConfig::StaticBearer {
@@ -286,6 +291,7 @@ fn static_bearer_must_be_acknowledged() {
 #[test]
 fn static_bearer_needs_its_key_to_exist() {
     let config = config_with(PlatformConfig {
+        modules: Default::default(),
         id: "orebank".to_string(),
         base_url: "http://127.0.0.1:9000".to_string(),
         auth: CredentialConfig::StaticBearer {
@@ -299,6 +305,7 @@ fn static_bearer_needs_its_key_to_exist() {
 #[test]
 fn two_platforms_cannot_claim_one_identity() {
     let mut config = config_with(PlatformConfig {
+        modules: Default::default(),
         id: "orebank".to_string(),
         base_url: "http://127.0.0.1:9000".to_string(),
         auth: CredentialConfig::HlinToken,
@@ -311,6 +318,7 @@ fn two_platforms_cannot_claim_one_identity() {
 #[test]
 fn a_platform_id_must_be_usable() {
     let config = config_with(PlatformConfig {
+        modules: Default::default(),
         id: "Ore Bank".to_string(),
         base_url: "http://127.0.0.1:9000".to_string(),
         auth: CredentialConfig::HlinToken,
