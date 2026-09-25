@@ -179,6 +179,17 @@ pub struct Relayed {
     pub page: Option<String>,
 }
 
+/// The headers for one attempt to subscribe, or why there are none.
+///
+/// Asked afresh for every attempt rather than once for the subscription,
+/// because the credential a platform accepts can expire: an `hlin-token` lives
+/// two minutes (HLIN-S-0004 REQ-1.3). Headers taken once, when a surface first
+/// took an interest, were still being sent on every reconnect, so a platform
+/// that went away more than two minutes after that refused the shell as
+/// expired on its return, every thirty seconds, for as long as anybody watched
+/// ([[HLIN-T-0092]]).
+pub type Credential = Arc<dyn Fn() -> Result<Vec<(String, String)>, String> + Send + Sync>;
+
 /// Every event stream the shell is holding.
 pub struct Streams {
     running: Mutex<BTreeMap<String, (Arc<Interest>, Running)>>,
@@ -232,7 +243,7 @@ impl Streams {
         self: &Arc<Self>,
         platform_id: &str,
         url: &str,
-        headers: Vec<(String, String)>,
+        credential: Credential,
         client: reqwest::Client,
     ) -> Listening {
         let mut running = self.running.lock().await;
@@ -257,7 +268,7 @@ impl Streams {
             client,
             platform_id.to_string(),
             url.to_string(),
-            headers,
+            credential,
             events.clone(),
             connected.clone(),
             returned.clone(),
@@ -351,7 +362,7 @@ async fn follow_forever(
     client: reqwest::Client,
     platform_id: String,
     url: String,
-    headers: Vec<(String, String)>,
+    credential: Credential,
     events: broadcast::Sender<Changed>,
     connected: tokio::sync::watch::Sender<bool>,
     returned: tokio::sync::watch::Sender<u64>,
@@ -404,8 +415,12 @@ async fn follow_forever(
     let mut wait = events::RESUBSCRIBE_FIRST;
     loop {
         let began = tokio::time::Instant::now();
-        let ended =
-            events::follow(&client, &url, &headers, &tell, events::SILENCE, &connected).await;
+        let ended = match credential() {
+            Ok(headers) => {
+                events::follow(&client, &url, &headers, &tell, events::SILENCE, &connected).await
+            }
+            Err(reason) => Ended::Refused(format!("no credential to subscribe with: {reason}")),
+        };
         let held_up = *connected.borrow() && began.elapsed() >= events::RESUBSCRIBE_AFTER;
         let _ = connected.send(false);
 

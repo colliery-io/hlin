@@ -30,7 +30,10 @@ pub struct PlatformView {
     pub config: PlatformConfig,
 
     /// The credential the shell attaches when calling it.
-    pub credentialer: Box<dyn Credentialer>,
+    ///
+    /// Shared, so an event stream can sign each attempt to subscribe with a
+    /// credential minted then rather than one minted when it began.
+    pub credentialer: Arc<dyn Credentialer>,
 
     /// The last manifest that could be read, whether or not it was valid.
     ///
@@ -182,7 +185,7 @@ impl Registry {
                 platform.id.clone(),
                 PlatformView {
                     config: platform.clone(),
-                    credentialer,
+                    credentialer: Arc::from(credentialer),
                     manifest: None,
                     classified: None,
                     validation: None,

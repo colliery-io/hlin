@@ -269,17 +269,21 @@ impl LiveSurface {
             // The shell subscribes as itself: the stream is per platform and
             // carries no data, so nothing in it could be one viewer's. A
             // strategy that can only speak for a person — `forward-session` —
-            // fails here, and that platform is simply polled.
-            let headers = match view.credentialer.headers(&super::events::shell_itself()) {
-                Ok(headers) => headers,
-                Err(reason) => {
-                    tracing::info!(
-                        platform = platform_id,
-                        %reason,
-                        "cannot subscribe as the shell itself, polling instead"
-                    );
-                    continue;
-                }
+            // fails here, and that platform is simply polled. Asked once here
+            // to find that out, and again for every attempt to subscribe,
+            // because the answer can expire ([[HLIN-T-0092]]).
+            let shell = super::events::shell_itself();
+            if let Err(reason) = view.credentialer.headers(&shell) {
+                tracing::info!(
+                    platform = platform_id,
+                    %reason,
+                    "cannot subscribe as the shell itself, polling instead"
+                );
+                continue;
+            }
+            let credential: super::streams::Credential = {
+                let credentialer = view.credentialer.clone();
+                Arc::new(move || credentialer.headers(&shell))
             };
 
             let url = format!(
@@ -290,7 +294,7 @@ impl LiveSurface {
 
             listening.push(
                 self.streams
-                    .listen(&platform_id, &url, headers, self.stream_client.clone())
+                    .listen(&platform_id, &url, credential, self.stream_client.clone())
                     .await,
             );
         }

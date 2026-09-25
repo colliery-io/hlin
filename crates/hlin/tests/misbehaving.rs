@@ -454,7 +454,7 @@ async fn many_surfaces_watching_one_platform_open_one_connection() {
                 .listen(
                     "orebank",
                     &format!("{base}/api/events"),
-                    Vec::new(),
+                    Arc::new(|| Ok(Vec::new())),
                     reqwest::Client::new(),
                 )
                 .await,
@@ -487,7 +487,7 @@ async fn the_last_surface_to_stop_closes_the_connection() {
         .listen(
             "orebank",
             &format!("{base}/api/events"),
-            Vec::new(),
+            Arc::new(|| Ok(Vec::new())),
             reqwest::Client::new(),
         )
         .await;
@@ -495,7 +495,7 @@ async fn the_last_surface_to_stop_closes_the_connection() {
         .listen(
             "orebank",
             &format!("{base}/api/events"),
-            Vec::new(),
+            Arc::new(|| Ok(Vec::new())),
             reqwest::Client::new(),
         )
         .await;
@@ -533,7 +533,7 @@ async fn a_surface_arriving_as_the_last_one_leaves_keeps_the_connection() {
         .listen(
             "orebank",
             &format!("{base}/api/events"),
-            Vec::new(),
+            Arc::new(|| Ok(Vec::new())),
             reqwest::Client::new(),
         )
         .await;
@@ -545,7 +545,7 @@ async fn a_surface_arriving_as_the_last_one_leaves_keeps_the_connection() {
         .listen(
             "orebank",
             &format!("{base}/api/events"),
-            Vec::new(),
+            Arc::new(|| Ok(Vec::new())),
             reqwest::Client::new(),
         )
         .await;
@@ -577,7 +577,7 @@ async fn health_says_why_a_stream_ended_and_how_often() {
         .listen(
             "orebank",
             &format!("{base}/api/events"),
-            Vec::new(),
+            Arc::new(|| Ok(Vec::new())),
             reqwest::Client::new(),
         )
         .await;

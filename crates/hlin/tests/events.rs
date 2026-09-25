@@ -10,6 +10,8 @@
 //! them are deliberately not well-behaved HTTP, which is the point: a platform
 //! on a bad day is not a platform using a framework correctly.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use hlin::stream::events::{self, Changed, Ended};
@@ -331,13 +333,13 @@ async fn restarting() -> String {
 
 #[tokio::test]
 async fn a_stream_that_comes_back_says_so_and_its_first_connection_does_not() {
-    let streams = std::sync::Arc::new(hlin::stream::streams::Streams::new());
+    let streams = Arc::new(hlin::stream::streams::Streams::new());
     let base = restarting().await;
     let mut listening = streams
         .listen(
             "dice",
             &format!("{base}/api/events"),
-            Vec::new(),
+            Arc::new(|| Ok(Vec::new())),
             reqwest::Client::new(),
         )
         .await;
@@ -353,4 +355,103 @@ async fn a_stream_that_comes_back_says_so_and_its_first_connection_does_not() {
     .unwrap();
     assert_eq!(*listening.returned.borrow(), 1);
     assert!(*listening.connected.borrow());
+}
+
+/// A platform restarted twice, as the shell sees it, that refuses a credential
+/// it has been shown before: an `hlin-token` expires, so one kept from the
+/// first subscription is refused after a later restart, as this refuses it.
+///
+/// Closes its first two streams and holds the third. Returns the base URL and
+/// every `authorization` it was sent, refused ones included.
+async fn restarting_twice() -> (String, Arc<Mutex<Vec<String>>>) {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let shown = seen.clone();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        let mut accepted = 0;
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut scratch = [0u8; 2048];
+            let read = tokio::io::AsyncReadExt::read(&mut socket, &mut scratch)
+                .await
+                .unwrap_or(0);
+            let request = String::from_utf8_lossy(&scratch[..read]).to_lowercase();
+            let credential = request
+                .lines()
+                .find_map(|line| line.strip_prefix("authorization: "))
+                .unwrap_or("")
+                .to_string();
+            let stale = {
+                let mut seen = shown.lock().unwrap();
+                let stale = seen.contains(&credential);
+                seen.push(credential);
+                stale
+            };
+            if stale {
+                let _ = socket
+                    .write_all(b"HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\n\r\n")
+                    .await;
+                continue;
+            }
+            let head = "HTTP/1.1 200 OK\r\n\
+                        content-type: text/event-stream\r\n\
+                        transfer-encoding: chunked\r\n\r\n";
+            let _ = socket.write_all(head.as_bytes()).await;
+            accepted += 1;
+            if accepted <= 2 {
+                // Up for a moment first, as a platform is between restarts:
+                // a stream that ends the instant it opens is never seen up.
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let _ = socket.write_all(b"0\r\n\r\n").await;
+            } else {
+                held.push(socket);
+            }
+        }
+    });
+    (base, seen)
+}
+
+#[tokio::test]
+async fn a_platform_restarted_twice_is_subscribed_to_again_both_times() {
+    // HLIN-T-0092. The headers were taken once, when the subscription began,
+    // and sent again on every reconnect. A first restart inside the token's
+    // two minutes came back; a second after them was refused as expired for as
+    // long as anybody watched, and its panels stayed `stale`.
+    let streams = Arc::new(hlin::stream::streams::Streams::new());
+    let (base, seen) = restarting_twice().await;
+    let minted = Arc::new(AtomicUsize::new(0));
+    let credential: hlin::stream::streams::Credential = {
+        let minted = minted.clone();
+        Arc::new(move || {
+            let n = minted.fetch_add(1, Ordering::Relaxed);
+            Ok(vec![("authorization".to_string(), format!("Bearer {n}"))])
+        })
+    };
+    let mut listening = streams
+        .listen(
+            "dice",
+            &format!("{base}/api/events"),
+            credential,
+            reqwest::Client::new(),
+        )
+        .await;
+
+    // Back after the first short wait, and again after the one after it.
+    tokio::time::timeout(
+        events::RESUBSCRIBE_FIRST * 10,
+        listening.returned.wait_for(|returns| *returns >= 2),
+    )
+    .await
+    .expect("the stream came back both times")
+    .unwrap();
+    assert!(*listening.connected.borrow());
+
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 3, "three attempts, none refused: {seen:?}");
+    let mut distinct = seen.clone();
+    distinct.dedup();
+    assert_eq!(distinct, seen, "each signed afresh");
 }
