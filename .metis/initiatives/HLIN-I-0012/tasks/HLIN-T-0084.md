@@ -4,14 +4,14 @@ level: task
 title: "Measure twenty platforms on one surface, and prove it degrades one at a time"
 short_code: "HLIN-T-0084"
 created_at: 2026-09-25T02:43:04.052973+00:00
-updated_at: 2026-09-25T12:40:00.000000+00:00
+updated_at: 2026-09-25T12:37:55.233140+00:00
 parent: HLIN-I-0012
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0012
 
 Task 5 of [[HLIN-I-0012]]: the numbers the new bet asked to be watched,
 and proof that twenty independent platforms fail independently.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -236,3 +238,10 @@ lighter modules. Not measured: the same widgets without frames, so what the
 sandbox costs in time is not known. The six reach `ready` within 5 ms of each
 other, which suggests the half second is the shell page's (its 2 MB frontend,
 then the surface), not each frame's.
+### 2026-09-25 — closed, with the defects tracked
+
+Merged on main; 1003 Rust tests pass. The two criteria left partly met are
+carried by their own tasks rather than held open here: the budget peak of 18
+by [[HLIN-T-0085]], and a killed platform's panel staying `ready` by
+[[HLIN-T-0087]]. Compression and `wasm-opt` are [[HLIN-T-0086]]; the warm
+re-download is [[HLIN-T-0088]].
