@@ -79,7 +79,7 @@ pub struct Refusal {
 }
 
 impl Refusal {
-    fn new(code: &'static str, status: StatusCode, reason: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, status: StatusCode, reason: impl Into<String>) -> Self {
         Self {
             code,
             status,
@@ -91,7 +91,7 @@ impl Refusal {
         Self::new("not_from_shell", StatusCode::FORBIDDEN, reason)
     }
 
-    fn not_signed_in() -> Self {
+    pub(crate) fn not_signed_in() -> Self {
         Self::new(
             "not_signed_in",
             StatusCode::UNAUTHORIZED,
@@ -300,7 +300,7 @@ fn access_of(method: &Method) -> Option<Access> {
 /// write. A browser sends it on every write, but not on a same-origin `GET` or
 /// `HEAD` (the Fetch standard omits it there), so requiring it on reads would
 /// refuse every read the page ever makes.
-fn check_caller(
+pub(crate) fn check_caller(
     state: &AppState,
     headers: &HeaderMap,
     access: Option<Access>,

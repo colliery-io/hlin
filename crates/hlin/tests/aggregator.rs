@@ -40,7 +40,7 @@ fn panels(frames: &[Frame]) -> Vec<&hlin::stream::PanelFrame> {
         .iter()
         .filter_map(|frame| match frame {
             Frame::Panel(panel) => Some(panel.as_ref()),
-            Frame::Surface(_) => None,
+            Frame::Surface(_) | Frame::Changed(_) => None,
         })
         .collect()
 }

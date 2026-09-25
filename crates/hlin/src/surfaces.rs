@@ -4,7 +4,7 @@
 //! layout: two people looking at the same layout are two surfaces, since a
 //! platform may legitimately answer them differently (decision HLIN-A-0004).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
@@ -22,6 +22,9 @@ use crate::stream::live::LiveSurface;
 struct Composition {
     instances: Vec<Instance>,
     selections: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    /// The platforms whose modules the layout holds, which the aggregator
+    /// never sees but whose changes the browser must hear.
+    modules: BTreeSet<String>,
 }
 
 /// Every surface this shell is currently serving.
@@ -83,6 +86,7 @@ impl Surfaces {
         surface.restore_selections(composition.selections);
         let running = LiveSurface::new(
             surface,
+            composition.modules,
             state.registry.clone(),
             viewer,
             // The shell's own, not one per surface. Building a client here gave
@@ -181,6 +185,7 @@ impl Surfaces {
                 .replace_instances(
                     composition.instances.clone(),
                     composition.selections.clone(),
+                    composition.modules.clone(),
                 )
                 .await;
         }
@@ -222,9 +227,21 @@ impl Surfaces {
         state: &AppState,
     ) -> Result<Composition, String> {
         if surface_id == "all" {
+            let views = state.registry.views().await;
+            let modules = views
+                .values()
+                .filter(|view| {
+                    view.accepted_panels()
+                        .iter()
+                        .any(|panel| panel.ui.is_some())
+                })
+                .map(|view| view.config.id.clone())
+                .collect();
+            drop(views);
             return Ok(Composition {
                 instances: Self::everything(state).await,
                 selections: BTreeMap::new(),
+                modules,
             });
         }
 
@@ -245,6 +262,7 @@ impl Surfaces {
         let views = state.registry.views().await;
         let mut instances = Vec::new();
         let mut selections: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+        let mut modules = BTreeSet::new();
 
         for panel in &layout.panels {
             // What the viewer chose, stored with the panel. A selection that no
@@ -270,6 +288,13 @@ impl Surfaces {
                     .find(|declared| declared.key == panel.panel_key)
                     .cloned()
             });
+
+            if declared
+                .as_ref()
+                .is_some_and(|declared| declared.ui.is_some())
+            {
+                modules.insert(panel.platform_id.clone());
+            }
 
             // A panel drawn only by its platform's module has nothing for the
             // shell to fetch, so it is no part of the stream at all: the page
@@ -331,7 +356,25 @@ impl Surfaces {
         Ok(Composition {
             instances,
             selections,
+            modules,
         })
+    }
+
+    /// Whether this layout, as this person sees it, holds a module of this
+    /// platform: the condition for relaying a `changed` from its page.
+    ///
+    /// Asked of the layout rather than of a running surface, because the page
+    /// can post before its stream has opened, and a change must not be lost to
+    /// that race.
+    pub async fn holds_module(
+        &self,
+        surface_id: &str,
+        principal: &hlin_identity::Principal,
+        state: &AppState,
+        platform_id: &str,
+    ) -> Result<bool, String> {
+        let composition = self.instances_for(surface_id, principal, state).await?;
+        Ok(composition.modules.contains(platform_id))
     }
 
     /// Every panel every platform offers, as one surface.

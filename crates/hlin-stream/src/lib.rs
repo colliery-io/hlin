@@ -193,6 +193,45 @@ impl SurfaceFrame {
     }
 }
 
+/// Where a `changed` frame's news came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChangeOrigin {
+    /// The platform's own event stream (HLIN-S-0006).
+    Platform,
+    /// One of the platform's modules, after a write, on any surface this shell
+    /// serves (HLIN-S-0007).
+    Module,
+}
+
+/// Something on a platform changed, for that platform's modules on this
+/// surface.
+///
+/// The browser turns it into the module bridge's `changed` (HLIN-S-0007) for
+/// every module of the platform it has mounted. Sent only to a surface whose
+/// layout holds one of that platform's modules: shell-drawn panels need no
+/// frame, because the shell refetches them itself and their new data arrives
+/// as `panel` frames.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChangedFrame {
+    /// The protocol this frame is written in.
+    pub protocol_version: u32,
+    /// The platform that changed.
+    pub platform: String,
+    /// The panel key the change concerns, as that platform's manifest names it.
+    pub panel: String,
+    /// The selections it was made under; empty means every instance.
+    #[serde(default)]
+    pub selections: std::collections::BTreeMap<String, Vec<String>>,
+    /// Who said so.
+    pub from: ChangeOrigin,
+    /// For a module's change, the page that relayed it, which has already told
+    /// its own modules and skips this frame. An opaque id the page chose; it
+    /// names a page load and nothing else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
+}
+
 /// Anything the shell sends.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
@@ -200,6 +239,8 @@ pub enum Frame {
     Panel(Box<PanelFrame>),
     /// The surface changed.
     Surface(SurfaceFrame),
+    /// Something on a platform whose modules are on this surface changed.
+    Changed(ChangedFrame),
 }
 
 impl Frame {
@@ -209,6 +250,7 @@ impl Frame {
         match self {
             Self::Panel(_) => "panel",
             Self::Surface(_) => "surface",
+            Self::Changed(_) => "changed",
         }
     }
 
@@ -217,9 +259,29 @@ impl Frame {
         match self {
             Self::Panel(frame) => serde_json::to_string(frame),
             Self::Surface(frame) => serde_json::to_string(frame),
+            Self::Changed(frame) => serde_json::to_string(frame),
         }
         .unwrap_or_else(|_| "{}".to_string())
     }
+}
+
+/// What the page sends when one of its modules says it changed something
+/// (`POST /api/stream/{surface}/changed`).
+///
+/// The platform is the frame's, which the page knows from its registry; a
+/// module never names one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChangedRequest {
+    /// The platform whose module wrote.
+    pub platform: String,
+    /// The panel the change concerns.
+    pub panel: String,
+    /// The selections it was made under.
+    #[serde(default)]
+    pub selections: std::collections::BTreeMap<String, Vec<String>>,
+    /// The page relaying it, echoed in the frames so it can skip its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
 }
 
 /// What a browser sends when a control moves.
@@ -269,5 +331,45 @@ impl TimeRange {
         let span = (self.to - self.from).num_seconds().max(1);
         let points = panel_width_pixels.clamp(120, 2000) as i64;
         (span / points).max(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_changed_frame_is_its_own_event_and_says_where_it_came_from() {
+        let frame = Frame::Changed(ChangedFrame {
+            protocol_version: PROTOCOL_VERSION,
+            platform: "checklist".into(),
+            panel: "items".into(),
+            selections: [("list".to_string(), vec!["team".to_string()])].into(),
+            from: ChangeOrigin::Module,
+            page: Some("p-1".into()),
+        });
+
+        // Its own event name, so a browser from before it existed never sees
+        // it: an `EventSource` only delivers the names it listens for.
+        assert_eq!(frame.event(), "changed");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&frame.to_json()).unwrap(),
+            serde_json::json!({
+                "protocol_version": 1, "platform": "checklist", "panel": "items",
+                "selections": { "list": ["team"] }, "from": "module", "page": "p-1"
+            })
+        );
+    }
+
+    #[test]
+    fn a_platform_change_names_no_page_and_reads_without_selections() {
+        let read: ChangedFrame = serde_json::from_value(serde_json::json!({
+            "protocol_version": 1, "platform": "orebank", "panel": "batches",
+            "from": "platform", "someday": true
+        }))
+        .unwrap();
+        assert!(read.selections.is_empty());
+        assert_eq!(read.from, ChangeOrigin::Platform);
+        assert!(!Frame::Changed(read).to_json().contains("page"));
     }
 }

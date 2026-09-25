@@ -4,6 +4,8 @@
 //! fetches what the core says is due, hands back what came, and forwards
 //! frames to whoever is subscribed.
 
+use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration as StdDuration;
 
@@ -12,9 +14,10 @@ use hlin_manifest::parse_envelope;
 use tokio::sync::{Mutex, broadcast};
 
 use super::aggregator::{Outcome, Request, Surface};
+use super::events::Changed;
 use crate::identity::Viewer;
 use crate::registry::Registry;
-use hlin_stream::Frame;
+use hlin_stream::{ChangeOrigin, ChangedFrame, Frame};
 
 /// How long a surface keeps running after its last viewer leaves.
 ///
@@ -43,6 +46,16 @@ pub struct LiveSurface {
     /// Every event stream the shell holds, shared across surfaces.
     streams: Arc<super::streams::Streams>,
 
+    /// The platforms whose modules this surface's layout holds.
+    ///
+    /// Their modules are in no aggregator instance — the page mounts them and
+    /// the shell fetches nothing for them — so this is how the surface knows to
+    /// follow those platforms' events and to pass `changed` on to the browser.
+    modules: std::sync::Mutex<BTreeSet<String>>,
+
+    /// The layout was written, so which platforms to follow may have changed.
+    refollow: AtomicBool,
+
     /// How often to look for work.
     ///
     /// Derived from the refresh interval by [`crate::config::Timings::tick`]
@@ -53,8 +66,12 @@ pub struct LiveSurface {
 
 impl LiveSurface {
     /// Start serving a surface.
+    ///
+    /// `modules` are the platforms whose modules the layout holds.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         surface: Surface,
+        modules: BTreeSet<String>,
         registry: Arc<Registry>,
         viewer: Viewer,
         client: reqwest::Client,
@@ -83,7 +100,38 @@ impl LiveSurface {
             client,
             stream_client,
             streams,
+            modules: std::sync::Mutex::new(modules),
+            refollow: AtomicBool::new(false),
             tick,
+        })
+    }
+
+    /// Whether this surface's layout holds a module of this platform.
+    fn shows_modules_of(&self, platform_id: &str) -> bool {
+        self.modules
+            .lock()
+            .map(|modules| modules.contains(platform_id))
+            .unwrap_or(false)
+    }
+
+    /// The frame that tells this surface's browser a platform changed, where
+    /// its layout holds one of that platform's modules.
+    fn changed_frame(
+        &self,
+        platform_id: &str,
+        changed: &Changed,
+        from: ChangeOrigin,
+        page: Option<String>,
+    ) -> Option<Frame> {
+        self.shows_modules_of(platform_id).then(|| {
+            Frame::Changed(ChangedFrame {
+                protocol_version: hlin_stream::PROTOCOL_VERSION,
+                platform: platform_id.to_string(),
+                panel: changed.panel.clone(),
+                selections: changed.selections.clone(),
+                from,
+                page,
+            })
         })
     }
 
@@ -118,7 +166,16 @@ impl LiveSurface {
             String,
             std::collections::BTreeMap<String, Vec<String>>,
         >,
+        modules: BTreeSet<String>,
     ) {
+        if let Ok(mut held) = self.modules.lock() {
+            *held = modules;
+        }
+        // A panel added to the layout may be the first from a platform that
+        // reports, pushed or drawn by its module; the driver takes up the new
+        // set on its next tick.
+        self.refollow.store(true, Ordering::Relaxed);
+
         let frames = {
             let mut surface = self.surface.lock().await;
             surface.restore_selections(selections);
@@ -153,8 +210,13 @@ impl LiveSurface {
     /// shared by every surface: this only says which platforms matter here and
     /// holds the handles that keep them open. A surface that ends drops them,
     /// and the last one to drop closes the connection.
+    ///
+    /// A platform whose module is on the surface is followed too, whether or
+    /// not any panel of it is pushed: its events are relayed to the module as
+    /// `changed` (HLIN-S-0007), which is the only way a module hears that its
+    /// platform moved without polling for it.
     async fn follow_platforms(self: Arc<Self>) -> Vec<super::streams::Listening> {
-        let wanted: std::collections::BTreeSet<String> = {
+        let mut wanted: BTreeSet<String> = {
             let surface = self.surface.lock().await;
             surface
                 .instances()
@@ -163,6 +225,9 @@ impl LiveSurface {
                 .map(|instance| instance.platform_id.clone())
                 .collect()
         };
+        if let Ok(modules) = self.modules.lock() {
+            wanted.extend(modules.iter().cloned());
+        }
 
         if wanted.is_empty() {
             return Vec::new();
@@ -233,6 +298,10 @@ impl LiveSurface {
         // [[HLIN-T-0027]] fixed hard to reintroduce here.
         let mut listening = self.clone().follow_platforms().await;
 
+        // Every module change on this shell, from any surface's page. Taken
+        // before the first tick so nothing relayed from here on is missed.
+        let mut relayed = self.streams.relayed();
+
         // When the last viewer left, or `None` while somebody is watching.
         //
         // A surface begins with nobody attached — the stream handler subscribes
@@ -248,6 +317,16 @@ impl LiveSurface {
 
         loop {
             ticker.tick().await;
+
+            // The layout was written: follow what it holds now. The old
+            // handles drop after the new ones are taken, so a platform on both
+            // keeps its one connection throughout.
+            if self.refollow.swap(false, Ordering::Relaxed) {
+                listening = self.clone().follow_platforms().await;
+            }
+
+            // What to tell the browser once the surface is let go.
+            let mut told = Vec::new();
 
             // Anything the platforms said since the last tick, and whether each
             // is still connected. Drained rather than awaited: this loop has a
@@ -265,6 +344,12 @@ impl LiveSurface {
                         match held.events.try_recv() {
                             Ok(changed) => {
                                 surface.changed(&held.platform_id, &changed, Utc::now());
+                                told.extend(self.changed_frame(
+                                    &held.platform_id,
+                                    &changed,
+                                    ChangeOrigin::Platform,
+                                    None,
+                                ));
                             }
                             // Behind by more than the buffer holds. Nothing to
                             // catch up on: the missed events said panels
@@ -279,6 +364,35 @@ impl LiveSurface {
                         }
                     }
                 }
+            }
+
+            // What modules said, on this surface's page or anyone else's. It
+            // nudges the shell-drawn instances a platform event would, because
+            // a write is a write whoever reports it; and it reaches this
+            // browser's modules of that platform, whoever wrote.
+            loop {
+                match relayed.try_recv() {
+                    Ok(heard) => {
+                        self.surface.lock().await.changed(
+                            &heard.platform_id,
+                            &heard.changed,
+                            Utc::now(),
+                        );
+                        told.extend(self.changed_frame(
+                            &heard.platform_id,
+                            &heard.changed,
+                            ChangeOrigin::Module,
+                            heard.page,
+                        ));
+                    }
+                    Err(broadcast::error::TryRecvError::Lagged(missed)) => {
+                        tracing::debug!(missed, "a surface fell behind modules' changes");
+                    }
+                    Err(_) => break,
+                }
+            }
+            for frame in told {
+                let _ = self.frames.send(frame);
             }
 
             let (requests, frames) = {

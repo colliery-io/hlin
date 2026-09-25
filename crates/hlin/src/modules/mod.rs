@@ -6,6 +6,7 @@
 //! within.
 
 pub mod assets;
+pub mod changes;
 
 use serde::{Deserialize, Serialize};
 

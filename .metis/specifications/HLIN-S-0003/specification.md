@@ -72,8 +72,9 @@ Inside: the subscription model, frame shape, protocol versioning, state derivati
 Chosen over WebSocket because the traffic is almost entirely one-directional: the shell pushes frames continuously, the browser speaks rarely and in discrete events. Server-sent events give reconnection, event ids and ordinary HTTP semantics for free, and cost nothing that this shape of traffic needs. The upstream direction being plain requests also means a control change is an ordinary thing to authorise, log, and retry.
 
 ```
-GET  <shell>/api/stream/{surface_id}        text/event-stream
-POST <shell>/api/stream/{surface_id}/params application/json
+GET  <shell>/api/stream/{surface_id}         text/event-stream
+POST <shell>/api/stream/{surface_id}/params  application/json
+POST <shell>/api/stream/{surface_id}/changed application/json   (see `changed` below)
 ```
 
 A revisit if it ever bites: a surface with many panels changing at very high frequency would be better served by a binary framing, and the protocol version is how that would arrive.
@@ -143,6 +144,35 @@ Every frame is one JSON object in one server-sent event. `event:` names the fram
 ```
 
 Sent when a generation takes effect, so a browser can show that a control change was received before any panel has answered.
+
+### `changed` — a platform whose modules are on this surface changed something
+
+*Added for [[HLIN-S-0007]] (`changed`), 2026-09-24, [[HLIN-T-0067]]. Additive: a browser that does not know the event name never receives it, because an `EventSource` delivers only the names it listens for.*
+
+```json
+{ "protocol_version": 1, "platform": "checklist", "panel": "items",
+  "selections": { "list": ["team"] }, "from": "module", "page": "p-3f9a…" }
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `protocol_version` | integer ≥ 1 | yes | |
+| `platform` | string | yes | The platform that changed |
+| `panel` | string | yes | The panel key the change concerns, as the platform's manifest names it |
+| `selections` | object | no | The selections it was made under; absent or empty means every instance |
+| `from` | `platform` or `module` | yes | The platform's event stream ([[HLIN-S-0006]]), or one of its modules after a write |
+| `page` | string | no | For a module's change, the page that relayed it, which has already told its own modules and skips the frame. An opaque id naming a page load |
+
+Sent only to a surface whose layout holds a module of that platform; the browser hands it to those modules as the bridge's `changed`. Shell-drawn panels need no frame: the shell refetches them itself (a module's change nudges them exactly as a platform event does) and the new data arrives as `panel` frames.
+
+Two roads reach it. A platform's own events arrive on the shell's one subscription to that platform, which a surface now holds for every platform whose module it shows as well as for pushed panels. A module's change reaches only the page that framed it, so the page posts it to the shell, and the shell passes it to every surface it is serving:
+
+```json
+POST /api/stream/{surface_id}/changed
+{ "platform": "checklist", "panel": "items", "selections": { "list": ["team"] }, "page": "p-3f9a…" }
+```
+
+The shell answers `202` and the frames follow. It is held to the request proxy's rules for a write ([[HLIN-S-0007]], *The request proxy*): `Sec-Fetch-Site: same-origin` and the shell's own `Origin` (else `403 not_from_shell`), someone signed in (`401 not_signed_in`) on a shell that takes writes (`403 read_only`), at most 16 KiB (`413 too_large`), and a layout visible to the caller that holds a module of that platform (else `404`). The platform is the page's word, from which frame sent the message; a module never names one. Delivery is best-effort, like a platform event: a surface that misses one is one refetch behind.
 
 ### `heartbeat`
 

@@ -150,6 +150,10 @@ impl SurfaceState {
                 }
                 true
             }
+
+            // News for the surface's modules, not about any panel's state.
+            // The page hands it to the frames; nothing here changes.
+            Frame::Changed(_) => false,
         }
     }
 

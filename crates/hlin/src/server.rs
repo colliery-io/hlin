@@ -62,6 +62,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/stream/{surface_id}", get(stream))
         .route("/api/stream/{surface_id}/params", post(set_params))
+        // A module said it changed something; every surface showing that
+        // platform's modules hears it (HLIN-S-0007, `changed`).
+        .route(
+            "/api/stream/{surface_id}/changed",
+            post(crate::modules::changes::relay),
+        )
         .route("/api/config", get(client_config))
         // Composition. `home` is a literal and is registered before the
         // parameterised route it would otherwise be swallowed by.

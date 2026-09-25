@@ -157,16 +157,59 @@ struct Interest {
     platform_id: String,
 }
 
+/// A module's word that it changed something on its platform, on its way to
+/// every surface this shell serves (specification HLIN-S-0007, `changed`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Relayed {
+    /// The platform whose module wrote. The page's registry said so, never the
+    /// module.
+    pub platform_id: String,
+    /// What changed, in the same shape a platform's own event has, because it
+    /// means the same thing to a surface.
+    pub changed: Changed,
+    /// The page that relayed it, so it can skip its own echo.
+    pub page: Option<String>,
+}
+
 /// Every event stream the shell is holding.
-#[derive(Default)]
 pub struct Streams {
     running: Mutex<BTreeMap<String, (Arc<Interest>, Running)>>,
+    /// Module changes, for every running surface.
+    ///
+    /// Here, beside the platforms' own streams, because it is the same news
+    /// arriving by a second road: a platform's event stream reaches only the
+    /// surfaces following it, and a module's page reaches only its own
+    /// browser. Every surface this shell serves hears both from here.
+    relay: broadcast::Sender<Relayed>,
+}
+
+impl Default for Streams {
+    fn default() -> Self {
+        Self {
+            running: Mutex::new(BTreeMap::new()),
+            relay: broadcast::channel(BACKLOG).0,
+        }
+    }
 }
 
 impl Streams {
     /// Nothing subscribed to.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Tell every running surface that a module changed something.
+    ///
+    /// Best-effort, like a platform's own event: a surface that misses it is
+    /// one refetch behind, and nothing waits for delivery. Returns how many
+    /// surfaces were listening.
+    pub fn relay(&self, relayed: Relayed) -> usize {
+        self.relay.send(relayed).unwrap_or(0)
+    }
+
+    /// Hear every module change from now on. Each running surface holds one.
+    pub fn relayed(&self) -> broadcast::Receiver<Relayed> {
+        self.relay.subscribe()
     }
 
     /// Listen to a platform's events, subscribing if nobody is yet.
