@@ -4,14 +4,14 @@ level: task
 title: "Compress each served file once, not on every request"
 short_code: "HLIN-T-0091"
 created_at: 2026-09-25T18:44:43.678176+00:00
-updated_at: 2026-09-25T18:44:43.678176+00:00
+updated_at: 2026-09-25T21:22:45.837247+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -33,6 +33,8 @@ loopback cold first content got slower, 588 to 817 ms: brotli on the
 frontend's wasm takes 223 ms in the demo's debug shell (22 ms optimised).
 Module files are content-addressed and mostly `immutable`; compressing each
 one once and keeping the result costs memory, not time per request.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
