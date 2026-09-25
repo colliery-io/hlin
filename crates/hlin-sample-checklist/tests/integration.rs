@@ -16,6 +16,7 @@ use hlin_identity::{BoundRequest, IDENTITY_HEADER, Issuer, Principal, Verifier};
 use hlin_manifest::envelope::Envelope;
 use hlin_manifest::{parse_envelope, validate};
 use hlin_sample_checklist::lists::Lists;
+use hlin_sample_checklist::module::{self, ModuleFiles};
 use hlin_sample_checklist::routes::{IDEMPOTENCY_KEY, REPLAYED};
 use hlin_sample_checklist::{App, changes, manifest, router};
 use http_body_util::BodyExt;
@@ -257,6 +258,71 @@ fn the_manifest_round_trips_through_the_contract_crate() {
 }
 
 #[test]
+fn the_items_panel_is_drawn_by_the_platforms_module_with_the_table_as_its_fallback() {
+    let document = manifest::build(PLATFORM);
+    let panel = document.panel(changes::ITEMS).expect("the panel");
+
+    let ui = panel.ui.as_ref().expect("the module is declared");
+    assert_eq!(ui.entry, module::ITEMS_ENTRY);
+    assert_eq!(ui.bridge, 1);
+    assert_eq!(document.assets.as_deref(), Some(module::ASSETS));
+    assert!(
+        hlin_manifest::path::falls_under(module::ASSETS, &ui.entry),
+        "the shell serves only what is under the assets prefix"
+    );
+    // The fallback stays: the shell draws this wherever the module cannot load.
+    assert_eq!(panel.kind.as_deref(), Some("table"));
+    assert!(panel.data.is_some());
+}
+
+#[tokio::test]
+async fn the_modules_files_are_served_to_anyone_and_nothing_else_under_the_prefix_is() {
+    // The shell fetches module assets as itself, with no viewer identity:
+    // code is the same for everybody.
+    let issuer = Issuer::generate("hlin");
+    let identity = IdentityState {
+        verifier: Arc::new(Verifier::with_keys("hlin", issuer.jwks())),
+        audience: PLATFORM.to_string(),
+        #[cfg(feature = "dev-identity")]
+        development_principal: alice(),
+    };
+    let files = ModuleFiles::from_files([
+        ("index.html".to_string(), b"<!doctype html>".to_vec()),
+        ("boot.js".to_string(), b"// boot".to_vec()),
+    ]);
+    let router = router(App::new(PLATFORM, identity, Lists::seeded()).with_module(files));
+
+    let get = |path: &str| {
+        router
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).expect("a request"))
+    };
+    let entry = get(module::ITEMS_ENTRY).await.expect("answers");
+    assert_eq!(entry.status(), StatusCode::OK);
+    assert!(
+        entry.headers()["content-type"]
+            .to_str()
+            .expect("ascii")
+            .starts_with("text/html")
+    );
+    assert_eq!(
+        get("/ui/items/boot.js").await.expect("answers").status(),
+        StatusCode::OK
+    );
+    for missing in [
+        "/ui/items/missing.js",
+        "/ui/items/%2E%2E%2Fboot.js",
+        "/ui/boot.js",
+    ] {
+        assert_eq!(
+            get(missing).await.expect("answers").status(),
+            StatusCode::NOT_FOUND,
+            "{missing}"
+        );
+    }
+}
+
+#[test]
 fn the_items_panel_is_a_pushed_table_with_a_list_picker() {
     let document = manifest::build(PLATFORM);
     let panel = document.panel(changes::ITEMS).expect("the panel");
@@ -265,7 +331,6 @@ fn the_items_panel_is_a_pushed_table_with_a_list_picker() {
     assert_eq!(panel.envelope.as_deref(), Some("records.v1"));
     assert!(panel.pushed, "a list changes when somebody changes it");
     assert!(document.events.is_some(), "pushed needs a stream");
-    assert!(panel.ui.is_none(), "the module is HLIN-T-0074's");
 
     let select = panel
         .params

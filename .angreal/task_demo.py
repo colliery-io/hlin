@@ -62,9 +62,21 @@ PLATFORMS = [
 #: The collaborative demo's platforms: two that accept writes and decide their
 #: own rules from who is asking (HLIN-T-0072, HLIN-T-0073). Each is its own
 #: binary, and both verify the shell's tokens like the sample platforms do.
+#: Each ships its own UI module (HLIN-T-0074, HLIN-T-0075), a Trunk project in
+#: `module`, which the platform serves from that project's `dist`.
 COLLAB_PLATFORMS = [
-    {"name": "checklist", "port": 8083, "binary": "hlin-sample-checklist"},
-    {"name": "feed", "port": 8084, "binary": "hlin-sample-feed"},
+    {
+        "name": "checklist",
+        "port": 8083,
+        "binary": "hlin-sample-checklist",
+        "module": "crates/hlin-sample-checklist/module",
+    },
+    {
+        "name": "feed",
+        "port": 8084,
+        "binary": "hlin-sample-feed",
+        "module": "crates/hlin-sample-feed/module",
+    },
 ]
 
 #: Who composes and publishes the collaborative demo's surface, and what it is
@@ -438,6 +450,8 @@ def demo_up(with_=None):
             str(platform["port"]),
             "--shell-keys",
             f"{SHELL}/.well-known/hlin-keys.json",
+            "--module-dir",
+            os.path.join(cwd, platform["module"], "dist"),
         ]
         pid = _start(platform["name"], argv, platform["port"])
         print(f"  {platform['name']} on {platform['port']} (pid {pid})", flush=True)
@@ -608,14 +622,24 @@ def _database_down():
 
 
 def _build_modules():
-    """Build the platforms' modules, once there are modules to build.
+    """Build each collaborative platform's own UI module with Trunk.
 
-    The hook for HLIN-T-0074 (the checklist's module) and HLIN-T-0075 (the
-    feed's): each will add its build here, before the platforms start, so a
-    platform never serves a manifest naming a `ui` whose bundle is not on disk.
-    Until then the shell draws both panels as tables and there is nothing to
-    build.
+    Before the platforms start, because a platform reads its module's files
+    once, when it starts: one started before its module was built serves no
+    module, and the shell draws that panel as its table fallback until the
+    platform is restarted. That is the right way for a platform to fail, and
+    the wrong way for a demo to begin.
     """
+    for platform in COLLAB_PLATFORMS:
+        print(f"building {platform['name']}'s module", flush=True)
+        where = os.path.join(cwd, platform["module"])
+        if subprocess.run(["trunk", "build"], cwd=where).returncode != 0:
+            print(
+                f"{platform['name']}'s module did not build.\n"
+                "  cargo install trunk\n"
+                "  rustup target add wasm32-unknown-unknown"
+            )
+            return 1
     return 0
 
 

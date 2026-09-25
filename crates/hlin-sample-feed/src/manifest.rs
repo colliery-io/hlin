@@ -3,14 +3,17 @@
 //! Built as a value so the binary can validate it with `hlin-manifest` before
 //! serving it, as the read-only reference does. What is new here is `routes`:
 //! the prefixes a module of this platform may call through the shell's request
-//! proxy, reads and writes declared apart ([[HLIN-S-0007]]).
+//! proxy, reads and writes declared apart ([[HLIN-S-0007]]); and `assets`,
+//! where that module's own files are ([`crate::module`]).
 
 use hlin_manifest::manifest::{
-    Lifecycle, Manifest, Panel, Platform, Routes, SUPPORTED_SCHEMA_VERSION,
+    Lifecycle, Manifest, ModuleUi, Panel, Platform, Routes, SUPPORTED_SCHEMA_VERSION,
 };
 
 /// The contract version this platform declares.
-pub const CONTRACT_VERSION: &str = "1.0.0";
+///
+/// 1.1.0 adds the module: `assets` and the `posts` panel's `ui`.
+pub const CONTRACT_VERSION: &str = "1.1.0";
 
 /// The one panel: the posts.
 pub const POSTS_PANEL: &str = "posts";
@@ -30,10 +33,6 @@ pub const EVENTS: &str = "api/events";
 pub const API_PREFIX: &str = "/api/";
 
 /// Build the manifest for a feed platform of this name.
-///
-/// No `ui` yet: the posts are drawn by the shell as a table until the feed's
-/// own module is declared ([[HLIN-T-0075]]). The table stays once it is, as
-/// the fallback for wherever the module cannot load.
 pub fn build(name: &str) -> Manifest {
     Manifest {
         schema_version: SUPPORTED_SCHEMA_VERSION,
@@ -48,7 +47,7 @@ pub fn build(name: &str) -> Manifest {
         panels: vec![posts()],
         health: "api/health".to_string(),
         events: Some(EVENTS.to_string()),
-        assets: None,
+        assets: Some(crate::module::ASSETS.to_string()),
         routes: Some(Routes {
             read: vec![API_PREFIX.to_string()],
             write: vec![API_PREFIX.to_string()],
@@ -60,6 +59,10 @@ pub fn build(name: &str) -> Manifest {
 
 /// The posts, newest first.
 ///
+/// Drawn by the feed's own module where the shell can host it, and by the
+/// shell as a table where it cannot: the module fails to load, stops
+/// answering, or the shell has no module host at all.
+///
 /// `pushed`, because the posts are data this platform keeps and it announces
 /// every change on its stream: a post somebody else makes reaches the table
 /// as it happens rather than at the next poll.
@@ -69,7 +72,11 @@ fn posts() -> Panel {
         title: "Posts".to_string(),
         description: Some("What people are saying, newest first".to_string()),
         kind: Some("table".to_string()),
-        ui: None,
+        ui: Some(ModuleUi {
+            entry: crate::module::POSTS_ENTRY.to_string(),
+            bridge: 1,
+            extra: Default::default(),
+        }),
         envelope: Some("records.v1".to_string()),
         data: Some(POSTS_DATA.to_string()),
         params: vec![],

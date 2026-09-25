@@ -3,6 +3,7 @@ use std::sync::Arc;
 use clap::Parser;
 use hlin_identity::extract::IdentityState;
 use hlin_sample_checklist::lists::Lists;
+use hlin_sample_checklist::module::ModuleFiles;
 use hlin_sample_checklist::{App, router};
 
 #[derive(Parser)]
@@ -35,6 +36,13 @@ struct Cli {
     /// The issuer name every token must claim.
     #[arg(long, default_value = "hlin")]
     shell_issuer: String,
+
+    /// Where the built module is: Trunk's output for `module/`.
+    ///
+    /// Read once, at start. Without it the platform still runs, and the shell
+    /// draws the `items` panel as its table fallback.
+    #[arg(long, default_value = hlin_sample_checklist::module::BUILT)]
+    module_dir: std::path::PathBuf,
 }
 
 /// Fetches the shell's key set over HTTP, as `hlin-sample-platform` does.
@@ -100,7 +108,22 @@ async fn main() -> anyhow::Result<()> {
         },
     };
 
-    let app = App::new(cli.name.clone(), identity, Lists::seeded());
+    let module = match ModuleFiles::read(&cli.module_dir) {
+        Ok(files) if files.has_entry() => {
+            tracing::info!(dir = %cli.module_dir.display(), "serving the checklist's module");
+            files
+        }
+        _ => {
+            tracing::warn!(
+                dir = %cli.module_dir.display(),
+                "no module built here, so the shell will draw the list as a table; \
+                 `trunk build` in crates/hlin-sample-checklist/module builds it"
+            );
+            ModuleFiles::none()
+        }
+    };
+
+    let app = App::new(cli.name.clone(), identity, Lists::seeded()).with_module(module);
 
     let listener = tokio::net::TcpListener::bind((cli.bind.as_str(), cli.port)).await?;
     tracing::info!(

@@ -1,0 +1,126 @@
+/* The checklist's module, drawn with Aurora's tokens and component classes.
+ *
+ * Aurora's stylesheet is injected by the module itself (see `app.rs`). This
+ * file maps Aurora's tokens onto the shell's theme, so the panel follows the
+ * surface it sits on: the SDK sets whatever `--hl-*` tokens the shell sends
+ * as custom properties on <html>, and anything the shell does not send falls
+ * back to Aurora's own value. `html:root` rather than `:root` so this wins
+ * over Aurora's `:root`, which is injected later. */
+
+html:root {
+  --bg: var(--hl-bg, #0e1116);
+  --panel: var(--hl-panel, #161a21);
+  --control: var(--hl-control, #1b2129);
+  --border: var(--hl-border, #232a34);
+  --border-control: var(--hl-border, #2a3340);
+  --fg: var(--hl-fg, #e6e9ee);
+  --fg-bright: var(--hl-fg, #f1f4f8);
+  --muted: var(--hl-muted, #8b95a3);
+  --faint: var(--hl-faint, #5b6573);
+  --ice: var(--hl-accent, #7fb2ff);
+  --bad: var(--hl-bad, #f06464);
+  --ok: var(--hl-good, #4bd07f);
+}
+
+body {
+  padding: 10px 12px;
+  box-sizing: border-box;
+  min-height: 100vh;
+}
+
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.checklist__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checklist__label {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.checklist__picker {
+  width: auto;
+  min-width: 10em;
+}
+
+.checklist__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.item:hover {
+  background: var(--panel);
+}
+
+.item__check {
+  accent-color: var(--ice);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: none;
+}
+
+.item__text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.item--done .item__text {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.item__author {
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  flex: none;
+}
+
+.item__edit {
+  flex: 1;
+  min-width: 0;
+}
+
+.item__actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+.add {
+  display: flex;
+  gap: 8px;
+}
+
+.add .cl-field {
+  flex: 1;
+}
+
+.refusal {
+  margin: 0;
+}
+
+.quiet {
+  color: var(--muted);
+  margin: 0;
+}

@@ -8,10 +8,13 @@
 //   angreal e2e signin
 //
 // What it claims: Alice lands on the surface without being told where it is,
-// and the shell draws both panels, as tables, with each platform's data. And
-// the same surface is not the same for everybody: Carol is not on the team
-// list, so the checklist refuses her its panel while the feed, which anyone
-// signed in may read, shows her the posts. Neither rule is the shell's.
+// and both panels are drawn by their platforms' own modules, each with its
+// platform's data. And the same surface is not the same for everybody: Carol
+// is not on the team list, so the checklist's module shows her the
+// checklist's refusal, in its words, while the feed, which anyone signed in
+// may read, shows her the posts. Neither rule is the shell's.
+//
+// collab-modules.spec.js then changes things through the modules.
 
 const { test, expect } = require('@playwright/test');
 const { shot } = require('./helpers');
@@ -41,6 +44,11 @@ function feed(page) {
   return page.locator('section.panel[data-panel="feed/posts"]');
 }
 
+/** Inside a panel's module frame. */
+function inside(panel) {
+  return panel.frameLocator('iframe');
+}
+
 test.describe('the collaborative surface', () => {
   test.beforeEach(async ({ request }) => {
     const answer = await request.get('/api/config');
@@ -64,13 +72,13 @@ test.describe('the collaborative surface', () => {
       'feed/posts',
     ]);
 
-    // Side by side, and drawn by the shell: a table each, with the data.
+    // Side by side, and drawn by each platform's own module, with the data.
+    await expect(checklist(page)).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
+    await expect(feed(page)).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
     await expect(checklist(page)).toHaveAttribute('data-state', 'ready');
     await expect(feed(page)).toHaveAttribute('data-state', 'ready');
-    await expect(checklist(page).locator('table')).toBeVisible();
-    await expect(feed(page).locator('table')).toBeVisible();
-    await expect(checklist(page)).toContainText(TEAM_ITEM);
-    await expect(feed(page)).toContainText(POST);
+    await expect(inside(checklist(page)).locator('.item__text', { hasText: TEAM_ITEM })).toBeVisible();
+    await expect(inside(feed(page)).locator('.post__body', { hasText: POST })).toBeVisible();
     expect(Number(await checklist(page).getAttribute('data-y'))).toBe(
       Number(await feed(page).getAttribute('data-y')),
     );
@@ -84,12 +92,16 @@ test.describe('the collaborative surface', () => {
     await other.goto(surface);
     await other.locator('header.bar').waitFor({ state: 'visible' });
 
-    await expect(checklist(other)).toHaveAttribute('data-state', 'unavailable');
-    await expect(checklist(other)).toContainText('you do not have access to this panel');
-    await expect(checklist(other)).not.toContainText(TEAM_ITEM);
+    // The checklist's module asks for the team list as Carol, and shows what
+    // the checklist said: its words, not the shell's.
+    await expect(checklist(other)).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
+    await expect(inside(checklist(other)).locator('.refusal')).toHaveText(
+      'Only members of Team can see or change it, and you are not one.',
+    );
+    await expect(inside(checklist(other)).locator('body')).not.toContainText(TEAM_ITEM);
 
-    await expect(feed(other)).toHaveAttribute('data-state', 'ready');
-    await expect(feed(other)).toContainText(POST);
+    await expect(feed(other)).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
+    await expect(inside(feed(other)).locator('.post__body', { hasText: POST })).toBeVisible();
     await shot(other, 98, 'collab-carol');
     await carol.close();
   });

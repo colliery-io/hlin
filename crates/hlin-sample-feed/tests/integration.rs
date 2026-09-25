@@ -11,6 +11,7 @@
 
 use hlin_identity::{BoundRequest, Issuer, Principal, Verifier};
 use hlin_manifest::{parse_envelope, validate};
+use hlin_sample_feed::module::{self, ModuleFiles};
 use hlin_sample_feed::posts::{Author, Post};
 use hlin_sample_feed::rules::Rules;
 use hlin_sample_feed::{Config, manifest, router};
@@ -80,6 +81,7 @@ async fn feed() -> Feed {
         verifier: std::sync::Arc::new(Verifier::with_keys("hlin", issuer.jwks())),
         rules: Rules::new("example.com", ["mo@example.com"]),
         posts: seed(),
+        module: ModuleFiles::none(),
     };
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -226,8 +228,73 @@ fn the_posts_panel_is_a_pushed_table_the_shell_can_draw_without_a_module() {
         panel.pushed,
         "the feed announces every change, so it says so"
     );
-    assert!(panel.ui.is_none(), "the module comes later (HLIN-T-0075)");
     assert!(document.events.is_some());
+}
+
+#[test]
+fn the_posts_panel_is_drawn_by_the_feeds_module_with_the_table_as_its_fallback() {
+    let document = manifest::build(PLATFORM);
+    let panel = document.panel(manifest::POSTS_PANEL).expect("declared");
+
+    let ui = panel.ui.as_ref().expect("the module is declared");
+    assert_eq!(ui.entry, module::POSTS_ENTRY);
+    assert_eq!(ui.bridge, 1);
+    assert_eq!(document.assets.as_deref(), Some(module::ASSETS));
+    assert!(
+        hlin_manifest::path::falls_under(module::ASSETS, &ui.entry),
+        "the shell serves only what is under the assets prefix"
+    );
+    assert!(panel.data.is_some(), "the table fallback stays");
+}
+
+#[tokio::test]
+async fn the_modules_files_are_served_to_anyone_and_nothing_else_under_the_prefix_is() {
+    // The shell fetches module assets as itself, with no viewer identity:
+    // code is the same for everybody. So no token here.
+    let issuer = Issuer::generate("hlin");
+    let config = Config {
+        name: PLATFORM.to_string(),
+        verifier: std::sync::Arc::new(Verifier::with_keys("hlin", issuer.jwks())),
+        rules: Rules::new("example.com", Vec::<String>::new()),
+        posts: seed(),
+        module: ModuleFiles::from_files([
+            ("index.html".to_string(), b"<!doctype html>".to_vec()),
+            ("boot.js".to_string(), b"// boot".to_vec()),
+        ]),
+    };
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        axum::serve(listener, router(config)).await.unwrap();
+    });
+    let client = reqwest::Client::new();
+    let get = |path: &str| client.get(format!("{base}{path}")).send();
+
+    let entry = get(module::POSTS_ENTRY).await.unwrap();
+    assert_eq!(entry.status(), StatusCode::OK);
+    assert!(
+        entry.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/html")
+    );
+    assert_eq!(
+        get("/ui/posts/boot.js").await.unwrap().status(),
+        StatusCode::OK
+    );
+    for missing in [
+        "/ui/posts/missing.js",
+        "/ui/posts/%2E%2E%2Fboot.js",
+        "/ui/boot.js",
+    ] {
+        assert_eq!(
+            get(missing).await.unwrap().status(),
+            StatusCode::NOT_FOUND,
+            "{missing}"
+        );
+    }
 }
 
 // -- The rules, one person at a time --------------------------------------

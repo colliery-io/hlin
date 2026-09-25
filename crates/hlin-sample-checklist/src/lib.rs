@@ -19,9 +19,13 @@
 //!   answer to each recent `Idempotency-Key`.
 //! - **Every change is announced** ([`changes`]) on an event stream, naming
 //!   the panel and the list, so any shell watching refetches only that list.
-//! - **A fallback anyone can draw** ([`manifest`]): the `items` panel is a
-//!   plain `records.v1` table with a `select` of the viewer's lists, so the
-//!   list shows even where the platform's own module cannot load.
+//! - **Its own UI** ([`module`]): the `items` panel is drawn by the
+//!   platform's own Leptos module (in `module/` beside this crate), served
+//!   under the manifest's `assets` prefix and hosted by the shell in a
+//!   sandboxed frame.
+//! - **A fallback anyone can draw** ([`manifest`]): the same panel also
+//!   declares a plain `records.v1` table with a `select` of the viewer's
+//!   lists, so the list shows even where the module cannot load.
 //!
 //! State lives in memory. A restart empties it back to the seeded lists.
 
@@ -29,6 +33,7 @@ pub mod changes;
 pub mod idempotency;
 pub mod lists;
 pub mod manifest;
+pub mod module;
 pub mod routes;
 
 pub use routes::{App, router};

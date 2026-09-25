@@ -1,0 +1,23 @@
+# Builds the checklist's module into `dist/`, which the platform serves under
+# its `assets` prefix (see `src/module.rs` in the platform crate).
+#
+# Three things differ from a Trunk app served as a site of its own, all
+# because this one runs in a sandboxed frame under the shell's `/m/checklist/`:
+#
+# - `public_url` is relative. The shell serves these files at
+#   `/m/{platform}/ui/items/`, and the platform's id is the shell's to choose,
+#   so no absolute path would be right everywhere.
+# - The loader is a file, not inline. The module CSP refuses inline script, so
+#   `pattern_script` swaps Trunk's inline loader for `boot.js`, handing it the
+#   hashed file names as data attributes.
+# - The hashes stay on. They are what lets the platform mark the glue and the
+#   `.wasm` `immutable`, so a browser keeps them until a build changes them.
+[build]
+minify = "never"
+public_url = "./"
+pattern_script = "<script type=\"module\" src=\"{base}boot.js\" data-js=\"{base}{js}\" data-wasm=\"{base}{wasm}\"></script>"
+
+# The wasm-bindgen CLI must match the wasm-bindgen crate exactly, as in the
+# examples' own Trunk.toml.
+[tools]
+wasm_bindgen = "0.2.126"

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use clap::Parser;
+use hlin_sample_feed::module::ModuleFiles;
 use hlin_sample_feed::{Config, router};
 
 #[derive(Parser)]
@@ -45,6 +46,13 @@ struct Cli {
     /// The issuer name every token must claim.
     #[arg(long, default_value = "hlin")]
     shell_issuer: String,
+
+    /// Where the built module is: Trunk's output for `module/`.
+    ///
+    /// Read once, at start. Without it the feed still runs, and the shell
+    /// draws the `posts` panel as its table fallback.
+    #[arg(long, default_value = hlin_sample_feed::module::BUILT)]
+    module_dir: std::path::PathBuf,
 }
 
 /// Fetches the shell's key set over HTTP.
@@ -107,11 +115,27 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(muted = cli.muted.len(), "some people may not post here");
     }
 
+    let module = match ModuleFiles::read(&cli.module_dir) {
+        Ok(files) if files.has_entry() => {
+            tracing::info!(dir = %cli.module_dir.display(), "serving the feed's module");
+            files
+        }
+        _ => {
+            tracing::warn!(
+                dir = %cli.module_dir.display(),
+                "no module built here, so the shell will draw the posts as a table; \
+                 `trunk build` in crates/hlin-sample-feed/module builds it"
+            );
+            ModuleFiles::none()
+        }
+    };
+
     let config = Config {
         name: cli.name.clone(),
         verifier,
         rules: hlin_sample_feed::rules::Rules::new(&cli.domain, &cli.muted),
         posts: hlin_sample_feed::posts::seed(),
+        module,
     };
 
     let listener = tokio::net::TcpListener::bind((cli.bind.as_str(), cli.port)).await?;

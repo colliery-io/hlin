@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "examples/*"]
+members = ["crates/*", "crates/*/module", "examples/*"]
 
 resolver = "2"
 

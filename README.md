@@ -408,8 +408,8 @@ real identity provider, in front of two platforms that accept writes and
 decide for themselves who may do what:
 
 ```bash
-angreal demo up --with collab   # Postgres, Dex, checklist, feed, the shell on `oidc`
-angreal e2e signin              # signs in through Dex's form; opens the surface as Alice and Carol
+angreal demo up --with collab   # Postgres, Dex, both platforms and their modules, the shell on `oidc`
+angreal e2e signin              # signs in through Dex's form; adds, ticks and posts as Alice, Bob and Carol
 ```
 
 Open `http://127.0.0.1:8080` — `127.0.0.1`, not `localhost`, because the
@@ -427,18 +427,26 @@ The story so far:
   shell knows none of their rules.
 - **One published surface.** `up` signs in as Alice through Dex — the same
   journey a browser makes, through the shell's ordinary API — and publishes
-  **The team**: the checklist on the `team` list beside the feed, both drawn
-  by the shell as tables. Alice lands on it when she signs in. Running `up`
-  again replaces it rather than adding another.
+  **The team**: the checklist on the `team` list beside the feed. Alice lands
+  on it when she signs in. Running `up` again replaces it rather than adding
+  another.
+- **Each platform draws itself.** Both panels are the platforms' own Leptos
+  modules (`crates/hlin-sample-checklist/module`, `crates/hlin-sample-feed/module`),
+  built with Trunk by `up` and hosted by the shell in sandboxed frames. Tick,
+  add, edit and delete items; post, edit and delete posts. Every change goes
+  from the module through the shell to its platform, as the person signed in,
+  and what the module shows is what the platform then says. Where a module
+  cannot load, the shell draws the same panel as a table.
 - **The same surface, not the same for everyone.** Anyone signed in can open
-  it (its link is printed by `up`). Bob sees what Alice sees. Carol sees the
-  posts, but the checklist refuses her the team list, and the shell draws that
-  panel as *you do not have access to this panel* — the platform's decision,
-  shown rather than hidden.
-- **Not yet:** each platform's own module, so people can tick, add and post
-  from the surface rather than only read it. Until then the panels are the
-  shell's tables. A first-time Bob or Carol lands on an empty surface of their
-  own and opens The team by its link.
+  it (its link is printed by `up`). Bob sees what Alice sees, and may tick her
+  items but not edit them, so his module does not offer to. When Bob tries to
+  edit Alice's post, the feed refuses, and its module shows the feed's own
+  words. Carol reads the posts but is refused when she posts, and the
+  checklist refuses her the team list — each platform's decision, in its own
+  words, shown rather than hidden.
+- **Not yet:** a change reaching another person's open page without a reload,
+  which needs the shell to relay what a module announces. A first-time Bob or
+  Carol lands on an empty surface of their own and opens The team by its link.
 
 Dex is configured by `demo/dex.yaml` and the shell by `demo/hlin-collab.toml`.
 Its issuer is plain http on loopback, which only a debug build of the shell

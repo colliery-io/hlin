@@ -55,6 +55,8 @@ lcov.info
 demo/state/
 # Built frontends, one per design pack.
 examples/*/dist/
+# Built platform modules, which each platform serves from here.
+crates/*/module/dist/
 
 # Local Claude Code session state
 .claude/

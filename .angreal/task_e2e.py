@@ -202,14 +202,18 @@ def e2e_test(headed=False, filter=None):
         three people, asserting the name the shell shows, the email its
         principal carries, and that signing out ends the session. Then open
         the published surface as Alice (both panels drawn with data) and as
-        Carol (the checklist refuses her; the feed does not).
+        Carol (the checklist refuses her; the feed does not). Then change
+        things through the platforms' own modules: Alice adds, ticks, edits
+        and deletes an item and posts; Bob is refused an edit of her post and
+        Carol a post of her own, each in the feed's words.
 
         ## When to use
         - After `angreal demo up --with collab`
         - After changing the oidc authenticator, sessions, or demo/dex.yaml
 
-        Creates sessions and ends them, and a first empty surface for Bob and
-        Carol; changes nothing else.
+        Creates sessions and ends them, a first empty surface for Bob and
+        Carol, and an item and a post named for the run in the platforms'
+        memory, which `demo down` forgets.
         """,
         risk_level="safe",
     ),
@@ -244,7 +248,7 @@ def e2e_signin(headed=False):
         )
         return 1
 
-    argv = ["npx", "playwright", "test", "signin.spec.js", "collab.spec.js"]
+    argv = ["npx", "playwright", "test", "signin.spec.js", "collab.spec.js", "collab-modules.spec.js"]
     if headed:
         argv.append("--headed")
 

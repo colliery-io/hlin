@@ -1,0 +1,22 @@
+<!doctype html>
+<!--
+  The checklist's module: the entry document the shell loads into the
+  `items` panel's frame. Everything it runs is a file beside it, because the
+  module CSP allows nothing inline but styles.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Checklist</title>
+    <!-- wasm-opt off, as in the examples: the bundled one does not understand
+         every feature this toolchain emits. -->
+    <link data-trunk rel="rust" data-wasm-opt="0" />
+    <!-- `crossorigin`, because the frame's origin is opaque: every file it
+         loads is cross-origin to it, and the integrity check Trunk adds can
+         only read a stylesheet fetched with CORS. -->
+    <link data-trunk rel="css" href="module.css" crossorigin="anonymous" />
+    <link data-trunk rel="copy-file" href="boot.js" />
+  </head>
+  <body></body>
+</html>

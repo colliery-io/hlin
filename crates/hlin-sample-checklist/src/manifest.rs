@@ -4,23 +4,26 @@
 //! serving it, as `hlin-sample-platform` does, and refuse to start if the
 //! shell would reject it.
 //!
-//! Two things are new here beside the read-only reference. `routes` declares
+//! Three things are new here beside the read-only reference. `routes` declares
 //! what a module may reach through the shell's request proxy, reads and writes
 //! both under `/api/`, and nothing outside them (the manifest, for one) can be
-//! addressed from a page. And the `items` panel is drawn by the shell
-//! as a plain table, which is what every shell can show; the platform's own
-//! module is added to it later ([[HLIN-T-0074]]) and this table stays as its
-//! fallback.
+//! addressed from a page. `assets` says where the platform's module files are
+//! ([`crate::module`]). And the `items` panel declares both: `ui`, the
+//! platform's own module, which the shell mounts in a frame; and a plain
+//! `table`, which is what every shell can draw, and what this one draws
+//! wherever the module cannot load.
 
 use hlin_manifest::manifest::{
-    Lifecycle, Manifest, Panel, ParamDecl, Platform, Routes, SUPPORTED_SCHEMA_VERSION,
+    Lifecycle, Manifest, ModuleUi, Panel, ParamDecl, Platform, Routes, SUPPORTED_SCHEMA_VERSION,
 };
 use serde_json::{Map, Value};
 
 use crate::changes::{ITEMS, LIST_PARAM};
 
 /// The contract version this platform declares.
-pub const VERSION: &str = "1.0.0";
+///
+/// 1.1.0 adds the module: `assets` and the `items` panel's `ui`.
+pub const VERSION: &str = "1.1.0";
 
 /// Where a module's reads and writes may go.
 pub const API_PREFIX: &str = "/api/";
@@ -46,7 +49,7 @@ pub fn build(name: &str) -> Manifest {
         panels: vec![items()],
         health: "api/health".to_string(),
         events: Some("api/events".to_string()),
-        assets: None,
+        assets: Some(crate::module::ASSETS.to_string()),
         routes: Some(Routes {
             read: vec![API_PREFIX.to_string()],
             write: vec![API_PREFIX.to_string()],
@@ -64,6 +67,10 @@ pub fn build(name: &str) -> Manifest {
 /// draws whatever options it is given, and the data endpoint still refuses a
 /// list somebody names by hand.
 ///
+/// Drawn by the platform's own module where the shell can host it, and by the
+/// shell as a table where it cannot: the module fails to load, stops
+/// answering, or the shell has no module host at all.
+///
 /// Pushed, because a list changes when somebody changes it and at no other
 /// time, which is exactly the data a stream is for.
 fn items() -> Panel {
@@ -80,7 +87,11 @@ fn items() -> Panel {
         title: "To do".to_string(),
         description: Some("A shared list; pick which".to_string()),
         kind: Some("table".to_string()),
-        ui: None,
+        ui: Some(ModuleUi {
+            entry: crate::module::ITEMS_ENTRY.to_string(),
+            bridge: 1,
+            extra: Default::default(),
+        }),
         envelope: Some("records.v1".to_string()),
         data: Some(ITEMS_DATA.to_string()),
         params: vec![ParamDecl {

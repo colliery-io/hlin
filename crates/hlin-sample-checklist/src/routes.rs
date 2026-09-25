@@ -27,6 +27,7 @@ use serde_json::{Map, Value, json};
 use crate::changes::{self, Changes};
 use crate::idempotency::{Answer, Idempotency, REMEMBERED, Recall};
 use crate::lists::{Caller, Item, List, Lists, Refused};
+use crate::module::ModuleFiles;
 
 /// The header a write's retry key arrives in.
 pub const IDEMPOTENCY_KEY: &str = "idempotency-key";
@@ -49,6 +50,7 @@ pub struct App {
     identity: IdentityState,
     store: Arc<Mutex<Store>>,
     changes: Arc<Changes>,
+    module: ModuleFiles,
 }
 
 /// The lists and the recent write keys, behind one lock.
@@ -69,6 +71,12 @@ impl FromRef<App> for IdentityState {
     }
 }
 
+impl FromRef<App> for ModuleFiles {
+    fn from_ref(app: &App) -> Self {
+        app.module.clone()
+    }
+}
+
 impl App {
     /// A platform called `name`, verifying callers with `identity`, starting
     /// from these lists.
@@ -81,7 +89,16 @@ impl App {
                 remembered: Idempotency::new(REMEMBERED),
             })),
             changes: Arc::new(Changes::new()),
+            module: ModuleFiles::none(),
         }
+    }
+
+    /// Serve this built module under the `assets` prefix. Without one, the
+    /// module's files are 404 and the shell draws the `items` panel as its
+    /// `table` fallback.
+    pub fn with_module(mut self, module: ModuleFiles) -> Self {
+        self.module = module;
+        self
     }
 
     /// Where this platform announces changes.
@@ -117,6 +134,10 @@ pub fn router(app: App) -> Router {
         .route("/api/hlin/items", get(panel_items))
         .route("/api/hlin/lists", get(panel_lists))
         .route("/api/events", get(events))
+        .route(
+            &format!("{}{{file}}", crate::module::ITEMS_DIR),
+            get(crate::module::asset),
+        )
         .with_state(app)
 }
 

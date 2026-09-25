@@ -1518,6 +1518,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-sample-checklist-module"
+version = "0.0.1"
+dependencies = [
+ "colliery-io-aurora",
+ "console_error_panic_hook",
+ "hlin-module",
+ "leptos",
+ "serde",
+ "serde_json",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "hlin-sample-feed"
 version = "0.0.1"
 dependencies = [
@@ -1535,6 +1548,21 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "hlin-sample-feed-module"
+version = "0.0.1"
+dependencies = [
+ "chrono",
+ "colliery-io-aurora",
+ "console_error_panic_hook",
+ "hlin-module",
+ "js-sys",
+ "leptos",
+ "serde",
+ "serde_json",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

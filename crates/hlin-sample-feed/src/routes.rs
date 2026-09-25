@@ -10,6 +10,7 @@
 //! | `DELETE` | `/api/posts/{id}` | Take a post down |
 //! | `GET` | `/api/panels/posts` | The posts as `records.v1`, for the shell's table |
 //! | `GET` | `/api/events` | `changed` whenever a post does |
+//! | `GET` | `/ui/posts/{file}` | The module's files, to anyone: the shell fetches them as itself |
 //!
 //! Everything under `/api/` but health is behind identity. Reads accept the
 //! shell's ordinary token; writes need one bound to their method and path, and
@@ -30,6 +31,7 @@ use serde_json::json;
 use tokio::sync::broadcast;
 
 use crate::idempotency::{self, Answer, Fingerprint, Remembered, Seen};
+use crate::module::ModuleFiles;
 use crate::posts::{Draft, Post, Posts, Problem};
 use crate::rules::Rules;
 
@@ -47,6 +49,9 @@ pub struct Config {
     pub rules: Rules,
     /// The posts to start with.
     pub posts: Vec<Post>,
+    /// The built module, served under the `assets` prefix.
+    /// [`ModuleFiles::none`] serves nothing, and the shell draws the table.
+    pub module: ModuleFiles,
 }
 
 /// What every handler shares.
@@ -60,6 +65,7 @@ struct App {
     feed: Arc<Mutex<Feed>>,
     /// Tells every open event stream that the posts changed.
     told: broadcast::Sender<()>,
+    module: ModuleFiles,
 }
 
 struct Feed {
@@ -70,6 +76,12 @@ struct Feed {
 impl FromRef<App> for IdentityState {
     fn from_ref(app: &App) -> Self {
         app.identity.clone()
+    }
+}
+
+impl FromRef<App> for ModuleFiles {
+    fn from_ref(app: &App) -> Self {
+        app.module.clone()
     }
 }
 
@@ -102,6 +114,7 @@ pub fn router(config: Config) -> Router {
             remembered: Remembered::default(),
         })),
         told,
+        module: config.module,
     };
 
     Router::new()
@@ -111,6 +124,10 @@ pub fn router(config: Config) -> Router {
         .route("/api/posts/{id}", axum::routing::put(edit).delete(delete))
         .route("/api/panels/posts", get(panel))
         .route("/api/events", get(events))
+        .route(
+            &format!("{}{{file}}", crate::module::POSTS_DIR),
+            get(crate::module::asset),
+        )
         .with_state(app)
 }
 

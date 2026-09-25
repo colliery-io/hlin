@@ -32,14 +32,17 @@
 //!   [`idempotency`].
 //! - **An event stream that announces every change**, so another person's
 //!   screen updates without polling for it.
-//! - **A fallback panel.** The manifest declares `posts` as a shell-drawn
-//!   `table`, so the feed still shows something wherever its module cannot be
-//!   loaded.
+//! - **Its own UI** ([`module`]): the `posts` panel is drawn by the feed's own
+//!   Leptos module (in `module/` beside this crate), served under the
+//!   manifest's `assets` prefix and hosted by the shell in a sandboxed frame.
+//! - **A fallback panel.** The same panel also declares a shell-drawn `table`,
+//!   so the feed still shows something wherever its module cannot be loaded.
 //!
 //! [`hlin-sample-platform`]: https://docs.rs/hlin-sample-platform
 
 pub mod idempotency;
 pub mod manifest;
+pub mod module;
 pub mod posts;
 pub mod routes;
 pub mod rules;
