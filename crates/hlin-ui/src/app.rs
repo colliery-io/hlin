@@ -295,7 +295,16 @@ where
             }
         });
 
+        // A module's `changed` is relayed through this surface's stream.
+        crate::frame::set_surface(Some(surface_id.clone()));
+
         let applied = move |frame: Frame| {
+            // News for the modules, not a panel's state: handed to the frames,
+            // and the surface is not redrawn for it.
+            if let Frame::Changed(changed) = frame {
+                crate::frame::heard(changed);
+                return;
+            }
             set_surface.update(|state| {
                 state.apply(&frame);
             });
@@ -380,12 +389,19 @@ where
 
     // -- The time picker --------------------------------------------------
 
+    // The range the shell was last asked for, and the generation that asked.
+    // What modules are told as `context`: one place, moved exactly when the
+    // shell is asked, so a module and the panels beside it answer the same
+    // question.
+    let (asked_range, set_asked_range) = signal(Option::<(TimeRange, u64)>::None);
+
     let apply_range = move |range: TimeRange| {
         let generation = {
             let mut next = 0;
             set_surface.update(|state| next = state.next_generation());
             next
         };
+        set_asked_range.set(Some((range, generation)));
         let selections = draft.with_untracked(|draft| draft.selections());
 
         let request = ParamsRequest {
@@ -438,31 +454,90 @@ where
         revision
     });
 
-    // What a module is told about where it is, when it starts: the range in
-    // force and its panel's own parameters.
+    // What a module is told about where it is: the range the shell was last
+    // asked for, and its panel's own parameters, only the declared ones. The
+    // frame host diffs it per module, so this may run on every change to the
+    // draft — a drag included — and a module hears only what moved for it.
     Effect::new(move |_| {
-        let range = custom.get().unwrap_or_else(|| {
-            let to = Utc::now();
-            TimeRange {
-                from: to - Duration::seconds(chosen_range.get()),
-                to,
-            }
-        });
-        let params = draft.with(|draft| {
-            draft
-                .panels()
-                .iter()
-                .filter_map(|panel| Some((panel.id.clone()?, panel.selections.clone())))
-                .collect()
+        let Some((range, generation)) = asked_range.get() else {
+            return;
+        };
+        let panels = draft.with(|draft| {
+            catalog.with(|catalog| {
+                draft
+                    .panels()
+                    .iter()
+                    .filter_map(|panel| {
+                        let declared = catalogued(catalog, &panel.platform_id, &panel.panel_key)
+                            .map(|entry| {
+                                entry
+                                    .controls
+                                    .into_iter()
+                                    .map(|control| control.id)
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        Some((
+                            panel.id.clone()?,
+                            crate::frame::PanelContext {
+                                selections: panel.selections.clone(),
+                                declared,
+                            },
+                        ))
+                    })
+                    .collect()
+            })
         });
         crate::frame::set_context(
             Some(hlin_bridge::TimeRange {
                 from_millis: range.from.timestamp_millis(),
                 to_millis: range.to.timestamp_millis(),
             }),
-            surface.with_untracked(SurfaceState::generation),
-            params,
+            generation,
+            panels,
         );
+    });
+
+    // What a person does to a panel, whoever drew the thing they did it to:
+    // the chrome's own control, a component a pack drew, or the platform's
+    // module in its frame. One handler, so all three have exactly the same
+    // effect — stored with the layout, sent to the shell, and back to every
+    // module as `context`.
+    let act = move |who: String, intent: hlin_view::Intent| match intent {
+        hlin_view::Intent::Select { param, values } => {
+            if who.is_empty() {
+                return;
+            }
+            set_draft.update(|draft| draft.set_selection(&who, &param, values));
+            save();
+            reapply();
+        }
+        hlin_view::Intent::Range {
+            from_millis,
+            to_millis,
+        } => {
+            let Some(range) = span(from_millis, to_millis) else {
+                return;
+            };
+            // The picker is told as well as the shell. A chart brushed to an
+            // hour that left the bar still saying "24h" would be the chrome
+            // lying about what is on screen.
+            set_custom.set(Some(range));
+            set_chosen_range.set(0);
+            apply_range(range);
+        }
+    };
+
+    crate::frame::on_asked(move |asked| match asked {
+        crate::frame::Asked::Intent { instance, intent } => act(instance, intent),
+        crate::frame::Asked::Navigate { instance, to } => {
+            navigate(
+                &draft.get_untracked(),
+                &catalog.get_untracked(),
+                &instance,
+                &to,
+            );
+        }
     });
 
     // -- Gestures ---------------------------------------------------------
@@ -791,7 +866,7 @@ where
                         let module = Memo::new(move |_| {
                             let id = id()?;
                             entry.with(|entry| entry.as_ref().and_then(|entry| entry.ui.clone()))?;
-                            Some(modules.with(|views| views.get(&id).copied().unwrap_or_default()))
+                            Some(modules.with(|views| views.get(&id).cloned().unwrap_or_default()))
                         });
 
                         // The module to mount, while one is wanted: until it
@@ -957,30 +1032,7 @@ where
                                     // capabilities the shell has, and no others.
                                     let emit = {
                                         let who = named.clone();
-                                        hlin_view::Emit::to(move |intent| match intent {
-                                            hlin_view::Intent::Select { param, values } => {
-                                                if who.is_empty() {
-                                                    return;
-                                                }
-                                                set_draft.update(|draft| {
-                                                    draft.set_selection(&who, &param, values)
-                                                });
-                                                save();
-                                                reapply();
-                                            }
-                                            hlin_view::Intent::Range { from_millis, to_millis } => {
-                                                let Some(range) = span(from_millis, to_millis) else {
-                                                    return;
-                                                };
-                                                // The picker is told as well as the shell.
-                                                // A chart brushed to an hour that left the
-                                                // bar still saying "24h" would be the
-                                                // chrome lying about what is on screen.
-                                                set_custom.set(Some(range));
-                                                set_chosen_range.set(0);
-                                                apply_range(range);
-                                            }
-                                        })
+                                        hlin_view::Emit::to(move |intent| act(who.clone(), intent))
                                     };
 
                                     let head = view! {
@@ -1053,6 +1105,35 @@ where
                                     };
 
                                     view! { {head} {body} }.into_any()
+                                }}
+
+                                // What the module asked to have said, in its
+                                // own panel's frame and nowhere else, as text,
+                                // and labelled as its platform's: the one place
+                                // the shell shows a platform's own words
+                                // (HLIN-S-0007, `notice`).
+                                {move || {
+                                    let notice = module.get()?.notice?;
+                                    let platform = content.with(|panel| {
+                                        let panel = panel.as_ref()?;
+                                        catalog.with(|catalog| {
+                                            catalog
+                                                .iter()
+                                                .find(|platform| platform.id == panel.platform_id)
+                                                .map(|platform| platform.name.clone().unwrap_or_else(|| platform.id.clone()))
+                                        })
+                                    })?;
+                                    let level = match notice.level {
+                                        hlin_bridge::NoticeLevel::Info => "info",
+                                        hlin_bridge::NoticeLevel::Warning => "warning",
+                                        hlin_bridge::NoticeLevel::Error => "error",
+                                    };
+                                    Some(view! {
+                                        <p class="module-notice" data-level=level role="status">
+                                            <span class="module-notice-from">{format!("{platform} says")}</span>
+                                            <span class="module-notice-text">{notice.text}</span>
+                                        </p>
+                                    })
                                 }}
 
                                 {move || mount.get().map(|mount| view! {
@@ -1518,6 +1599,81 @@ fn find_panel(
         .enumerate()
         .find(|(index, panel)| panel_key(*index, panel) == key)
         .map(|(_, panel)| panel.clone())
+}
+
+/// Go where a module asked (HLIN-S-0007, `navigate`).
+///
+/// A panel is opened by bringing it into view on this surface: the one other
+/// than the asker's own where there are several, the asker's own otherwise.
+/// Navigation grants nothing, so a module may name another platform's panel.
+/// Anything this shell cannot open — a panel no platform offers, one not on
+/// this surface, a page — is ignored, and said on the console for whoever is
+/// building the module, never to the person looking.
+fn navigate(
+    draft: &LayoutDraft,
+    catalog: &[CatalogPlatform],
+    asker: &str,
+    to: &hlin_bridge::Target,
+) {
+    if let Some(page) = &to.page {
+        // Platform pages are opened by the shell's navigation, which does not
+        // host them yet.
+        leptos::logging::warn!(
+            "a module asked to open page `{page}` of `{}`, which this shell cannot open yet; ignored",
+            to.platform
+        );
+        return;
+    }
+    let Some(panel) = to.panel.as_deref() else {
+        leptos::logging::warn!("a module asked to go nowhere in particular; ignored");
+        return;
+    };
+    if catalogued(catalog, &to.platform, panel).is_none() {
+        leptos::logging::warn!(
+            "a module asked to open `{}/{panel}`, which no platform offers; ignored",
+            to.platform
+        );
+        return;
+    }
+    let placed: Vec<String> = draft
+        .panels()
+        .iter()
+        .filter(|placed| placed.platform_id == to.platform && placed.panel_key == panel)
+        .filter_map(|placed| placed.id.clone())
+        .collect();
+    let Some(target) = placed
+        .iter()
+        .find(|id| id.as_str() != asker)
+        .or_else(|| placed.first())
+    else {
+        leptos::logging::warn!(
+            "a module asked to open `{}/{panel}`, which is not on this surface; ignored",
+            to.platform
+        );
+        return;
+    };
+
+    let Some(element) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| {
+            document
+                .query_selector(&format!("section.panel[data-instance=\"{target}\"]"))
+                .ok()
+                .flatten()
+        })
+    else {
+        return;
+    };
+    let options = web_sys::ScrollIntoViewOptions::new();
+    options.set_behavior(web_sys::ScrollBehavior::Smooth);
+    options.set_block(web_sys::ScrollLogicalPosition::Center);
+    element.scroll_into_view_with_scroll_into_view_options(&options);
+    // Marked for a moment, so a person sees which panel they were taken to.
+    let _ = element.class_list().add_1("navigated");
+    leptos::task::spawn_local(async move {
+        gloo_timers::future::TimeoutFuture::new(1_500).await;
+        let _ = element.class_list().remove_1("navigated");
+    });
 }
 
 /// The catalogue entry for an instance, where its platform still declares it.

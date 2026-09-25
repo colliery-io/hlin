@@ -6,7 +6,7 @@
 use wasm_bindgen::prelude::*;
 use web_sys::{EventSource, MessageEvent};
 
-use hlin_stream::{Frame, PanelFrame, SurfaceFrame};
+use hlin_stream::{ChangedFrame, Frame, PanelFrame, SurfaceFrame};
 
 /// Open a stream and call `on_frame` for everything that arrives.
 ///
@@ -55,6 +55,22 @@ pub fn open(
     });
     source.add_event_listener_with_callback("surface", surface_handler.as_ref().unchecked_ref())?;
     surface_handler.forget();
+
+    // A platform whose modules are on this surface changed something, said
+    // by its event stream or by one of its modules anywhere this shell serves.
+    let changed_handler = Closure::<dyn Fn(MessageEvent)>::new({
+        let deliver = deliver.clone();
+        move |event: MessageEvent| {
+            let Some(text) = event.data().as_string() else {
+                return;
+            };
+            if let Ok(frame) = serde_json::from_str::<ChangedFrame>(&text) {
+                deliver(Frame::Changed(frame));
+            }
+        }
+    });
+    source.add_event_listener_with_callback("changed", changed_handler.as_ref().unchecked_ref())?;
+    changed_handler.forget();
 
     let error_handler = Closure::<dyn Fn(JsValue)>::new(move |_| on_lost());
     source.set_onerror(Some(error_handler.as_ref().unchecked_ref()));

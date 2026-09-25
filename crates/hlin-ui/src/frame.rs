@@ -3,45 +3,55 @@
 //!
 //! The DOM half of [`crate::bridge`], and deliberately only wiring: every
 //! decision — which frame sent a message, what state a quiet module is in,
-//! whether a request is one too many, where a `fetch` may go — is made there
-//! and tested there. What is here is the part that cannot be tested without a
-//! browser: creating the frame, one `message` listener for the whole page, one
-//! clock, the observers that say where a panel is, and the requests to `/p/`.
+//! whether a request is one too many, where a `fetch` may go, which modules
+//! hear a change, which frame the budget unmounts — is made there and tested
+//! there. What is here is the part that cannot be tested without a browser:
+//! creating the frame, one `message` listener for the whole page, one clock,
+//! the observers that say where a panel is, and the requests to `/p/` and to
+//! the shell's relay.
 //!
 //! Frames are created imperatively rather than through the view, for one
 //! reason the specification insists on: a frame leaving the surface is removed
 //! from the registry *before* it is removed from the document, so a message
 //! already in flight from it is dropped. Only code that owns both steps can
-//! promise their order.
+//! promise their order. The budget leans on the same property: a frame
+//! unmounted to stay within it keeps its panel, its observers and its last
+//! state, and only its document goes.
 //!
 //! The page's state lives in one thread-local, because the browser is single
 //! threaded and every entry point here is a browser callback. Nothing that
-//! re-enters it (posting a message, publishing a state to the view) is done
-//! while it is borrowed.
+//! re-enters it (posting a message, publishing a state to the view, calling
+//! the app back) is done while it is borrowed.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use hlin_bridge::{
-    Context, Envelope, Heartbeat, IdMint, Init, Limits, Method, ModuleMessage, Refusal, Response,
-    Selections, ShellMessage, Theme, TimeRange, Viewer, Visibility,
+    ChangeSource, Context, Envelope, Heartbeat, IdMint, Init, Limits, Method, ModuleChanged,
+    ModuleMessage, NoticeLevel, Refusal, Response, Scheme, Selections, ShellChanged, ShellMessage,
+    Suspend, Target, Theme, TimeRange, Viewer, Visibility,
 };
 use hlin_stream::layout::ModuleLimits;
+use hlin_stream::{ChangeOrigin, ChangedFrame};
 use hlin_view::{Cause, PanelState};
 use leptos::prelude::*;
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 
-use crate::bridge::{self, Allowance, Due, Liveness, Registered, Registry};
+use crate::bridge::{self, Allowance, Due, Liveness, Mounted, Registered, Registry};
 
 /// What the surface draws for one module panel.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ModuleView {
     /// Where the module is, from the bridge.
     pub state: PanelState,
     /// The module is unavailable for a reason about itself, and the panel
     /// declares data, so the shell draws that instead.
     pub fallen_back: bool,
+    /// What the module last asked to have shown in its panel's frame, if
+    /// anything.
+    pub notice: Option<ModuleNotice>,
 }
 
 impl Default for ModuleView {
@@ -49,8 +59,51 @@ impl Default for ModuleView {
         Self {
             state: PanelState::Loading,
             fallen_back: false,
+            notice: None,
         }
     }
+}
+
+/// A module's `notice`, as the shell shows it: plain text, already cut to
+/// length, drawn as the platform's in that panel's frame and nowhere else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleNotice {
+    /// How serious the module says it is.
+    pub level: NoticeLevel,
+    /// One line, at most [`hlin_bridge::NOTICE_MAX_CHARS`] characters.
+    pub text: String,
+}
+
+/// Something a module asked the shell to do that only the app can: change
+/// what the surface shows, or go somewhere.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Asked {
+    /// `set-param` or `set-range`, as the intent a component in the same panel
+    /// would have emitted, so it takes the same road: stored with the layout,
+    /// sent to the shell, and back to every module as `context`.
+    Intent {
+        /// The panel instance whose module asked.
+        instance: String,
+        /// What it asked for.
+        intent: hlin_view::Intent,
+    },
+    /// `navigate`: open a panel or a page.
+    Navigate {
+        /// The panel instance whose module asked.
+        instance: String,
+        /// Where to.
+        to: Target,
+    },
+}
+
+/// One panel's parameters, as every module on the surface is told them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PanelContext {
+    /// What the layout holds for the panel.
+    pub selections: Selections,
+    /// The parameter ids the panel declares: the only ones its module is
+    /// told, and the only ones it may set.
+    pub declared: BTreeSet<String>,
 }
 
 /// Everything needed to mount one panel's module, and nothing that changes
@@ -83,13 +136,14 @@ impl Mount {
     }
 }
 
-/// One mounted module.
+/// One module panel, mounted or waiting to be.
 struct Host {
     mount: Mount,
     /// Which mounting this is, so an answer to a request made by a frame since
     /// torn down and remounted is not delivered to its successor.
     serial: u64,
     container: web_sys::Element,
+    /// The frame, while one is mounted.
     iframe: Option<web_sys::HtmlIFrameElement>,
     title: String,
     liveness: Liveness,
@@ -97,10 +151,42 @@ struct Host {
     ids: IdMint,
     /// Whether the panel is in the viewport, as the observer last said.
     in_view: bool,
+    /// Whether it is within the mounting margin of the viewport.
+    near: bool,
+    /// When it was last in the viewport, for the budget.
+    last_seen: f64,
+    /// Since when the module has been asked to `suspend`, before its frame is
+    /// unmounted to stay within the budget.
+    suspending: Option<f64>,
+    /// The context this frame was last told, in `init` or `context`.
+    told: Option<Context>,
+    /// The theme this frame was last told.
+    told_theme: Option<Theme>,
+    /// What the module asked to have shown in its panel's frame.
+    notice: Option<ModuleNotice>,
     observers: Vec<web_sys::IntersectionObserver>,
     /// Kept alive for as long as the observers and the frame can call them.
     _callbacks: Vec<Closure<dyn FnMut(js_sys::Array)>>,
     _onload: Option<Closure<dyn FnMut()>>,
+}
+
+impl Host {
+    fn view(&self) -> ModuleView {
+        let state = self.liveness.state();
+        ModuleView {
+            state,
+            fallen_back: bridge::falls_back(state, self.mount.declares_data),
+            notice: self.notice.clone(),
+        }
+    }
+
+    /// Whether the module is running and talking: told anything now, it will
+    /// hear it.
+    fn listening(&self) -> bool {
+        self.iframe.is_some()
+            && self.suspending.is_none()
+            && matches!(self.liveness.state(), PanelState::Ready | PanelState::Stale)
+    }
 }
 
 /// What every module on this surface is told about where it is.
@@ -110,8 +196,23 @@ struct Surroundings {
     read_only: bool,
     time_range: Option<TimeRange>,
     generation: u64,
-    params: BTreeMap<String, Selections>,
+    panels: BTreeMap<String, PanelContext>,
 }
+
+impl Surroundings {
+    fn context_for(&self, instance: &str) -> Context {
+        let panel = self.panels.get(instance);
+        Context {
+            time_range: self.time_range,
+            params: panel
+                .map(|panel| bridge::declared_only(&panel.selections, &panel.declared))
+                .unwrap_or_default(),
+            generation: self.generation,
+        }
+    }
+}
+
+type AskedHandler = Rc<dyn Fn(Asked)>;
 
 #[derive(Default)]
 struct Page {
@@ -121,6 +222,19 @@ struct Page {
     surroundings: Surroundings,
     serial: u64,
     started: bool,
+    /// This page load, so the shell's echo of a change it relayed is known as
+    /// its own.
+    page_id: String,
+    /// The surface on screen, which the shell's relay is addressed by.
+    surface: Option<String>,
+    /// Where `set-param`, `set-range` and `navigate` go.
+    asked: Option<AskedHandler>,
+    /// What each module handed back at its last `suspend`, kept for the life
+    /// of the page and never sent anywhere but back to it (*Budget*).
+    restored: BTreeMap<String, Vec<u8>>,
+    /// Modules given up on as unreachable, by instance, with their platform
+    /// and panel: remounted on that panel's next change from the platform.
+    given_up: BTreeMap<String, (String, String)>,
 }
 
 thread_local! {
@@ -149,6 +263,9 @@ pub fn start(published: RwSignal<BTreeMap<String, ModuleView>>) {
     let first = PAGE.with(|page| {
         let mut page = page.borrow_mut();
         page.published = Some(published);
+        if page.page_id.is_empty() {
+            page.page_id = format!("p-{:x}", (js_sys::Math::random() * 2f64.powi(52)) as u64);
+        }
         !std::mem::replace(&mut page.started, true)
     });
     if !first {
@@ -176,6 +293,15 @@ pub fn start(published: RwSignal<BTreeMap<String, ModuleView>>) {
     }
     shown.forget();
 
+    // A pack may draw differently for a dark system, and modules follow the
+    // page. Nothing else moves the tokens: a pack's stylesheet is fixed for
+    // the life of the page.
+    if let Ok(Some(dark)) = window.match_media("(prefers-color-scheme: dark)") {
+        let changed = Closure::<dyn FnMut()>::new(retheme);
+        let _ = dark.add_event_listener_with_callback("change", changed.as_ref().unchecked_ref());
+        changed.forget();
+    }
+
     leptos::task::spawn_local(async {
         loop {
             gloo_timers::future::TimeoutFuture::new(bridge::INIT_RESEND_MS as u32).await;
@@ -193,21 +319,125 @@ pub fn set_viewer(name: Option<String>, read_only: bool) {
     });
 }
 
-/// The surface's time range and each panel's parameters, for every `init`.
+/// The surface on screen, which a module's `changed` is relayed through.
+pub fn set_surface(surface: Option<String>) {
+    PAGE.with(|page| page.borrow_mut().surface = surface);
+}
+
+/// Where a module's `set-param`, `set-range` and `navigate` are sent.
+pub fn on_asked(handler: impl Fn(Asked) + 'static) {
+    PAGE.with(|page| page.borrow_mut().asked = Some(Rc::new(handler)));
+}
+
+/// The surface's time range and each panel's parameters: for every `init`,
+/// and as `context` to every running module whose view of them moved.
 ///
-/// Only recorded here. Telling a mounted module that they changed is `context`,
-/// which is the next piece of work (HLIN-T-0067); this is where it will hook in.
+/// Diffed per frame, so a module hears exactly the changes that concern it —
+/// its panel's own parameters, the range, the generation — and not every
+/// redraw of the layout.
 pub fn set_context(
     time_range: Option<TimeRange>,
     generation: u64,
-    params: BTreeMap<String, Selections>,
+    panels: BTreeMap<String, PanelContext>,
 ) {
-    PAGE.with(|page| {
+    let ids: Vec<String> = PAGE.with(|page| {
         let mut page = page.borrow_mut();
         page.surroundings.time_range = time_range;
         page.surroundings.generation = generation;
-        page.surroundings.params = params;
+        page.surroundings.panels = panels;
+        page.hosts.keys().cloned().collect()
     });
+    for id in ids {
+        tell_context(&id);
+    }
+}
+
+/// Send a running module its context, if it differs from what it was told.
+fn tell_context(instance: &str) {
+    let owed = PAGE.with(|page| {
+        let mut page = page.borrow_mut();
+        let Page {
+            hosts,
+            surroundings,
+            ..
+        } = &mut *page;
+        let host = hosts.get_mut(instance)?;
+        if !host.listening() {
+            return None;
+        }
+        let context = surroundings.context_for(instance);
+        if host.told.as_ref() == Some(&context) {
+            return None;
+        }
+        host.told = Some(context.clone());
+        Some(context)
+    });
+    if let Some(context) = owed {
+        post(instance, None, ShellMessage::Context(context));
+    }
+}
+
+// -- The theme ---------------------------------------------------------------
+
+/// The page's theme, as the mounted pack drew it: the chrome's colour roles
+/// the pack filled (or the shell's defaults, where it filled none), and light
+/// or dark as the page's own surface reads.
+fn current_theme() -> Theme {
+    let Some(window) = web_sys::window() else {
+        return Theme::default();
+    };
+    let prefers_dark = window
+        .match_media("(prefers-color-scheme: dark)")
+        .ok()
+        .flatten()
+        .is_some_and(|query| query.matches());
+    let style = window
+        .document()
+        .and_then(|document| document.document_element())
+        .and_then(|root| window.get_computed_style(&root).ok().flatten());
+    let Some(style) = style else {
+        return Theme {
+            scheme: if prefers_dark {
+                Scheme::Dark
+            } else {
+                Scheme::Light
+            },
+            tokens: BTreeMap::new(),
+        };
+    };
+    let tokens: BTreeMap<String, String> = bridge::THEME_TOKENS
+        .iter()
+        .filter_map(|name| {
+            let value = style.get_property_value(name).ok()?;
+            let value = value.trim();
+            (!value.is_empty()).then(|| (name.to_string(), value.to_string()))
+        })
+        .collect();
+    let surface = tokens.get("--hlin-surface").cloned().unwrap_or_default();
+    Theme {
+        scheme: bridge::scheme_of(&surface, prefers_dark),
+        tokens,
+    }
+}
+
+/// The scheme or the tokens may have moved: tell every running module whose
+/// theme differs.
+fn retheme() {
+    let theme = current_theme();
+    let owed: Vec<String> = PAGE.with(|page| {
+        let mut page = page.borrow_mut();
+        page.hosts
+            .iter_mut()
+            .filter(|(_, host)| host.listening() && host.told_theme.as_ref() != Some(&theme))
+            .map(|(id, host)| {
+                host.told_theme = Some(theme.clone());
+                id.clone()
+            })
+            .collect()
+    });
+    for id in owed {
+        post(&id, None, ShellMessage::Theme(theme.clone()));
+    }
 }
 
 // -- Mounting --------------------------------------------------------------
@@ -251,7 +481,13 @@ pub fn host(container: web_sys::Element, mount: Mount, title: String) {
     let near = {
         let id = instance.clone();
         Closure::<dyn FnMut(js_sys::Array)>::new(move |entries: js_sys::Array| {
-            if intersecting(&entries) {
+            let close = intersecting(&entries);
+            PAGE.with(|page| {
+                if let Some(host) = page.borrow_mut().hosts.get_mut(&id) {
+                    host.near = close;
+                }
+            });
+            if close {
                 attach(&id);
             }
         })
@@ -295,6 +531,12 @@ pub fn host(container: web_sys::Element, mount: Mount, title: String) {
                 liveness: Liveness::new(now()),
                 ids: IdMint::shell(),
                 in_view: false,
+                near: false,
+                last_seen: now(),
+                suspending: None,
+                told: None,
+                told_theme: None,
+                notice: None,
                 observers,
                 _callbacks: vec![near, within],
                 _onload: None,
@@ -313,7 +555,11 @@ fn intersecting(entries: &js_sys::Array) -> bool {
     })
 }
 
-/// The panel came near the viewport: create its frame, once.
+/// The panel came near the viewport: create its frame, if it has none.
+///
+/// A frame unmounted to stay within the budget comes back the same way, as a
+/// new document: `loading` again, a new handshake, and whatever it handed back
+/// at `suspend` in `init.restored`.
 fn attach(instance: &str) {
     let Some(document) = web_sys::window().and_then(|window| window.document()) else {
         return;
@@ -321,10 +567,12 @@ fn attach(instance: &str) {
 
     let prepared = PAGE.with(|page| {
         let mut page = page.borrow_mut();
-        let host = page.hosts.get_mut(instance)?;
-        if host.iframe.is_some() {
+        if page.hosts.get(instance)?.iframe.is_some() {
             return None;
         }
+        page.serial += 1;
+        let serial = page.serial;
+        let host = page.hosts.get_mut(instance)?;
         let iframe = document
             .create_element("iframe")
             .ok()?
@@ -350,6 +598,25 @@ fn attach(instance: &str) {
         iframe.set_onload(Some(loaded.as_ref().unchecked_ref()));
         host._onload = Some(loaded);
 
+        // A new document, judged from now: its liveness, its allowance and
+        // what it has been told all start again. The clock for the `ready`
+        // timeout starts here rather than when the panel was first placed, so
+        // a panel far down a surface is not given up on before it is ever
+        // mounted.
+        let at = now();
+        host.serial = serial;
+        host.liveness = Liveness::new(at);
+        host.liveness
+            .visible(host.in_view && document_visible(), at);
+        host.allowance = Allowance::new(
+            host.mount.limits.messages_per_second,
+            host.mount.limits.fetches_in_flight,
+        );
+        host.suspending = None;
+        host.told = None;
+        host.told_theme = None;
+        host.notice = None;
+
         let _ = host.container.append_child(&iframe);
         // The window exists once the frame is in the document, and it is the
         // same window after the frame navigates to its source, which is what
@@ -359,18 +626,20 @@ fn attach(instance: &str) {
             platform: host.mount.platform.clone(),
             panel: host.mount.panel.clone(),
             instance: instance.to_string(),
-            mounted_at: now(),
+            mounted_at: at,
         };
         let entry = format!("/m/{}{}", host.mount.platform, host.mount.entry);
-        let serial = host.serial;
+        let view = host.view();
         host.iframe = Some(iframe);
         page.registry.register(JsValue::from(window), registered);
-        Some((entry, serial))
+        Some((entry, serial, view))
     });
 
-    let Some((entry, serial)) = prepared else {
+    let Some((entry, serial, view)) = prepared else {
         return;
     };
+    publish(instance, view);
+    keep_to_budget();
 
     // The frame's own load event cannot say how its document was answered, and
     // a 404 and a 502 both load *something*. The page asks for the entry itself,
@@ -392,7 +661,7 @@ fn attach(instance: &str) {
                     .get_mut(&id)
                     .filter(|host| host.serial == serial)?;
                 host.liveness.failed(cause);
-                Some(settled(host.liveness.state(), host.mount.declares_data))
+                Some(host.view())
             });
             if let Some(view) = changed {
                 conclude(&id, view);
@@ -414,18 +683,31 @@ fn on_load(instance: &str) {
 /// The panel came into or went out of view (`Some`), or the tab was shown or
 /// hidden (`None`).
 fn seen(instance: &str, in_view: Option<bool>) {
-    let changed = PAGE.with(|page| {
+    let (changed, remount) = PAGE.with(|page| {
         let mut page = page.borrow_mut();
-        let host = page.hosts.get_mut(instance)?;
+        let Some(host) = page.hosts.get_mut(instance) else {
+            return (None, false);
+        };
+        let at = now();
         if let Some(in_view) = in_view {
+            // Seen until the moment it leaves, and from the moment it comes
+            // back: the budget's "least recently seen".
+            if in_view || host.in_view {
+                host.last_seen = at;
+            }
             host.in_view = in_view;
+            if in_view {
+                // Back before its suspension ran out: it stays.
+                host.suspending = None;
+            }
         }
+        let remount = host.in_view && host.iframe.is_none();
         let visible = host.in_view && document_visible();
-        if visible == host.liveness.is_visible() {
-            return None;
+        if host.iframe.is_none() || visible == host.liveness.is_visible() {
+            return (None, remount);
         }
-        host.liveness.visible(visible, now());
-        host.liveness.has_loaded().then_some(visible)
+        host.liveness.visible(visible, at);
+        (host.liveness.has_loaded().then_some(visible), remount)
     });
     if let Some(visible) = changed {
         post(
@@ -433,6 +715,9 @@ fn seen(instance: &str, in_view: Option<bool>) {
             None,
             ShellMessage::Visibility(Visibility { visible }),
         );
+    }
+    if remount {
+        attach(instance);
     }
 }
 
@@ -457,11 +742,98 @@ pub fn unmount(instance: &str) {
 /// Mount a module again after it was given up on: the only way `unavailable`
 /// recovers (*Panel states*).
 pub fn retry(instance: &str) {
-    if let Some(published) = PAGE.with(|page| page.borrow().published) {
+    let published = PAGE.with(|page| {
+        let mut page = page.borrow_mut();
+        page.given_up.remove(instance);
+        page.published
+    });
+    if let Some(published) = published {
         published.update(|views| {
             views.remove(instance);
         });
     }
+}
+
+// -- The budget --------------------------------------------------------------
+
+/// Unmount what the budget says must go, out-of-view frames seen least
+/// recently first (*Budget*, REQ-4.3).
+///
+/// A module that can hear is offered `suspend` first and unmounted when it
+/// answers `state` or its deadline passes; one still loading has nothing to
+/// keep and goes at once.
+fn keep_to_budget() {
+    let doomed = PAGE.with(|page| {
+        let page = page.borrow();
+        let mounted: Vec<Mounted> = page
+            .hosts
+            .iter()
+            .filter(|(_, host)| host.iframe.is_some() && host.suspending.is_none())
+            .map(|(id, host)| Mounted {
+                instance: id.clone(),
+                in_view: host.in_view,
+                near: host.near,
+                last_seen: host.last_seen,
+            })
+            .collect();
+        bridge::over_budget(&mounted, bridge::FRAME_BUDGET)
+    });
+
+    for id in doomed {
+        let asks = PAGE.with(|page| {
+            let mut page = page.borrow_mut();
+            let host = page.hosts.get_mut(&id)?;
+            let asks = host.listening();
+            if asks {
+                host.suspending = Some(now());
+            }
+            Some(asks)
+        });
+        match asks {
+            Some(true) => post(
+                &id,
+                None,
+                ShellMessage::Suspend(Suspend {
+                    deadline_ms: hlin_bridge::SUSPEND_DEADLINE_MS,
+                }),
+            ),
+            Some(false) => detach(&id),
+            None => {}
+        }
+    }
+}
+
+/// Take a frame's document away and keep its panel: out of the registry,
+/// then out of the document, exactly as [`unmount`] does, but the panel keeps
+/// its observers and its last state, held, until it comes near again.
+///
+/// A frame that came back into view while it was being suspended is left
+/// where it is: the budget never takes what a person is looking at.
+fn detach(instance: &str) {
+    PAGE.with(|page| {
+        let mut page = page.borrow_mut();
+        let Some(host) = page.hosts.get(instance) else {
+            return;
+        };
+        if host.in_view {
+            if let Some(host) = page.hosts.get_mut(instance) {
+                host.suspending = None;
+            }
+            return;
+        }
+        page.registry.remove(instance);
+        let Some(host) = page.hosts.get_mut(instance) else {
+            return;
+        };
+        if let Some(iframe) = host.iframe.take() {
+            iframe.set_onload(None);
+            iframe.remove();
+        }
+        host._onload = None;
+        host.suspending = None;
+        host.told = None;
+        host.told_theme = None;
+    });
 }
 
 // -- The clock ---------------------------------------------------------------
@@ -470,17 +842,29 @@ fn tick() {
     let at = now();
     let mut due = Vec::new();
     let mut changed = Vec::new();
+    let mut expired = Vec::new();
 
     PAGE.with(|page| {
         let mut page = page.borrow_mut();
         for (id, host) in page.hosts.iter_mut() {
+            // Nothing to judge without a document: a panel not yet near the
+            // viewport, or one the budget unmounted, holds its last state.
+            if host.iframe.is_none() {
+                continue;
+            }
+            if let Some(since) = host.suspending {
+                if at - since >= hlin_bridge::SUSPEND_DEADLINE_MS as f64 {
+                    expired.push(id.clone());
+                }
+                continue;
+            }
             let before = host.liveness.state();
             if let Some(owed) = host.liveness.tick(at) {
                 due.push((id.clone(), owed));
             }
             let after = host.liveness.state();
             if after != before {
-                changed.push((id.clone(), settled(after, host.mount.declares_data)));
+                changed.push((id.clone(), host.view()));
             }
         }
     });
@@ -498,38 +882,45 @@ fn tick() {
     for (id, view) in changed {
         conclude(&id, view);
     }
+    // The module kept nothing in time, or said nothing: it starts fresh.
+    for id in expired {
+        detach(&id);
+    }
 }
 
 fn init_for(instance: &str) -> Option<Init> {
+    let theme = current_theme();
     PAGE.with(|page| {
-        let page = page.borrow();
-        let host = page.hosts.get(instance)?;
-        let around = &page.surroundings;
+        let mut page = page.borrow_mut();
+        let restored = page.restored.get(instance).cloned();
+        let Page {
+            hosts,
+            surroundings,
+            ..
+        } = &mut *page;
+        let host = hosts.get_mut(instance)?;
         let limits = host.mount.limits;
+        let context = surroundings.context_for(instance);
+        host.told = Some(context.clone());
+        host.told_theme = Some(theme.clone());
         Some(Init {
             platform: host.mount.platform.clone(),
             panel: host.mount.panel.clone(),
             instance: instance.to_string(),
             page: false,
-            context: Context {
-                time_range: around.time_range,
-                params: around.params.get(instance).cloned().unwrap_or_default(),
-                generation: around.generation,
-            },
-            // The scheme and tokens are sent, and kept current, with `theme`
-            // (HLIN-T-0067). Until then a module draws its own defaults.
-            theme: Theme::default(),
+            context,
+            theme,
             viewer: Viewer {
-                name: around.viewer.clone(),
+                name: surroundings.viewer.clone(),
             },
-            read_only: around.read_only,
+            read_only: surroundings.read_only,
             limits: Limits {
                 request_bytes: limits.request_bytes,
                 response_bytes: limits.response_bytes,
                 fetches_in_flight: u64::from(limits.fetches_in_flight),
                 streams: u64::from(limits.streams),
             },
-            restored: None,
+            restored,
         })
     })
 }
@@ -540,6 +931,7 @@ fn settled(state: PanelState, declares_data: bool) -> ModuleView {
     ModuleView {
         state,
         fallen_back: bridge::falls_back(state, declares_data),
+        notice: None,
     }
 }
 
@@ -547,8 +939,8 @@ fn publish(instance: &str, view: ModuleView) {
     let Some(published) = PAGE.with(|page| page.borrow().published) else {
         return;
     };
-    let current = published.with_untracked(|views| views.get(instance).copied());
-    if current != Some(view) {
+    let current = published.with_untracked(|views| views.get(instance).cloned());
+    if current.as_ref() != Some(&view) {
         published.update(|views| {
             views.insert(instance.to_string(), view);
         });
@@ -563,6 +955,21 @@ fn publish(instance: &str, view: ModuleView) {
 /// load callback, which tearing the frame down would drop while it ran.
 fn conclude(instance: &str, view: ModuleView) {
     if matches!(view.state, PanelState::Unavailable(_)) {
+        // An unreachable module comes back on its platform's next word about
+        // its panel (*Panel states*); a malformed one does not, because
+        // nothing about it will have changed.
+        if view.state == PanelState::Unavailable(Cause::Unreachable) {
+            PAGE.with(|page| {
+                let mut page = page.borrow_mut();
+                let origin = page
+                    .hosts
+                    .get(instance)
+                    .map(|host| (host.mount.platform.clone(), host.mount.panel.clone()));
+                if let Some(origin) = origin {
+                    page.given_up.insert(instance.to_string(), origin);
+                }
+            });
+        }
         let id = instance.to_string();
         leptos::task::spawn_local(async move {
             unmount(&id);
@@ -571,6 +978,123 @@ fn conclude(instance: &str, view: ModuleView) {
         return;
     }
     publish(instance, view);
+}
+
+// -- Changes -----------------------------------------------------------------
+
+/// The shell says a platform changed something: its own event stream, or a
+/// module of it on any surface this shell serves (HLIN-S-0003, `changed`).
+///
+/// Passed to every running module of that platform that would care, as the
+/// bridge's `changed`. A change this page relayed itself is skipped: its own
+/// modules were told when it happened.
+pub fn heard(frame: ChangedFrame) {
+    let mine = PAGE.with(|page| {
+        let page = page.borrow();
+        frame.page.as_deref() == Some(page.page_id.as_str())
+    });
+    if mine {
+        return;
+    }
+    let from = match frame.from {
+        ChangeOrigin::Platform => ChangeSource::Platform,
+        ChangeOrigin::Module => ChangeSource::Module,
+    };
+    tell_changed(&frame.platform, &frame.panel, &frame.selections, from, None);
+
+    if frame.from == ChangeOrigin::Platform {
+        let back: Vec<String> = PAGE.with(|page| {
+            page.borrow()
+                .given_up
+                .iter()
+                .filter(|(_, (platform, panel))| {
+                    *platform == frame.platform && *panel == frame.panel
+                })
+                .map(|(id, _)| id.clone())
+                .collect()
+        });
+        for id in back {
+            retry(&id);
+        }
+    }
+}
+
+/// Tell every running module of a platform that something changed, except the
+/// one that said so.
+fn tell_changed(
+    platform: &str,
+    panel: &str,
+    selections: &Selections,
+    from: ChangeSource,
+    except: Option<&str>,
+) {
+    let told: Vec<String> = PAGE.with(|page| {
+        let page = page.borrow();
+        page.hosts
+            .iter()
+            .filter(|(id, host)| {
+                host.mount.platform == platform
+                    && Some(id.as_str()) != except
+                    && host.listening()
+                    && bridge::hears(
+                        selections,
+                        &page.surroundings.context_for(id.as_str()).params,
+                    )
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    });
+    for id in told {
+        post(
+            &id,
+            None,
+            ShellMessage::Changed(ShellChanged {
+                panel: panel.to_string(),
+                selections: selections.clone(),
+                from,
+            }),
+        );
+    }
+}
+
+/// A module said it wrote something. Its platform's other modules on this page
+/// hear it now; everyone else's hear it through the shell, which is the only
+/// thing that can reach them.
+fn spread(instance: &str, platform: &str, change: ModuleChanged) {
+    tell_changed(
+        platform,
+        &change.panel,
+        &change.selections,
+        ChangeSource::Module,
+        Some(instance),
+    );
+
+    let (surface, page_id) = PAGE.with(|page| {
+        let page = page.borrow();
+        (page.surface.clone(), page.page_id.clone())
+    });
+    let Some(surface) = surface else {
+        return;
+    };
+    let request = hlin_stream::ChangedRequest {
+        platform: platform.to_string(),
+        panel: change.panel,
+        selections: change.selections,
+        page: Some(page_id),
+    };
+    leptos::task::spawn_local(async move {
+        let Ok(body) = serde_json::to_string(&request) else {
+            return;
+        };
+        let sent = gloo_net::http::Request::post(&format!("/api/stream/{surface}/changed"))
+            .header("content-type", "application/json")
+            .body(body);
+        if let Ok(sent) = sent {
+            // Best-effort, like a platform's own event: a surface that misses
+            // it is one refetch behind, and a module is never told it failed.
+            let _ = sent.send().await;
+        }
+    });
 }
 
 // -- Messages ----------------------------------------------------------------
@@ -601,8 +1125,16 @@ fn post(instance: &str, re: Option<String>, message: ShellMessage) {
 enum Then {
     Nothing,
     Publish(ModuleView),
+    /// The module said `ready`: publish, and bring it up to date with
+    /// anything that moved since its `init` was written.
+    Ready(ModuleView),
     Refuse(String, Refusal, &'static str),
     Carry(Carriage),
+    Ask(Asked),
+    SetParam(String, Vec<String>),
+    Changed(String, ModuleChanged),
+    /// The module answered `suspend`: keep this, and unmount it.
+    Keep(Option<Vec<u8>>),
 }
 
 /// A `fetch` the page will make.
@@ -639,6 +1171,14 @@ fn on_message(event: web_sys::MessageEvent) {
     match then {
         Then::Nothing => {}
         Then::Publish(view) => conclude(&instance, view),
+        Then::Ready(view) => {
+            // Handed back, so no longer the page's to keep: the next
+            // `suspend` will say what to keep next time.
+            PAGE.with(|page| page.borrow_mut().restored.remove(&instance));
+            conclude(&instance, view);
+            tell_context(&instance);
+            retheme();
+        }
         Then::Refuse(re, refusal, reason) => post(
             &instance,
             Some(re),
@@ -647,6 +1187,46 @@ fn on_message(event: web_sys::MessageEvent) {
         Then::Carry(carriage) => {
             leptos::task::spawn_local(carry(instance, carriage));
         }
+        Then::Ask(asked) => ask(asked),
+        Then::SetParam(id, values) => {
+            // Only a parameter the panel declares: anything else is not a
+            // question this panel was ever asked, and is not the module's to
+            // invent.
+            let declared = PAGE.with(|page| {
+                page.borrow()
+                    .surroundings
+                    .panels
+                    .get(&instance)
+                    .is_some_and(|panel| panel.declared.contains(&id))
+            });
+            if declared {
+                ask(Asked::Intent {
+                    instance,
+                    intent: hlin_view::Intent::Select { param: id, values },
+                });
+            } else {
+                leptos::logging::warn!(
+                    "a module asked to set `{id}`, which its panel does not declare; ignored"
+                );
+            }
+        }
+        Then::Changed(platform, change) => spread(&instance, &platform, change),
+        Then::Keep(blob) => {
+            if let Some(blob) = blob {
+                PAGE.with(|page| {
+                    page.borrow_mut().restored.insert(instance.clone(), blob);
+                });
+            }
+            detach(&instance);
+        }
+    }
+}
+
+/// Hand the app something only it can do.
+fn ask(asked: Asked) {
+    let handler = PAGE.with(|page| page.borrow().asked.clone());
+    if let Some(handler) = handler {
+        handler(asked);
     }
 }
 
@@ -682,15 +1262,19 @@ fn handle(host: &mut Host, envelope: Envelope<ModuleMessage>, at: f64) -> Then {
             );
         }
         let after = host.liveness.state();
-        return if after == before {
-            Then::Nothing
-        } else {
-            Then::Publish(settled(after, host.mount.declares_data))
+        return match after {
+            _ if after == before => Then::Nothing,
+            PanelState::Ready => Then::Ready(host.view()),
+            _ => Then::Publish(host.view()),
         };
     }
     if envelope.bridge[0] != host.mount.bridge {
         return Then::Nothing;
     }
+
+    // A module that has not said `ready` has nothing to ask the surface for
+    // yet; only its answers to the page's own questions count.
+    let ready = matches!(host.liveness.state(), PanelState::Ready | PanelState::Stale);
 
     match envelope.message {
         ModuleMessage::Heartbeat(Heartbeat { n }) => {
@@ -700,12 +1284,47 @@ fn handle(host: &mut Host, envelope: Envelope<ModuleMessage>, at: f64) -> Then {
             if after == before {
                 Then::Nothing
             } else {
-                Then::Publish(settled(after, host.mount.declares_data))
+                Then::Publish(host.view())
             }
         }
         ModuleMessage::Fetch(fetch) => admit_fetch(host, envelope.id, fetch),
-        // `context`'s counterparts, `changed`, `notice`, `navigate` and the
-        // stream's credit are the next pieces of work (HLIN-T-0067, HLIN-T-0068).
+        ModuleMessage::State(state) => {
+            // Only an answer to `suspend`; anything else is a module keeping
+            // state the page never offered to hold.
+            if host.suspending.is_none() {
+                return Then::Nothing;
+            }
+            let kept = state
+                .blob
+                .filter(|blob| bridge::keeps_state(blob.len(), host.mount.limits.state_bytes));
+            Then::Keep(kept)
+        }
+        _ if !ready => Then::Nothing,
+        ModuleMessage::SetParam(set) => Then::SetParam(set.id, set.values),
+        ModuleMessage::SetRange(range) => Then::Ask(Asked::Intent {
+            instance: host.mount.instance.clone(),
+            intent: hlin_view::Intent::Range {
+                from_millis: range.from_millis,
+                to_millis: range.to_millis,
+            },
+        }),
+        ModuleMessage::Navigate(navigate) => Then::Ask(Asked::Navigate {
+            instance: host.mount.instance.clone(),
+            to: navigate.to,
+        }),
+        ModuleMessage::Changed(change) => Then::Changed(host.mount.platform.clone(), change),
+        ModuleMessage::Notice(notice) => {
+            let shown = bridge::notice_text(&notice.text).map(|text| ModuleNotice {
+                level: notice.level,
+                text,
+            });
+            if shown == host.notice {
+                return Then::Nothing;
+            }
+            host.notice = shown;
+            Then::Publish(host.view())
+        }
+        // A streamed response's credit and cancellation are HLIN-T-0068's.
         _ => Then::Nothing,
     }
 }
@@ -876,7 +1495,10 @@ pub fn ModuleFrame(
             host(element.into(), mount.clone(), title);
         }
     });
-    on_cleanup(move || unmount(&instance));
+    on_cleanup(move || {
+        PAGE.with(|page| page.borrow_mut().restored.remove(&instance));
+        unmount(&instance);
+    });
 
     view! { <div class="module-frame" node_ref=holder></div> }
 }

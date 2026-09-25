@@ -480,6 +480,188 @@ pub fn passed_back<'a>(
         .collect()
 }
 
+// -- What a module is told ---------------------------------------------------
+
+/// A panel's parameters as its module is told them: only the ones the panel
+/// declares (*Messages*, `init`; [[HLIN-T-0028]]).
+///
+/// A layout can hold a selection for a parameter the panel no longer declares
+/// — the platform withdrew it, or a person typed it before it was a control —
+/// and a module has no business hearing about it.
+pub fn declared_only(
+    selections: &hlin_bridge::Selections,
+    declared: &std::collections::BTreeSet<String>,
+) -> hlin_bridge::Selections {
+    selections
+        .iter()
+        .filter(|(id, _)| declared.contains(*id))
+        .map(|(id, values)| (id.clone(), values.clone()))
+        .collect()
+}
+
+/// Whether a module should hear that its platform changed something.
+///
+/// Every module of the platform hears it, whichever panel it draws: the
+/// message names the panel, and a module refetches if it cares (*Messages*,
+/// `changed`). The one module that does not is one that has chosen a
+/// different value for a parameter the change names. A checklist's `team`
+/// list changing is nothing to a module showing `home`; a module with no list
+/// chosen shows whatever its platform defaults to, which may be `team`, so it
+/// hears it.
+pub fn hears(change: &hlin_bridge::Selections, chosen: &hlin_bridge::Selections) -> bool {
+    change
+        .iter()
+        .all(|(param, values)| chosen.get(param).is_none_or(|mine| mine == values))
+}
+
+/// A `notice`'s text as the shell shows it: plain, on one line, at most
+/// [`hlin_bridge::NOTICE_MAX_CHARS`] characters (*Messages*, `notice`).
+///
+/// `None` for nothing to show, which clears the panel's notice. Control
+/// characters and runs of whitespace become single spaces, so a platform
+/// cannot push the chrome around with newlines; the text is drawn as text,
+/// never markup, by the view. Longer text is cut and ends with an ellipsis, so
+/// a person can see it was.
+pub fn notice_text(text: &str) -> Option<String> {
+    let plain = text
+        .split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if plain.is_empty() {
+        return None;
+    }
+    let most = hlin_bridge::NOTICE_MAX_CHARS;
+    if plain.chars().count() <= most {
+        return Some(plain);
+    }
+    let mut cut: String = plain.chars().take(most - 1).collect();
+    cut.truncate(cut.trim_end().len());
+    cut.push('…');
+    Some(cut)
+}
+
+/// The chrome's colour roles a module is sent in `theme`: the properties a
+/// design pack fills for the shell's own frame (`DesignPack::stylesheet`).
+///
+/// These rather than a vocabulary of the bridge's own, because they are what
+/// a pack already answers for, so a module drawn inside a panel can match the
+/// frame around it with whatever pack is mounted.
+pub const THEME_TOKENS: [&str; 11] = [
+    "--hlin-surface",
+    "--hlin-raised",
+    "--hlin-border",
+    "--hlin-text",
+    "--hlin-dim",
+    "--hlin-faint",
+    "--hlin-accent",
+    "--hlin-on-accent",
+    "--hlin-good",
+    "--hlin-warn",
+    "--hlin-bad",
+];
+
+/// Light or dark, as the page actually looks.
+///
+/// Read from the page's own surface colour rather than from the operating
+/// system's preference, because the mounted pack decides: Aurora Dark is dark
+/// in a light-mode browser. The preference is the answer only when the colour
+/// cannot be read.
+pub fn scheme_of(surface: &str, prefers_dark: bool) -> hlin_bridge::Scheme {
+    match luminance(surface) {
+        Some(light) if light < 0.5 => hlin_bridge::Scheme::Dark,
+        Some(_) => hlin_bridge::Scheme::Light,
+        None if prefers_dark => hlin_bridge::Scheme::Dark,
+        None => hlin_bridge::Scheme::Light,
+    }
+}
+
+/// Relative luminance from 0 to 1 of a colour written as a browser computes
+/// custom properties: `#rgb`, `#rrggbb`, `#rrggbbaa`, or `rgb()`/`rgba()`.
+fn luminance(colour: &str) -> Option<f64> {
+    let colour = colour.trim();
+    let (r, g, b) = if let Some(hex) = colour.strip_prefix('#') {
+        let digit = |at: usize, width: usize| {
+            u8::from_str_radix(hex.get(at..at + width)?, 16)
+                .ok()
+                .map(|value| if width == 1 { value * 17 } else { value })
+        };
+        match hex.len() {
+            3 | 4 => (digit(0, 1)?, digit(1, 1)?, digit(2, 1)?),
+            6 | 8 => (digit(0, 2)?, digit(2, 2)?, digit(4, 2)?),
+            _ => return None,
+        }
+    } else {
+        let inner = colour
+            .strip_prefix("rgba(")
+            .or_else(|| colour.strip_prefix("rgb("))?
+            .strip_suffix(')')?;
+        let mut parts = inner
+            .split([',', ' ', '/'])
+            .filter(|part| !part.is_empty())
+            .map(|part| part.parse::<f64>().ok().map(|v| v.clamp(0.0, 255.0) as u8));
+        (parts.next()??, parts.next()??, parts.next()??)
+    };
+    let linear = |channel: u8| {
+        let c = f64::from(channel) / 255.0;
+        if c <= 0.039_28 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    Some(0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b))
+}
+
+// -- Budget ------------------------------------------------------------------
+
+/// How many frames a surface keeps mounted (*Budget*).
+pub const FRAME_BUDGET: usize = 12;
+
+/// A mounted frame, as the budget weighs it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mounted {
+    /// The panel instance.
+    pub instance: String,
+    /// In the viewport now. Never unmounted.
+    pub in_view: bool,
+    /// Within the mounting margin of the viewport: a person is about to see
+    /// it, so it goes after one that is further away.
+    pub near: bool,
+    /// When it was last in view, in milliseconds.
+    pub last_seen: f64,
+}
+
+/// Which frames to unmount so the surface is back within `budget`, first
+/// first (REQ-4.3).
+///
+/// The least recently seen of the frames out of view, and of those, one far
+/// from the viewport before one about to scroll in. Never one in view: a
+/// surface with more than the budget in view at once runs over it rather than
+/// blank what a person is looking at.
+pub fn over_budget(mounted: &[Mounted], budget: usize) -> Vec<String> {
+    let excess = mounted.len().saturating_sub(budget);
+    let mut candidates: Vec<&Mounted> = mounted.iter().filter(|frame| !frame.in_view).collect();
+    candidates.sort_by(|a, b| {
+        a.near
+            .cmp(&b.near)
+            .then(a.last_seen.total_cmp(&b.last_seen))
+            .then(a.instance.cmp(&b.instance))
+    });
+    candidates
+        .into_iter()
+        .take(excess)
+        .map(|frame| frame.instance.clone())
+        .collect()
+}
+
+/// Whether a `state` blob is one the page keeps: at most `state_bytes`.
+/// A larger one is dropped whole, and the module starts fresh when it
+/// remounts, which is what a module that ignored `suspend` gets anyway.
+pub fn keeps_state(bytes: usize, state_bytes: u64) -> bool {
+    bytes as u64 <= state_bytes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -870,5 +1052,154 @@ mod tests {
             passed.keys().map(String::as_str).collect::<Vec<_>>(),
             ["content-type", "etag"]
         );
+    }
+
+    // -- What a module is told --
+
+    fn chosen(pairs: &[(&str, &[&str])]) -> hlin_bridge::Selections {
+        pairs
+            .iter()
+            .map(|(id, values)| {
+                (
+                    id.to_string(),
+                    values.iter().map(|v| v.to_string()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_module_is_told_only_the_parameters_its_panel_declares() {
+        let stored = chosen(&[("cluster", &["west"]), ("withdrawn", &["x"])]);
+        let declared = ["cluster".to_string()].into();
+        assert_eq!(
+            declared_only(&stored, &declared),
+            chosen(&[("cluster", &["west"])])
+        );
+    }
+
+    #[test]
+    fn a_change_reaches_every_module_of_the_platform_but_one_that_chose_otherwise() {
+        let team = chosen(&[("list", &["team"])]);
+        assert!(hears(&team, &chosen(&[])), "a module that chose nothing");
+        assert!(hears(&team, &team), "a module on that list");
+        assert!(
+            hears(&team, &chosen(&[("colour", &["red"])])),
+            "a module that chose only something the change does not name"
+        );
+        assert!(
+            !hears(&team, &chosen(&[("list", &["home"])])),
+            "a module showing another list"
+        );
+        assert!(
+            hears(&chosen(&[]), &chosen(&[("list", &["home"])])),
+            "a change naming nothing is everyone's"
+        );
+    }
+
+    #[test]
+    fn a_notice_is_one_plain_line_of_at_most_a_hundred_and_forty_characters() {
+        assert_eq!(
+            notice_text("  Sync\npaused\t\u{7}now "),
+            Some("Sync paused now".into())
+        );
+        assert_eq!(notice_text(" \n "), None, "nothing to show clears it");
+
+        let long = "word ".repeat(60);
+        let shown = notice_text(&long).unwrap();
+        assert_eq!(shown.chars().count(), 140);
+        assert!(shown.ends_with("word…"), "{shown}");
+        let spaced = notice_text(&"abc ".repeat(60)).unwrap();
+        assert!(
+            spaced.ends_with("abc…"),
+            "no space before the ellipsis: {spaced}"
+        );
+
+        let exact = "a".repeat(140);
+        assert_eq!(notice_text(&exact), Some(exact.clone()));
+        let over = "é".repeat(141);
+        assert_eq!(notice_text(&over).unwrap().chars().count(), 140);
+    }
+
+    #[test]
+    fn the_scheme_is_read_from_the_page_the_pack_drew_not_the_system() {
+        use hlin_bridge::Scheme;
+        assert_eq!(scheme_of("#0f1115", false), Scheme::Dark);
+        assert_eq!(scheme_of(" #f8f9fa", true), Scheme::Light);
+        assert_eq!(scheme_of("#fff", true), Scheme::Light);
+        assert_eq!(scheme_of("#111a", false), Scheme::Dark);
+        assert_eq!(scheme_of("rgb(15, 17, 21)", false), Scheme::Dark);
+        assert_eq!(scheme_of("rgba(250 250 250 / 1)", true), Scheme::Light);
+        assert_eq!(
+            scheme_of("", true),
+            Scheme::Dark,
+            "unreadable: ask the system"
+        );
+        assert_eq!(scheme_of("canvas", false), Scheme::Light);
+    }
+
+    // -- Budget --
+
+    fn mounted(instance: &str, in_view: bool, near: bool, last_seen: f64) -> Mounted {
+        Mounted {
+            instance: instance.into(),
+            in_view,
+            near,
+            last_seen,
+        }
+    }
+
+    #[test]
+    fn within_budget_nothing_is_unmounted() {
+        let frames: Vec<_> = (0..12)
+            .map(|i| mounted(&i.to_string(), false, false, 0.0))
+            .collect();
+        assert!(over_budget(&frames, FRAME_BUDGET).is_empty());
+    }
+
+    #[test]
+    fn past_budget_the_least_recently_seen_frame_out_of_view_goes_first() {
+        let mut frames: Vec<_> = (0..12)
+            .map(|i| mounted(&format!("f{i}"), true, true, 100.0))
+            .collect();
+        frames.push(mounted("seen-long-ago", false, false, 10.0));
+        frames.push(mounted("seen-lately", false, false, 90.0));
+        assert_eq!(
+            over_budget(&frames, FRAME_BUDGET),
+            ["seen-long-ago", "seen-lately"]
+        );
+        assert_eq!(over_budget(&frames[..13], FRAME_BUDGET), ["seen-long-ago"]);
+    }
+
+    #[test]
+    fn a_frame_about_to_scroll_in_outlasts_one_far_away_however_recently_seen() {
+        let mut frames: Vec<_> = (0..12)
+            .map(|i| mounted(&format!("f{i}"), true, true, 100.0))
+            .collect();
+        frames.push(mounted("just-below", false, true, 1.0));
+        frames.push(mounted("far-away", false, false, 50.0));
+        assert_eq!(over_budget(&frames[..], 13), ["far-away"]);
+    }
+
+    #[test]
+    fn a_frame_in_view_is_never_unmounted_to_meet_the_budget() {
+        let frames: Vec<_> = (0..15)
+            .map(|i| mounted(&format!("f{i}"), true, false, 0.0))
+            .collect();
+        assert!(
+            over_budget(&frames, FRAME_BUDGET).is_empty(),
+            "fifteen in view is over budget, and stays so"
+        );
+
+        let mut frames = frames;
+        frames.push(mounted("below", false, false, 5.0));
+        assert_eq!(over_budget(&frames, FRAME_BUDGET), ["below"]);
+    }
+
+    #[test]
+    fn a_state_blob_is_kept_only_within_its_limit() {
+        assert!(keeps_state(0, 64 * 1024));
+        assert!(keeps_state(64 * 1024, 64 * 1024));
+        assert!(!keeps_state(64 * 1024 + 1, 64 * 1024));
     }
 }

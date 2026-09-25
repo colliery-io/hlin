@@ -13,25 +13,40 @@
     <meta charset="utf-8" />
     <title>Module probe</title>
     <style>
-      /* The system's own colours, opaque: legible on whatever panel the frame
-         sits in, until the shell sends a theme to follow. */
+      /* The system's own colours until the shell sends a theme, then the
+         chrome's colour roles from the pack the page is drawn with. */
       :root { color-scheme: light dark; }
       body {
         margin: 0; padding: 8px 10px; font: 13px/1.5 system-ui, sans-serif;
-        background: Canvas; color: CanvasText; min-height: 100vh; box-sizing: border-box;
+        background: var(--hlin-raised, Canvas); color: var(--hlin-text, CanvasText);
+        min-height: 100vh; box-sizing: border-box;
       }
-      p { margin: 0 0 4px; }
-      .label { color: #868e96; }
-      button { font: inherit; font-size: 12px; margin: 4px 4px 0 0; }
+      p { margin: 0 0 2px; }
+      .label { color: var(--hlin-dim, #868e96); }
+      button, input { font: inherit; font-size: 12px; margin: 4px 4px 0 0; }
     </style>
   </head>
   <body>
     <p><span class="label">Bridge:</span> <span id="state" data-state="waiting">waiting for init</span></p>
     <p><span class="label">Looking:</span> <span id="viewer">nobody yet</span></p>
-    <p><span class="label">The platform says:</span> <span id="whoami">not asked yet</span></p>
+    <p><span class="label">The platform says:</span> <span id="whoami" data-asked="0">not asked yet</span></p>
     <p><span class="label">Twenty at once:</span> <span id="flood">not tried</span></p>
+    <p><span class="label">Range:</span> <span id="range">none</span>
+       <span class="label">Params:</span> <span id="params">{}</span>
+       <span class="label">Generation:</span> <span id="generation">0</span></p>
+    <p><span class="label">Theme:</span> <span id="theme">none</span>
+       <span class="label">Visible:</span> <span id="visible">yes</span></p>
+    <p><span class="label">Changes heard:</span> <span id="changes" data-count="0">none</span></p>
+    <p><span class="label">Restored:</span> <span id="restored">nothing</span></p>
+    <input id="note" placeholder="Something to keep" />
     <button id="stop" type="button">Stop answering</button>
     <button id="twenty" type="button">Ask twenty at once</button>
+    <button id="choose" type="button">Choose the lab cluster</button>
+    <button id="fifteen" type="button">Last fifteen minutes</button>
+    <button id="wrote" type="button">Say something changed</button>
+    <button id="notice" type="button">Say a notice</button>
+    <button id="goto" type="button">Go to the probe</button>
+    <button id="nowhere" type="button">Go nowhere</button>
     <script src="probe.js"></script>
   </body>
 </html>

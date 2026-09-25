@@ -217,6 +217,24 @@ body {
    not hidden, because stale says "not current", not "gone". */
 .panel[data-module="stale"] .module-frame { opacity: 0.45; }
 
+/* A module's notice: the platform's words, labelled as theirs, one line above
+   its frame. Drawn in the chrome's colours, never the module's, so it reads as
+   the shell passing on a message rather than the module drawing on the page. */
+.panel .module-notice {
+  margin: 0 0 6px; font-size: 12px; line-height: 1.4;
+  padding: 3px 8px; border-radius: 3px;
+  border-left: 3px solid var(--hlin-dim);
+  background: color-mix(in srgb, var(--hlin-dim) 10%, transparent);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.panel .module-notice[data-level="warning"] { border-left-color: var(--hlin-warn); }
+.panel .module-notice[data-level="error"] { border-left-color: var(--hlin-bad); }
+.panel .module-notice-from { color: var(--hlin-dim); margin-right: 6px; }
+
+/* A panel a module navigated to, marked for a moment so a person sees where
+   they were taken. */
+.panel.navigated { outline: 2px solid var(--hlin-accent); outline-offset: 2px; }
+
 .panel .module-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .panel .retry-module {
   font: inherit; font-size: 11px; padding: 1px 8px; cursor: pointer;

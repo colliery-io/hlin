@@ -13,6 +13,10 @@ use serde_json::{Map, Value};
 
 /// The contract version this platform declares when it is behaving.
 ///
+/// 2.3.0 adds `module-context`, the probe on a panel that declares the time
+/// picker and a cluster, so a module has parameters to be told and to set.
+/// Adding a panel is additive.
+///
 /// 2.2.0 ships modules: an `assets` prefix, the routes they may read, and
 /// three panels drawn by them. All additive.
 ///
@@ -23,7 +27,7 @@ use serde_json::{Map, Value};
 /// `angreal demo walkthrough` failed with the violation naming the exact
 /// parameter — which is what HLIN-A-0002 exists to do, working against the code
 /// that was demonstrating it.
-pub const NORMAL_VERSION: &str = "2.2.0";
+pub const NORMAL_VERSION: &str = "2.3.0";
 
 /// The panel key dropped by `--breaking`, without a major bump.
 pub const BREAKING_PANEL_KEY: &str = "queue-depth";
@@ -351,6 +355,29 @@ fn all_panels(name: &str) -> Vec<Panel> {
                     "scalar.v1",
                     "unused",
                     vec![],
+                ),
+                crate::modules::PROBE,
+            )
+        },
+        // The probe again, on a panel with parameters: the time picker and a
+        // cluster, so the shell has a context to send it and a parameter it
+        // may set. Its module or nothing, like `module-only`.
+        Panel {
+            kind: None,
+            envelope: None,
+            data: None,
+            ..drawn_by_module(
+                panel(
+                    "module-context",
+                    "Module with parameters",
+                    Some("This platform's module, told the time range and a cluster"),
+                    "stat",
+                    "scalar.v1",
+                    "unused",
+                    vec![
+                        ParamDecl::bare("time_range"),
+                        select("cluster", "Cluster", &format!("api/hlin/{name}-clusters")),
+                    ],
                 ),
                 crate::modules::PROBE,
             )
