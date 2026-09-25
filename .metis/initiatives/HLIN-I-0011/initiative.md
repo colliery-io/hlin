@@ -4,14 +4,14 @@ level: initiative
 title: "Platforms ship UI modules, and the shell hosts them in sandboxes"
 short_code: "HLIN-I-0011"
 created_at: 2026-09-24T22:23:21.385709+00:00
-updated_at: 2026-09-25T00:02:31.540277+00:00
+updated_at: 2026-09-25T22:21:28.832546+00:00
 parent: HLIN-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -233,3 +233,18 @@ Changed:
 `suspend`/`state`, the hidden-heartbeat rule and the page-wide stream cap were
 filled in while writing the decisions down. The design is ready for sign-off
 and decomposition.
+### 2026-09-25 — completed
+
+All nineteen tasks done. A platform ships a Leptos module; the shell serves it
+from its own origin under a module CSP, runs it in a sandboxed frame, carries
+its requests under declared prefixes with request-bound identity, gives it
+context and theme, relays changes across browsers, streams to it, opens its
+pages, and keeps a surface within a frame budget. Containment held in
+Chromium, Firefox and WebKit against eighteen escape attempts
+([[HLIN-T-0071]]). NFR-1.1 met: six modules from three platforms drawn 561 ms
+after a cold load on release builds.
+
+Accepted and documented rather than fixed: a module that spins freezes the
+page outside full Chromium (owner, 2026-09-25; [[HLIN-S-0007]]). Verified on
+main at close: 1051 Rust tests; Aurora 77, collab sign-in 9, walkthrough 3,
+twenty 6, twenty-measure 4.
