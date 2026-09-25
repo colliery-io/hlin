@@ -4,14 +4,14 @@ level: task
 title: "Show the time controls only on a surface that has a panel wanting them"
 short_code: "HLIN-T-0078"
 created_at: 2026-09-25T02:20:28.585895+00:00
-updated_at: 2026-09-25T02:20:28.585895+00:00
+updated_at: 2026-09-25T02:43:43.701035+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -35,6 +35,8 @@ nothing are noise, and in a workspace they are most of the bar.
 Rule: the time controls appear only when at least one panel on the surface
 declares the `time_range` parameter, whether the shell draws it or a module
 does. Otherwise they are absent, not disabled.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

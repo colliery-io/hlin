@@ -4,14 +4,14 @@ level: initiative
 title: "Twenty platforms on one surface"
 short_code: "HLIN-I-0012"
 created_at: 2026-09-25T02:41:04.680174+00:00
-updated_at: 2026-09-25T02:41:04.680174+00:00
+updated_at: 2026-09-25T02:43:42.046537+00:00
 parent: HLIN-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false

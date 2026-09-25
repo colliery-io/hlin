@@ -4,14 +4,14 @@ level: task
 title: "Open a platform's page inside the shell"
 short_code: "HLIN-T-0070"
 created_at: 2026-09-25T00:01:09.187717+00:00
-updated_at: 2026-09-25T02:41:00.000000+00:00
+updated_at: 2026-09-25T02:42:54.490181+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: true
@@ -29,6 +29,8 @@ initiative_id: HLIN-I-0011
 Slice 10 of [[HLIN-I-0011]]. [[HLIN-S-0007]] *Pages*: a navigation entry that
 declares `ui` opens at full width in the same kind of frame, with
 `init.page` set.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
