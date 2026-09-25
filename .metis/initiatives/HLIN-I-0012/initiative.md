@@ -106,6 +106,49 @@ one shell. Twenty is past the frame budget (12 mounted per surface,
 | 4 | Widgets 18 to 20 (the deploy log streams, so after [[HLIN-T-0068]]) | 1, HLIN-T-0068 |
 | 5 | Measure and prove: all twenty ready, budget on scroll, one platform killed, the numbers written down | 2, 3, 4 |
 
+## Results
+
+Measured by [[HLIN-T-0084]] with `angreal e2e twenty-measure` against `angreal
+demo up --with twenty --release`: medians of three, on an Apple M3 Pro (12
+cores, 36 GB, macOS 26.6.2), headless Chromium from Playwright 1.63, all on
+loopback, with another build running on the same machine. The viewport is
+1280×720, so six widgets are in view at the top and nine frames mounted. The
+details, and how each number is taken, are in the task.
+
+| | Median | NFR-1.1 |
+|---|---|---|
+| Cold: navigation → six in view `ready` / drawn | 572 ms / 588 ms | six interactive within 3 s cold: **met** |
+| Cold over 50 Mbit/s, 40 ms latency | 1,704 ms / 1,749 ms | **met** |
+| Warm (same context): `ready` / drawn | 528 ms / 535 ms | a cached module within 1 s: **met** |
+| Cold bytes, first screen | 7.73 MB (modules 5.69, shell 2.02) | |
+| Warm bytes, first screen | 0.72 MB | |
+| All twenty modules' assets | 12.53 MB as sent, 3.98 MB gzipped; **nothing is compressed** | |
+| JS heap | 15.1 MB (19.0 MB after a scroll) | |
+| Browser resident memory | 526 MB with the surface open, 615 MB after a scroll; 276 MB for an empty page | |
+| Frames mounted while scrolling | 12 settled; **18 at the peak** | budget is 12 |
+| A counter bump, one browser to another | 77 ms | |
+
+**Proofs.** A scrolled-away converter keeps its value and a stopwatch keeps
+running; a half-written note was lost until the notes module was given a
+`suspend` hook, and now keeps its draft. Killing one widget's platform moves
+no other panel, and the rest keep working; a page opened while it is down
+falls back to Hlin-drawn data. But a page already open keeps that panel
+`ready`, with the module saying it cannot reach its platform, because the
+heartbeat never reaches the platform. After a restart nothing recovers by
+itself (by design: on the platform's next change, or when a person asks);
+asked, the panel is back in 0.85 s.
+
+**Does twenty fit the bet in [[HLIN-A-0014]]?** In time, yes, with room: a
+twenty-widget surface draws its first screen in 0.6 s locally and under 2 s
+over a good link. In weight, only just. Every module carries its own Leptos
+and SDK (0.54 to 0.63 MB, nothing shared between frames), and every mounted
+frame costs 20 to 22 MB of renderer memory, so the budget of twelve is about
+265 MB. To make it comfortable rather than acceptable: compress what the
+shell serves (about 3× fewer bytes, the largest single win); run `wasm-opt`
+on modules; count frames being suspended against the budget, or have the SDK
+answer `suspend` at once; and let a module whose read failed try again. For
+[[HLIN-I-0011]], not changes made here.
+
 ## Status Updates
 
 ### 2026-09-24 — opened
