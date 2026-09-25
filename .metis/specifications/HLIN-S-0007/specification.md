@@ -187,6 +187,32 @@ anywhere other than module assets is blocked. Without this, a frame navigated
 to a hostile page would still be the same `contentWindow`, and would inherit
 the bridge.
 
+### The shell's origin
+
+`{shell}` in both policies, and the shell's own `Origin` in the request
+proxy's first check, are one value, resolved once per request so they cannot
+disagree:
+
+- The configured origin, where there is one: the shell's `public_url`, else
+  `oidc`'s. Every request, whatever its `Host`, gets that origin.
+- Otherwise the origin the request arrived on: its `Host`, over `http`, since
+  the shell serves plain http itself. `X-Forwarded-Proto` and the like are not
+  read, because with nothing configured nothing says which proxy may be
+  believed; a shell behind TLS sets `public_url`. A `Host` that is not plainly
+  a host and port is not believed, since it would be written into a header,
+  and the request gets `http://localhost:{port}`.
+
+The fallback is for a developer's shell, opened as `localhost` or `127.0.0.1`
+or any other name. A `Host` is the caller's to choose, and choosing it buys
+nothing: it is read only when nothing is configured; a policy built from it is
+sent only to the caller who chose it; and every check it feeds also requires
+`Sec-Fetch-Site: same-origin`, which a browser sets from the page it is on and
+page script cannot, so a browser request passes only from a page the browser
+already treats as the shell's. Anything that is not a browser could always
+send whichever `Origin` passed. A shell reachable from other machines sets
+`public_url`, which also closes the fallback to a host name somebody else has
+pointed at it.
+
 ## Messages
 
 ### Envelope
@@ -460,7 +486,8 @@ Idempotency-Key: 01J8Z…          (writes)
 with the session cookie, as any request from the shell page. The shell:
 
 1. **Checks the caller.** `Sec-Fetch-Site: same-origin` is required on every
-   request. `Origin` must equal the shell's own wherever it is present, and is
+   request. `Origin` must equal the shell's own (*The shell's origin*)
+   wherever it is present, and is
    required on writes. Browsers send no `Origin` on a same-origin `GET` or
    `HEAD`, so requiring it on reads would refuse every read the page makes.
    Anything else is 403 `not_from_shell`. The session cookie's `SameSite`

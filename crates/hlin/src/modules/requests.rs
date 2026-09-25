@@ -350,7 +350,7 @@ pub(crate) fn check_caller(
         .get(axum::http::header::ORIGIN)
         .and_then(|value| value.to_str().ok());
     match origin {
-        Some(origin) if origin == state.config.origin() => Ok(()),
+        Some(origin) if origin == state.config.origin_for(headers) => Ok(()),
         Some(_) => Err(Refusal::not_from_shell(
             "the request came from another origin",
         )),

@@ -391,6 +391,42 @@ async fn a_change_that_did_not_come_from_the_shells_page_is_refused() {
     );
 }
 
+/// The relay holds the page to the request proxy's origin, so with no
+/// `public_url` a page opened at `127.0.0.1` is the shell's as much as one at
+/// `localhost`, and neither is the other's.
+#[tokio::test]
+async fn with_no_public_url_the_page_is_at_whichever_name_it_was_opened_by() {
+    let base = platform_reporting().await;
+    let shell = shell_with(config(&base), &base).await;
+    let surface = layout(&shell.app, &[(MODULAR, "items")]).await;
+    let change = serde_json::json!({ "platform": MODULAR, "panel": "items" });
+
+    for (host, origin, expected) in [
+        (
+            "localhost:8080",
+            "http://localhost:8080",
+            StatusCode::ACCEPTED,
+        ),
+        (
+            "127.0.0.1:8080",
+            "http://127.0.0.1:8080",
+            StatusCode::ACCEPTED,
+        ),
+        (
+            "127.0.0.1:8080",
+            "http://localhost:8080",
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        let mut request = from_the_page(&surface, &change);
+        let headers = request.headers_mut();
+        headers.insert("host", host.parse().unwrap());
+        headers.insert("origin", origin.parse().unwrap());
+        let response = shell.app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), expected, "{host} from {origin}");
+    }
+}
+
 #[tokio::test]
 async fn a_change_for_a_platform_whose_module_is_not_on_the_layout_goes_nowhere() {
     let base = platform_reporting().await;

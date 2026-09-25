@@ -16,11 +16,9 @@
 # token (decision HLIN-A-0008).
 
 port = 8080
-# Where people open the demo, which is the origin modules are confined to: a
-# module's CSP names it, and the request proxy refuses a caller from any
-# other. 127.0.0.1 rather than the default localhost, because that is the
-# address `demo up` prints and the browser tests use.
-public_url = "http://127.0.0.1:8080"
+# No public_url: modules are confined to whichever origin the demo was opened
+# at, 127.0.0.1 or localhost alike. Right for a shell on one machine; anything
+# reachable from others sets it.
 issuer = "hlin"
 key_path = "demo/state/shell.key"
 frontend = "examples/frontend-gallery/dist"

@@ -257,6 +257,11 @@ fn platform_config(id: &str, base: &str, auth: CredentialConfig) -> PlatformConf
 /// A shell in front of one platform per credential strategy, plus one with
 /// small limits and one nobody can reach.
 async fn shell_with(auth: AuthConfig) -> Shell {
+    shell_at(auth, Some(ORIGIN)).await
+}
+
+/// A shell with `public_url` as given, or none.
+async fn shell_at(auth: AuthConfig, public_url: Option<&str>) -> Shell {
     // A second server, standing for anywhere a platform might point the shell.
     let (trap, elsewhere) = platform("http://127.0.0.1:1").await;
     let (base, log) = platform(&trap).await;
@@ -285,7 +290,7 @@ async fn shell_with(auth: AuthConfig) -> Shell {
     };
 
     let config = Arc::new(Config {
-        public_url: Some(ORIGIN.to_string()),
+        public_url: public_url.map(str::to_string),
         modules: Default::default(),
         bind: "127.0.0.1".to_string(),
         port: 8080,
@@ -554,6 +559,124 @@ async fn the_caller_is_checked_before_the_person() {
         )
         .await;
     answer.refused(StatusCode::FORBIDDEN, "not_from_shell");
+}
+
+// -- 1a. Which origin is the shell's ------------------------------------------
+
+async fn unconfigured_shell() -> Shell {
+    shell_at(
+        AuthConfig::TrustedHeader {
+            header: USER.to_string(),
+            groups_header: None,
+            name_header: None,
+            acknowledge_proxy_required: true,
+        },
+        None,
+    )
+    .await
+}
+
+/// A write as a browser on `host` sends it: the browser writes `Host` and
+/// `Origin` from the address it has open.
+fn write_from(host: &str, origin: &str) -> axum::http::request::Builder {
+    Request::builder()
+        .method("POST")
+        .uri("/p/checklist/api/items")
+        .header("host", host)
+        .header("origin", origin)
+        .header("sec-fetch-site", "same-origin")
+        .header("idempotency-key", "k")
+        .header(USER, "alice")
+}
+
+/// The demo is opened at `127.0.0.1`, a developer's browser at `localhost`,
+/// and with nothing configured neither is more the shell's than the other.
+#[tokio::test]
+async fn with_no_public_url_a_write_from_either_loopback_name_is_carried() {
+    let shell = unconfigured_shell().await;
+    for host in ["localhost:8080", "127.0.0.1:8080"] {
+        let answer = shell
+            .call(write_from(host, &format!("http://{host}")))
+            .await;
+        assert_eq!(
+            answer.status,
+            StatusCode::OK,
+            "{host}: {:?}",
+            answer.refusal()
+        );
+    }
+    assert_eq!(shell.seen().len(), 2);
+}
+
+#[tokio::test]
+async fn a_configured_public_url_refuses_an_origin_that_differs_whatever_the_host() {
+    let shell = shell().await;
+    for (host, origin) in [
+        ("127.0.0.1:8080", "http://127.0.0.1:8080"),
+        ("localhost:8080", "http://localhost:8080"),
+        ("hlin.example.com", "http://hlin.example.com"),
+    ] {
+        let answer = shell.call(write_from(host, origin)).await;
+        answer.refused(StatusCode::FORBIDDEN, "not_from_shell");
+    }
+    // And the configured one, from any `Host`, is the shell's.
+    let answer = shell.call(write_from("127.0.0.1:8080", ORIGIN)).await;
+    assert_eq!(answer.status, StatusCode::OK);
+}
+
+/// What choosing `Host` buys a caller, with nothing configured.
+///
+/// Only a request that is already `Sec-Fetch-Site: same-origin` reaches the
+/// comparison, and a browser sets that header itself, page script cannot, and
+/// it sends `Host` and `Origin` from the one address it has open. A browser
+/// request that passes therefore came from a page the browser holds to be the
+/// shell's own, which could call the shell directly anyway. Anything that is
+/// not a browser could always write whichever `Origin` passed, configured or
+/// not, so a `Host` to match it is nothing new. And the `Host` must still agree
+/// with the `Origin`: naming one host and coming from another is refused.
+#[tokio::test]
+async fn a_spoofed_host_gains_nothing_a_same_origin_page_did_not_already_have() {
+    let shell = unconfigured_shell().await;
+
+    // Another site's page: the browser says cross-site, and nothing it names
+    // changes that.
+    for site in [None, Some("cross-site"), Some("same-site")] {
+        let mut request = Request::builder()
+            .method("POST")
+            .uri("/p/checklist/api/items")
+            .header("host", "evil.example")
+            .header("origin", "http://evil.example")
+            .header("idempotency-key", "k")
+            .header(USER, "alice");
+        if let Some(site) = site {
+            request = request.header("sec-fetch-site", site);
+        }
+        shell
+            .call(request)
+            .await
+            .refused(StatusCode::FORBIDDEN, "not_from_shell");
+    }
+
+    // A `Host` naming the shell, from a page that is not it.
+    shell
+        .call(write_from("localhost:8080", "http://evil.example"))
+        .await
+        .refused(StatusCode::FORBIDDEN, "not_from_shell");
+
+    // A `Host` naming somewhere else, claiming to be from the shell.
+    shell
+        .call(write_from("evil.example", "http://localhost:8080"))
+        .await
+        .refused(StatusCode::FORBIDDEN, "not_from_shell");
+
+    // A `Host` that is not a host at all is not believed, and the default it
+    // falls back to is not the `Origin` claimed.
+    shell
+        .call(write_from("evil.example;x", "http://evil.example;x"))
+        .await
+        .refused(StatusCode::FORBIDDEN, "not_from_shell");
+
+    assert!(shell.seen().is_empty());
 }
 
 // -- 2. The person -----------------------------------------------------------

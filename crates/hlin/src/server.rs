@@ -120,20 +120,24 @@ pub fn router(state: AppState) -> Router {
 ///
 /// Every path no route claims gets the bundle's file, or its `index.html` so
 /// the frontend's own routing can answer. The page's CSP goes on all of them
-/// because any of them can be the page a person loads.
+/// because any of them can be the page a person loads. It names the origin the
+/// request arrived on ([`Config::origin_for`]), so it is built per request.
 pub fn with_frontend(router: Router, assets: &std::path::Path, config: &Config) -> Router {
-    let csp =
-        axum::http::HeaderValue::from_str(&crate::modules::assets::page_csp(&config.origin()))
-            .expect("an origin is a valid header value");
+    let config = Arc::new(config.clone());
 
     let frontend = Router::new()
         .fallback_service(tower_http::services::ServeDir::new(assets).fallback(
             tower_http::services::ServeFile::new(assets.join("index.html")),
         ))
-        .layer(axum::middleware::map_response(
-            move |mut response: axum::response::Response| {
-                let csp = csp.clone();
+        .layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                let shell = config.origin_for(request.headers());
                 async move {
+                    let mut response = next.run(request).await;
+                    let csp = axum::http::HeaderValue::from_str(&crate::modules::assets::page_csp(
+                        &shell,
+                    ))
+                    .expect("an origin is a valid header value");
                     response
                         .headers_mut()
                         .insert(axum::http::header::CONTENT_SECURITY_POLICY, csp);

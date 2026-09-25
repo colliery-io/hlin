@@ -755,3 +755,107 @@ async fn a_link_to_a_platform_page_loads_the_shell_page() {
 
     std::fs::remove_dir_all(directory).ok();
 }
+
+// -- Which origin is the shell's ------------------------------------------------
+
+/// A shell with no `public_url`, the way a developer runs one.
+async fn unconfigured() -> AppState {
+    let (base, _) = platform().await;
+    let mut state = state(&base).await;
+    state.config = Arc::new(Config {
+        public_url: None,
+        ..(*state.config).clone()
+    });
+    state
+}
+
+fn at(host: &str, path: &str) -> Request<Body> {
+    Request::get(path)
+        .header(header::HOST, host)
+        .body(Body::empty())
+        .unwrap()
+}
+
+/// Opened at `localhost` or at `127.0.0.1`, the page may frame the modules on
+/// the origin it was opened at, and each module lets that page frame it and
+/// loads its assets from there. Before, only `localhost` worked, and a shell
+/// opened by any other name showed no modules and said nothing about why.
+#[tokio::test]
+async fn with_no_public_url_both_policies_name_the_origin_the_page_was_opened_at() {
+    let state = unconfigured().await;
+    let config = state.config.clone();
+    let directory = bundle();
+    let app = hlin::server::with_frontend(router(state), &directory, &config);
+
+    for host in ["localhost:8080", "127.0.0.1:8080", "hlin.local:8080"] {
+        let shell = format!("http://{host}");
+
+        let page = get(&app, at(host, "/")).await;
+        assert_eq!(
+            page.header(header::CONTENT_SECURITY_POLICY),
+            Some(format!("frame-src {shell}/m/").as_str()),
+            "{host}"
+        );
+
+        let module = get(&app, at(host, "/m/checklist/ui/items/app.wasm")).await;
+        assert_eq!(module.status, StatusCode::OK, "{host}");
+        let csp = module.header(header::CONTENT_SECURITY_POLICY).unwrap();
+        assert!(
+            csp.contains(&format!("script-src {shell}/m/checklist/ ")),
+            "{host}: {csp}"
+        );
+        assert!(
+            csp.ends_with(&format!("frame-ancestors {shell}")),
+            "{host}: {csp}"
+        );
+    }
+
+    std::fs::remove_dir_all(directory).ok();
+}
+
+/// A configured origin is the only one, whatever a request says it reached.
+#[tokio::test]
+async fn a_configured_public_url_is_named_whatever_the_host() {
+    let (base, _) = platform().await;
+    let state = state(&base).await;
+    let config = state.config.clone();
+    let directory = bundle();
+    let app = hlin::server::with_frontend(router(state), &directory, &config);
+
+    for host in ["localhost:8080", "127.0.0.1:8080", "evil.example"] {
+        let page = get(&app, at(host, "/")).await;
+        assert_eq!(
+            page.header(header::CONTENT_SECURITY_POLICY),
+            Some(format!("frame-src {SHELL}/m/").as_str()),
+            "{host}"
+        );
+        let module = get(&app, at(host, "/m/checklist/ui/items/app.wasm")).await;
+        assert_eq!(
+            module.header(header::CONTENT_SECURITY_POLICY),
+            Some(module_csp().as_str()),
+            "{host}"
+        );
+    }
+
+    std::fs::remove_dir_all(directory).ok();
+}
+
+/// A `Host` goes into a header only when it is plainly a host: otherwise a `;`
+/// in it would add directives of the caller's own to the policy.
+#[tokio::test]
+async fn a_host_that_would_write_its_own_directives_is_not_believed() {
+    let state = unconfigured().await;
+    let app = router(state);
+
+    let module = get(
+        &app,
+        at("evil;script-src *", "/m/checklist/ui/items/app.wasm"),
+    )
+    .await;
+    let csp = module.header(header::CONTENT_SECURITY_POLICY).unwrap();
+    assert!(!csp.contains("evil"), "{csp}");
+    assert!(
+        csp.ends_with("frame-ancestors http://localhost:8080"),
+        "{csp}"
+    );
+}

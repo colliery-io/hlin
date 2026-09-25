@@ -119,7 +119,7 @@ struct Asked {
 
 /// `GET /m/{platform}/{path}`
 pub async fn serve(State(state): State<AppState>, uri: Uri, headers: HeaderMap) -> Response {
-    let shell = state.config.origin();
+    let shell = state.config.origin_for(&headers);
 
     // The platform segment is needed for the CSP even on a refusal, and is
     // taken as written: it only ever names a platform to look up, and one that

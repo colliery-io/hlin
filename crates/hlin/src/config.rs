@@ -103,6 +103,10 @@ pub struct Config {
     /// sandboxed frame in different browsers, and the request proxy accepts
     /// only requests whose `Origin` is this one. Where `oidc` is configured its
     /// `public_url` is used if this is absent, since they must agree anyway.
+    /// Where neither is set, each request's own origin is used instead
+    /// ([`Config::origin_for`]), so a developer's shell works under whatever
+    /// name it was opened by; anything reachable from other machines should
+    /// set it.
     #[serde(default)]
     pub public_url: Option<String>,
 
@@ -972,22 +976,68 @@ impl Config {
         Ok(())
     }
 
-    /// The origin people reach this shell at: scheme, host and port, with no
-    /// path.
+    /// The origin this shell was configured to be reached at: scheme, host and
+    /// port, with no path.
     ///
-    /// From `public_url`, else from `oidc`'s, else `http://localhost:{port}`,
-    /// which is what a developer's browser uses. A deployment hosting modules
-    /// should set `public_url`: a module's CSP and the request proxy's origin
-    /// check are both built from this, and a wrong one refuses every module
-    /// request as not coming from the shell.
-    pub fn origin(&self) -> String {
+    /// From `public_url`, else from `oidc`'s. `None` where neither is set, in
+    /// which case there is no one origin, only whichever one each request
+    /// arrived on ([`Config::origin_for`]).
+    pub fn origin(&self) -> Option<String> {
         let configured = self.public_url.as_deref().or(match &self.auth {
             AuthConfig::Oidc(oidc) => Some(oidc.public_url.as_str()),
             _ => None,
         });
-        configured
-            .and_then(origin_of)
-            .unwrap_or_else(|| format!("http://localhost:{}", self.port))
+        configured.and_then(origin_of)
+    }
+
+    /// The origin one request reached this shell at.
+    ///
+    /// A module's CSP, the shell page's `frame-src`, the request proxy's
+    /// `Origin` check and the relay of a module's `changed` all use this, and
+    /// only this, so they cannot disagree about where the shell is.
+    ///
+    /// A configured origin ([`Config::origin`]) always wins. Without one, the
+    /// request's `Host`, over plain http: this shell serves http itself, and a
+    /// deployment behind something that terminates TLS says so by setting
+    /// `public_url`. `X-Forwarded-Proto` and its relatives are not read, since
+    /// nothing unconfigured says which proxy, if any, may be believed. A
+    /// request with no usable `Host` gets `http://localhost:{port}`.
+    ///
+    /// # Why a caller-chosen `Host` is safe here
+    ///
+    /// `Host` is whatever the caller wrote, so reason through what choosing it
+    /// buys. It is read only when nothing is configured, so a deployment that
+    /// sets `public_url` is exactly as it was. A policy built from it goes back
+    /// only to the caller who chose it: a caller confining their own page to
+    /// the wrong origin gains nothing but a page that does not work. The
+    /// request proxy and the relay also require `Sec-Fetch-Site: same-origin`,
+    /// which a browser sets and page script cannot, and a browser sends the
+    /// `Host` and `Origin` of the page it is on. So a browser request passes
+    /// only from a page the browser itself considers the shell's, which could
+    /// already call the shell's API directly; and anything that is not a
+    /// browser can write any `Origin` it likes, and always could. A host
+    /// name pointed at this shell by somebody else (DNS rebinding) is such a
+    /// page, and is why a shell reachable from anywhere but its own machine
+    /// should set `public_url`.
+    ///
+    /// The `Host` is only used when it is plainly a host and port, since it
+    /// goes into a header: `;` or `,` there would start directives of the
+    /// caller's own.
+    pub fn origin_for(&self, headers: &axum::http::HeaderMap) -> String {
+        self.origin().unwrap_or_else(|| {
+            headers
+                .get(axum::http::header::HOST)
+                .and_then(|host| host.to_str().ok())
+                .filter(|host| {
+                    !host.is_empty()
+                        && host.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric()
+                                || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
+                        })
+                })
+                .and_then(|host| origin_of(&format!("http://{host}")))
+                .unwrap_or_else(|| format!("http://localhost:{}", self.port))
+        })
     }
 
     /// The limits one platform's modules run within: the shell's, with that
@@ -1234,16 +1284,82 @@ mod trust_tests {
     #[test]
     fn the_origin_is_the_address_without_its_path() {
         let mut config = config();
-        assert_eq!(config.origin(), format!("http://localhost:{}", config.port));
+        assert_eq!(config.origin(), None);
 
         config.public_url = Some("https://Hlin.Example.com/some/path".to_string());
-        assert_eq!(config.origin(), "https://hlin.example.com");
+        assert_eq!(config.origin().as_deref(), Some("https://hlin.example.com"));
 
         config.public_url = Some("https://hlin.example.com:443".to_string());
-        assert_eq!(config.origin(), "https://hlin.example.com");
+        assert_eq!(config.origin().as_deref(), Some("https://hlin.example.com"));
 
         config.public_url = Some("http://127.0.0.1:8080/".to_string());
-        assert_eq!(config.origin(), "http://127.0.0.1:8080");
+        assert_eq!(config.origin().as_deref(), Some("http://127.0.0.1:8080"));
+    }
+
+    fn host(value: &str) -> axum::http::HeaderMap {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::header::HOST,
+            axum::http::HeaderValue::from_str(value).unwrap(),
+        );
+        headers
+    }
+
+    #[test]
+    fn with_nothing_configured_a_request_is_at_the_origin_it_arrived_on() {
+        let config = config();
+        assert_eq!(
+            config.origin_for(&host("localhost:8080")),
+            "http://localhost:8080"
+        );
+        assert_eq!(
+            config.origin_for(&host("127.0.0.1:8080")),
+            "http://127.0.0.1:8080"
+        );
+        assert_eq!(config.origin_for(&host("[::1]:8080")), "http://[::1]:8080");
+        assert_eq!(config.origin_for(&host("Hlin.Local")), "http://hlin.local");
+        assert_eq!(
+            config.origin_for(&host("hlin.local:80")),
+            "http://hlin.local"
+        );
+        assert_eq!(
+            config.origin_for(&axum::http::HeaderMap::new()),
+            "http://localhost:8080",
+            "a request that names no host is at the default"
+        );
+    }
+
+    /// Anything that is not plainly a host and port would be written into a
+    /// CSP header, where a `;` starts a directive of the caller's own.
+    #[test]
+    fn a_host_that_is_not_plainly_a_host_is_not_believed() {
+        let config = config();
+        for bad in [
+            "evil; script-src *",
+            "evil,other",
+            "user@evil",
+            "evil/path",
+            "evil example",
+            "",
+        ] {
+            assert_eq!(
+                config.origin_for(&host(bad)),
+                "http://localhost:8080",
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_configured_origin_wins_over_the_request() {
+        let config = Config {
+            public_url: Some("https://hlin.example.com".to_string()),
+            ..config()
+        };
+        assert_eq!(
+            config.origin_for(&host("evil.example")),
+            "https://hlin.example.com"
+        );
     }
 
     #[test]
