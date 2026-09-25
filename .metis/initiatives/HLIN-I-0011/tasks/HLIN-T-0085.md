@@ -4,14 +4,14 @@ level: task
 title: "Count a frame against the budget until it has left the page"
 short_code: "HLIN-T-0085"
 created_at: 2026-09-25T12:37:18.677215+00:00
-updated_at: 2026-09-25T12:37:18.677215+00:00
+updated_at: 2026-09-25T17:09:22.014123+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -32,6 +32,8 @@ counting a frame the moment it sends `suspend`, but the frame stays in the
 document for up to the 500 ms `suspend` deadline, and more when a module never
 answers: the SDK does not answer `suspend` at all when a module registered no
 hook, so every such frame waits out the whole deadline.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

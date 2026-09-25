@@ -4,14 +4,14 @@ level: task
 title: "Prove a module runs, and cannot escape, in a real browser"
 short_code: "HLIN-T-0071"
 created_at: 2026-09-25T00:01:10.232071+00:00
-updated_at: 2026-09-25T12:02:02.482292+00:00
+updated_at: 2026-09-25T17:09:19.985111+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: HLIN-I-0011
 ## Objective
 
 Slice 11 of [[HLIN-I-0011]]. NFR-1.1 and NFR-1.3 of [[HLIN-S-0007]].
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -158,3 +160,9 @@ aurora`) 71 passed, 1 failed (above), 24 skipped, 4 not run after it;
 `angreal e2e signin` (`--with collab`) 9 passed. The dev database's contract
 memory for orebank, stampmill and smelter was cleared afterwards, so a demo
 of `main` (contract 2.3.0) is not flagged as a breaking change.
+### 2026-09-25 — merged and closed
+
+Merged on main; 1015 Rust tests pass. The one standard e2e failure it
+exposed is a shell bug, tracked as [[HLIN-T-0089]]. The spinning-module
+finding (the page freezes wherever the frame shares its process) is an open
+question in [[HLIN-S-0007]] for the owner.

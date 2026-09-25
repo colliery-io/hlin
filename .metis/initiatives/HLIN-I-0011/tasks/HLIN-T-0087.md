@@ -4,14 +4,14 @@ level: task
 title: "A module whose platform is down says so, and recovers when it returns"
 short_code: "HLIN-T-0087"
 created_at: 2026-09-25T12:37:21.307620+00:00
-updated_at: 2026-09-25T12:37:21.307620+00:00
+updated_at: 2026-09-25T17:09:22.066274+00:00
 parent: HLIN-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -45,6 +45,8 @@ Two questions, one for the owner:
 - When a platform comes back: the shell already follows its event stream;
   a reconnected stream should count as a `changed` for all its panels, so
   modules refetch without anyone clicking.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
