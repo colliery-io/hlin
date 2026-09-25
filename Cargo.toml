@@ -64,7 +64,7 @@ toml = "1"
 
 # Web
 axum = "0.8"
-tower-http = { version = "0.7", features = ["fs", "trace", "cors"] }
+tower-http = { version = "0.7", features = ["fs", "trace", "cors", "compression-gzip", "compression-br"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "webpki-roots", "charset", "http2", "stream"] }
 
 # Store

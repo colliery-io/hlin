@@ -410,19 +410,26 @@ async function scrollThrough(page) {
   return settled;
 }
 
-/** What the module assets would weigh gzipped, fetched once more to find out. */
-async function gzipped(request, urls) {
+/**
+ * What these assets weighed as sent (their encoded bodies, each once), and
+ * what they would weigh uncompressed and gzipped, fetched once more to find
+ * out (Playwright's request decodes what it is sent).
+ */
+async function gzipped(request, answered) {
+  const sentBy = new Map(answered.map((r) => [r.url, r.body]));
   let raw = 0;
   let zipped = 0;
+  let sent = 0;
   const each = [];
-  for (const url of urls) {
+  for (const [url, onTheWire] of sentBy) {
     const body = await (await request.get(url)).body();
     const packed = zlib.gzipSync(body, { level: 6 }).length;
     raw += body.length;
     zipped += packed;
-    each.push({ url: new URL(url).pathname, raw: body.length, gzip: packed });
+    sent += onTheWire;
+    each.push({ url: new URL(url).pathname, raw: body.length, gzip: packed, sent: onTheWire });
   }
-  return { raw, gzip: zipped, each };
+  return { raw, gzip: zipped, sent, each };
 }
 
 // -- The suite ----------------------------------------------------------------
@@ -527,8 +534,8 @@ test.describe('twenty widgets, measured', () => {
               return {
                 moduleEncodings: [...new Set(assets.map((r) => r.encoding || 'identity'))],
                 shellEncodings: [...new Set(shellAssets.map((r) => r.encoding || 'identity'))],
-                modules: await gzipped(request, [...new Set(assets.map((r) => r.url))]),
-                shell: await gzipped(request, [...new Set(shellAssets.map((r) => r.url))]),
+                modules: await gzipped(request, assets),
+                shell: await gzipped(request, shellAssets),
               };
             })()
           : undefined;
@@ -571,6 +578,12 @@ test.describe('twenty widgets, measured', () => {
       expect(one.scroll.peakMounted, 'frames in the document at the peak while scrolling').toBeLessThanOrEqual(BUDGET);
       expect(one.scroll.settledMounted, 'frames mounted, settled, while scrolling').toBeLessThanOrEqual(BUDGET);
       expect(scrolled.removedInView, 'frames unmounted while their panel was in view').toEqual([]);
+      // A second visit fetches no module's wasm again: it has not changed
+      // (HLIN-T-0088, where kanban's was fetched whole on every visit).
+      expect(
+        one.warm.modules.filter(([pathname, status, body]) => pathname.endsWith('.wasm') && status === 200 && body > 0),
+        'module wasm fetched again on a warm visit',
+      ).toEqual([]);
     }
 
     // The same cold load over a network rather than loopback: everything
@@ -630,8 +643,8 @@ test.describe('twenty widgets, measured', () => {
     console.log(`    the rest of the surface, scrolling down and back: ${mb(m.scrollBytes)}, modules ${mb(m.scrollModuleBytes)}`);
     console.log(`    most frames mounted while scrolling: ${m.settledMounted} settled, ${m.peakMounted} at the peak`);
     const c = results.runs[0].compression;
-    console.log(`    module assets sent as ${c.moduleEncodings.join(', ')}: ${mb(c.modules.raw)}, ${mb(c.modules.gzip)} gzipped`);
-    console.log(`    shell assets sent as ${c.shellEncodings.join(', ')}: ${mb(c.shell.raw)}, ${mb(c.shell.gzip)} gzipped`);
+    console.log(`    module assets sent as ${c.moduleEncodings.join(', ')}: ${mb(c.modules.sent)} (${mb(c.modules.raw)} uncompressed, ${mb(c.modules.gzip)} gzipped)`);
+    console.log(`    shell assets sent as ${c.shellEncodings.join(', ')}: ${mb(c.shell.sent)} (${mb(c.shell.raw)} uncompressed, ${mb(c.shell.gzip)} gzipped)`);
   });
 
   test('a widget scrolled away gets its state back when it returns', async ({ browser }) => {

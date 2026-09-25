@@ -2,11 +2,13 @@
 # binary format that changes between versions, and a mismatch fails the build
 # with a schema-version error rather than anything subtle.
 #
-# wasm-opt is skipped. The bundled one does not understand every feature this
-# toolchain emits, and the demo does not need the bytes it would save; a real
-# deployment would pin one that matches.
+# wasm-opt runs on a release build, at the binaryen release pinned below, told
+# in `index.html` which features rustc emits (without them it refuses the
+# wasm). It takes about a tenth off the frontend's wasm.
 [build]
 minify = "never"
 
 [tools]
 wasm_bindgen = "0.2.126"
+# The binaryen release Trunk fetches for `wasm-opt` on a release build.
+wasm_opt = "version_123"

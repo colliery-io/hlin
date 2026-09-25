@@ -50,3 +50,6 @@ async-stream = "0.3"
 # `oneshot` drives the real router in a test without binding a port, so routing
 # and extraction are part of what the layout tests exercise.
 tower = { version = "0.5", features = ["util"] }
+# To read back what the shell compressed; the versions its compression uses.
+flate2 = "1"
+brotli-decompressor = "5"

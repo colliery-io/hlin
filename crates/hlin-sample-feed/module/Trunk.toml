@@ -21,3 +21,5 @@ pattern_script = "<script type=\"module\" src=\"{base}boot.js\" data-js=\"{base}
 # examples' own Trunk.toml.
 [tools]
 wasm_bindgen = "0.2.126"
+# The binaryen release Trunk fetches for `wasm-opt` on a release build.
+wasm_opt = "version_123"

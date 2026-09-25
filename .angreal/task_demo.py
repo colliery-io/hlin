@@ -399,6 +399,43 @@ def _wait_for_panels(seconds=30):
 # `demo up --release`; read by every build step that runs Trunk.
 RELEASE = False
 
+# Whether a release build can run `wasm-opt`, which Trunk downloads the first
+# time it needs it. Decided once per `demo up --release` (`_wasm_opt_ready`).
+WASM_OPT = True
+
+#: The binaryen release every `Trunk.toml` pins as `wasm_opt`.
+WASM_OPT_VERSION = "version_123"
+
+
+def _wasm_opt_ready():
+    """Whether Trunk can have `wasm-opt`: already downloaded, or downloadable.
+
+    Asked before building rather than learned from a failed build, because a
+    failed build says only that a build failed. Where it cannot be had (no
+    network, and never fetched), a release build still compiles the Rust
+    optimised, and only the wasm-opt pass is skipped: about a tenth more
+    bytes, not a debug build.
+    """
+    home = os.path.expanduser("~")
+    caches = [
+        os.path.join(home, "Library", "Caches", "dev.trunkrs.trunk"),
+        os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.join(home, ".cache")), "trunk"),
+    ]
+    for cache in caches:
+        if os.path.isdir(os.path.join(cache, f"wasm-opt-{WASM_OPT_VERSION}")):
+            return True
+    if os.environ.get("TRUNK_OFFLINE", "").lower() in ("1", "true"):
+        return False
+    try:
+        request = urllib.request.Request(
+            f"https://github.com/WebAssembly/binaryen/releases/tag/{WASM_OPT_VERSION}",
+            method="HEAD",
+        )
+        with urllib.request.urlopen(request, timeout=10):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
+
 
 # -- up, down, status -----------------------------------------------------
 
@@ -422,7 +459,9 @@ RELEASE = False
 
         `--release` builds the browser's WebAssembly (the frontend and every
         module) optimised, which is what a deployment serves and what any
-        measurement of load time or size should use. The shell and platform
+        measurement of load time or size should use: the release profile,
+        then `wasm-opt -Oz`, which Trunk downloads once. Offline and never
+        downloaded, it says so and builds without wasm-opt. The shell and platform
         binaries stay debug builds: this demo signs in with `dev`, which a
         release shell refuses.
 
@@ -457,8 +496,16 @@ RELEASE = False
     help="build the frontend and modules optimised, as a deployment would",
 )
 def demo_up(with_=None, release=False):
-    global RELEASE
+    global RELEASE, WASM_OPT
     RELEASE = bool(release)
+    WASM_OPT = RELEASE and _wasm_opt_ready()
+    if RELEASE and not WASM_OPT:
+        print(
+            f"wasm-opt ({WASM_OPT_VERSION}) is not downloaded and cannot be "
+            "fetched; building release WebAssembly without it (about a tenth "
+            "larger)",
+            flush=True,
+        )
     flavour = with_ or "demo"
     if flavour not in CONFIGS:
         print(f"no configuration called `{flavour}`. One of: {', '.join(CONFIGS)}")
@@ -963,6 +1010,9 @@ def _module_fingerprint(widget):
 
     digest = hashlib.sha256()
     digest.update(b"release" if RELEASE else b"debug")
+    # So a module built without wasm-opt, offline, is built again once it
+    # can be had.
+    digest.update(b"wasm-opt" if RELEASE and WASM_OPT else b"")
     roots = [_widget_module(widget)] + [os.path.join(cwd, path) for path in MODULE_INPUTS]
     for root in roots:
         paths = [root] if os.path.isfile(root) else []
@@ -987,8 +1037,17 @@ def _module_is_current(widget, fingerprint):
 
 
 def _trunk():
-    """`trunk build`, optimised when `demo up --release` asked for it."""
-    return ["trunk", "build"] + (["--release"] if RELEASE else [])
+    """`trunk build`, optimised when `demo up --release` asked for it.
+
+    Without `wasm-opt` (`WASM_OPT`), the release profile is asked of cargo
+    rather than of Trunk: the same optimised Rust, and Trunk, which runs
+    wasm-opt only for `--release`, leaves it out.
+    """
+    if not RELEASE:
+        return ["trunk", "build"]
+    if WASM_OPT:
+        return ["trunk", "build", "--release"]
+    return ["trunk", "build", "--cargo-profile", "release"]
 
 
 def _build_widget_modules():

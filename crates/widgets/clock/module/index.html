@@ -10,9 +10,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Clocks</title>
-    <!-- wasm-opt off, as in the examples: the bundled one does not understand
-         every feature this toolchain emits. -->
-    <link data-trunk rel="rust" data-wasm-opt="0" />
+    <!-- wasm-opt for size, on a release build only (Trunk skips it
+         otherwise). It validates against the MVP unless told which features
+         rustc now emits by default, and refused the module without them. -->
+    <link data-trunk rel="rust" data-wasm-opt="z"
+          data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue" />
     <!-- `crossorigin`, because the frame's origin is opaque: the integrity
          check Trunk adds can only read a stylesheet fetched with CORS. -->
     <link data-trunk rel="css" href="module.css" crossorigin="anonymous" />

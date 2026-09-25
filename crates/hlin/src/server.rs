@@ -88,11 +88,16 @@ pub fn router(state: AppState) -> Router {
                 .delete(crate::layouts::remove),
         )
         .route("/api/layouts/{id}/fork", post(crate::layouts::fork))
-        // Module assets. `/m` and `/m/` are routed only so they are refused
-        // here rather than answered with the frontend's index by the fallback.
-        .route("/m", get(crate::modules::assets::serve))
-        .route("/m/", get(crate::modules::assets::serve))
-        .route("/m/{*asset}", get(crate::modules::assets::serve))
+        // Module assets, compressed on the way out. `/m` and `/m/` are routed
+        // only so they are refused here rather than answered with the
+        // frontend's index by the fallback.
+        .merge(
+            Router::new()
+                .route("/m", get(crate::modules::assets::serve))
+                .route("/m/", get(crate::modules::assets::serve))
+                .route("/m/{*asset}", get(crate::modules::assets::serve))
+                .layer(crate::modules::assets::compression()),
+        )
         // A module's requests to its own platform (HLIN-S-0007). Every method
         // reaches the handler, which refuses the ones it does not carry with
         // its own refusal rather than a bare 405 from the router.
@@ -144,7 +149,9 @@ pub fn with_frontend(router: Router, assets: &std::path::Path, config: &Config) 
                     response
                 }
             },
-        ));
+        ))
+        // Two megabytes of wasm, about a third of that compressed.
+        .layer(crate::modules::assets::compression());
 
     router.fallback_service(frontend)
 }
