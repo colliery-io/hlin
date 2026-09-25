@@ -4,14 +4,14 @@ level: task
 title: "The widget support crate, the twenty flavour, and the first three widgets"
 short_code: "HLIN-T-0080"
 created_at: 2026-09-25T02:42:59.708560+00:00
-updated_at: 2026-09-25T02:43:42.931217+00:00
+updated_at: 2026-09-25T11:19:05.855342+00:00
 parent: HLIN-I-0012
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: HLIN-I-0012
 
 Task 1 of [[HLIN-I-0012]]: everything the other widget tasks copy from,
 proved on three widgets.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
