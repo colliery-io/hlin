@@ -7,7 +7,9 @@
 //! The draft lives outside the fetched note, so another person's edit arriving
 //! mid-sentence redraws the note without losing a word of the draft. If their
 //! edit landed first, the widget refuses this one; the module then shows their
-//! text beside the draft, and offers to save over it knowingly.
+//! text beside the draft, and offers to save over it knowingly. A draft also
+//! outlives the panel being scrolled away: it is handed to the shell on
+//! `suspend` and taken back from `restored`.
 
 use hlin_module::Request;
 use hlin_widget_module::{Widget, loaded_view, start};
@@ -25,13 +27,37 @@ struct Note {
     by: Option<String>,
 }
 
+/// A draft being written, as the shell keeps it while the panel is scrolled
+/// away: the revision it was started from, a line break, and the text.
+fn kept(revision: u64, draft: &str) -> Vec<u8> {
+    format!("{revision}\n{draft}").into_bytes()
+}
+
+/// Back from [`kept`], if it is one.
+fn from_kept(bytes: &[u8]) -> Option<(u64, String)> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let (revision, draft) = text.split_once('\n')?;
+    Some((revision.parse().ok()?, draft.to_string()))
+}
+
 fn main() {
     start("notes", |widget: Widget| {
         let note = widget.load::<Note>(|| Request::get("/api/note"));
         let read_only = widget.read_only();
-        // The revision the draft was started from, while there is a draft.
-        let editing = RwSignal::new(None::<u64>);
-        let draft = RwSignal::new(String::new());
+        // The revision the draft was started from, while there is a draft;
+        // and the draft, kept by the shell when the panel is scrolled far
+        // enough away to be unmounted (HLIN-S-0007, *Budget*). If somebody
+        // saved in the meantime, the restored draft is shown beside their
+        // text, as it would have been had the panel never left.
+        let module = widget.module();
+        let restored = module.restored().and_then(|bytes| from_kept(&bytes));
+        let editing = RwSignal::new(restored.as_ref().map(|(revision, _)| *revision));
+        let draft = RwSignal::new(restored.map(|(_, text)| text).unwrap_or_default());
+        module.on_suspend(move || {
+            editing
+                .get_untracked()
+                .map(|revision| draft.with_untracked(|text| kept(revision, text)))
+        });
 
         let save = move |revision: u64| {
             widget.send_then(
@@ -140,4 +166,22 @@ fn main() {
             view! { <div class="note" data-revision=note.revision>{mode}</div> }
         })
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_draft_survives_being_scrolled_away_and_back() {
+        let draft = "Stand-up moves to\n10:15";
+        assert_eq!(from_kept(&kept(7, draft)), Some((7, draft.to_string())));
+    }
+
+    #[test]
+    fn kept_state_that_is_not_a_draft_is_ignored() {
+        assert_eq!(from_kept(b"seven\ntext"), None);
+        assert_eq!(from_kept(b"7"), None);
+        assert_eq!(from_kept(&[0xff, 0xfe]), None);
+    }
 }

@@ -367,16 +367,28 @@ def _is_twenty():
     help="show the browsers rather than running them headless",
 )
 def e2e_twenty(headed=False):
-    if not _npm_available():
+    if not _twenty_ready():
         return 1
+
+    argv = ["npx", "playwright", "test", "twenty.spec.js"]
+    if headed:
+        argv.append("--headed")
+
+    return _playwright(argv)
+
+
+def _twenty_ready():
+    """Whether the twenty-widget demo is up for a suite that expects it."""
+    if not _npm_available():
+        return False
 
     if not _installed():
         print("Playwright is not installed here. Run `angreal e2e install` first.", flush=True)
-        return 1
+        return False
 
     if not _demo_running():
         print(f"Nothing is answering at {SHELL}. Start it with `angreal demo up --with twenty`.", flush=True)
-        return 1
+        return False
 
     # Checked here rather than left to the spec, which skips itself against
     # another demo: a run that skipped everything would report success.
@@ -386,13 +398,54 @@ def e2e_twenty(headed=False):
             "`angreal demo up --with twenty`.",
             flush=True,
         )
+        return False
+
+    return True
+
+
+@e2e()
+@angreal.command(
+    name="twenty-measure",
+    about="time, weigh and break the twenty-widget demo, three times over",
+    tool=angreal.ToolDescription(
+        """
+        Measure the published "Twenty" surface in a browser, three times, and
+        print the medians: cold and warm time from navigation to every widget
+        in view `ready` and to its first content, bytes over the wire by kind
+        (module assets, platform requests, streams, the shell), JS heap and
+        the browser's resident memory, and the most frames mounted while
+        scrolling to the bottom and back. Asserts the budget of twelve holds
+        and nothing in view is unmounted; that a widget scrolled away gets
+        its state back; times a counter bump from one browser to another; and
+        kills one widget's process (dice) with SIGKILL, asserts only its panel
+        degrades, and starts it again with `angreal demo restart dice`.
+        Writes everything to e2e/measurements/ as JSON, and screenshots of
+        the drawn surface, top, middle and bottom.
+
+        ## When to use
+        - After `angreal demo up --with twenty --release`: debug modules are
+          five times the size and measure the wrong thing
+        - When recording or rechecking HLIN-T-0084's numbers
+
+        Kills and restarts the dice widget, which forgets its rolls, and
+        bumps the counter.
+        """,
+        risk_level="safe",
+    ),
+)
+@angreal.argument(
+    name="runs",
+    long="runs",
+    takes_value=True,
+    help="how many times to measure (default 3); the median is reported",
+)
+def e2e_twenty_measure(runs=None):
+    if not _twenty_ready():
         return 1
 
-    argv = ["npx", "playwright", "test", "twenty.spec.js"]
-    if headed:
-        argv.append("--headed")
-
-    return _playwright(argv)
+    if runs:
+        os.environ["HLIN_RUNS"] = str(int(runs))
+    return _playwright(["npx", "playwright", "test", "twenty-measure.spec.js"])
 
 
 @e2e()

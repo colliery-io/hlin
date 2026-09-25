@@ -52,6 +52,37 @@ async function openSurface(page, surface, panels) {
 }
 
 /**
+ * Waits until every widget in view has drawn something: its frame holds more
+ * than the loading line.
+ */
+async function drawnInView(page) {
+  const names = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('section.panel'))
+      .filter((panel) => {
+        const box = panel.getBoundingClientRect();
+        return box.bottom > 0 && box.top < window.innerHeight;
+      })
+      .map((panel) => panel.dataset.panel),
+  );
+  for (const name of names) {
+    const [platform, key] = name.split('/');
+    await expect
+      .poll(
+        () =>
+          inside(widget(page, platform, key))
+            .locator('main.widget')
+            .innerText()
+            .catch(() => ''),
+        { timeout: READY },
+      )
+      .not.toMatch(/^\s*(Loading…)?\s*$/);
+  }
+  // A frame's document holding its content is a frame or two before it is
+  // painted.
+  await page.waitForTimeout(250);
+}
+
+/**
  * Fails the test if the page navigates again after this.
  *
  * "Without a reload" is the claim, so it is checked rather than assumed.
@@ -105,11 +136,23 @@ test.describe('twenty widgets on one surface', () => {
     const started = Date.now();
     await openSurface(page, surface, panels);
     console.log(`  ${panels.length} widgets ready in ${Date.now() - started} ms`);
-    await shot(page, 200, 'twenty-ready');
-    await page.screenshot({
-      path: require('path').join(__dirname, '..', 'screenshots', '201-twenty-whole.png'),
-      fullPage: true,
-    });
+
+    // Photographed once what is in view has drawn, not at `ready`: the shell
+    // marks a panel ready on the module's handshake, a moment before its
+    // frame paints, so a shot then shows empty frames. And a screenful at a
+    // time, because a whole-page shot does not composite sandboxed frames.
+    for (const [order, where] of [
+      [200, 'top'],
+      [201, 'middle'],
+      [202, 'bottom'],
+    ]) {
+      await page.evaluate((to) => {
+        const most = document.documentElement.scrollHeight - window.innerHeight;
+        window.scrollTo(0, { top: 0, middle: most / 2, bottom: most }[to]);
+      }, where);
+      await drawnInView(page);
+      await shot(page, order, `twenty-${where}`);
+    }
   });
 
   test('the counter and the poll change in a second browser without a reload', async ({

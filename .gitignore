@@ -71,6 +71,8 @@ e2e/node_modules/
 e2e/screenshots/
 e2e/report/
 e2e/results/
+# Numbers from `angreal e2e twenty-measure`; those worth keeping go into HLIN-T-0084.
+e2e/measurements/
 
 # Vendored crates build in place when used outside the workspace. Their target
 # directory and their lockfile are both artefacts of that build, in a tree that

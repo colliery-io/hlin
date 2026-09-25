@@ -1028,20 +1028,8 @@ def _twenty_up(config):
     # with the sample platforms that is fine: each fetches the keys when the
     # first token arrives.
     for widget in WIDGETS:
-        name = widget["name"]
-        argv = [
-            f"./target/debug/hlin-widget-{name}",
-            "--name",
-            name,
-            "--port",
-            str(widget["port"]),
-            "--shell-keys",
-            f"{SHELL}/.well-known/hlin-keys.json",
-            "--module-dir",
-            os.path.join(_widget_module(widget), "dist"),
-        ]
-        pid = _start(name, argv, widget["port"])
-        print(f"  {name} on {widget['port']} (pid {pid})", flush=True)
+        pid = _start(widget["name"], _widget_argv(widget), widget["port"])
+        print(f"  {widget['name']} on {widget['port']} (pid {pid})", flush=True)
 
     for widget in WIDGETS:
         url = f"http://127.0.0.1:{widget['port']}/.well-known/hlin.json"
@@ -1064,6 +1052,65 @@ def _twenty_up(config):
     print(f"\nHlin is running at {SHELL}, with {len(WIDGETS)} widgets on `{TWENTY_TITLE}`.")
     print("`angreal e2e twenty` proves it in a browser.")
     print("`angreal demo down` stops everything.")
+    return 0
+
+
+def _widget_argv(widget):
+    """How one widget is started, by `up --with twenty` and by `restart`."""
+    name = widget["name"]
+    return [
+        f"./target/debug/hlin-widget-{name}",
+        "--name",
+        name,
+        "--port",
+        str(widget["port"]),
+        "--shell-keys",
+        f"{SHELL}/.well-known/hlin-keys.json",
+        "--module-dir",
+        os.path.join(_widget_module(widget), "dist"),
+    ]
+
+
+@demo()
+@angreal.command(
+    name="restart",
+    about="start one of the twenty widgets again, after it was stopped or killed",
+    tool=angreal.ToolDescription(
+        """
+        Start one widget of the twenty-widget demo again, exactly as `up
+        --with twenty` started it, and wait until it answers. If it is still
+        running it is stopped first.
+
+        ## When to use
+        - After killing a widget's process to watch its panel degrade alone
+          (`angreal e2e twenty-measure` does this to one widget)
+
+        Nothing is rebuilt, and the widget's memory starts empty: its counts,
+        notes and cards are gone.
+        """,
+        risk_level="safe",
+    ),
+)
+@angreal.argument(
+    name="name",
+    required=True,
+    help="the widget, as `WIDGETS` names it: clock, counter, poll, …",
+)
+def demo_restart(name=None):
+    widget = next((widget for widget in WIDGETS if widget["name"] == name), None)
+    if widget is None:
+        print(f"no widget called `{name}`. One of: {', '.join(w['name'] for w in WIDGETS)}")
+        return 1
+
+    entry = _registry().get(name)
+    if entry and _stop(name, entry):
+        print(f"stopped {name}", flush=True)
+
+    pid = _start(name, _widget_argv(widget), widget["port"])
+    if not _wait_for(f"http://127.0.0.1:{widget['port']}/.well-known/hlin.json", seconds=30):
+        print(f"{name} did not come up. See demo/state/logs/{name}.log.", flush=True)
+        return 1
+    print(f"  {name} on {widget['port']} (pid {pid})", flush=True)
     return 0
 
 
