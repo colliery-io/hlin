@@ -4,14 +4,14 @@ level: task
 title: "The twenty measurement fails its recovery test when run twice on one demo"
 short_code: "HLIN-T-0092"
 created_at: 2026-09-25T22:12:24.994239+00:00
-updated_at: 2026-09-25T22:12:24.994239+00:00
+updated_at: 2026-09-25T22:21:46.832771+00:00
 parent: HLIN-I-0012
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -35,6 +35,8 @@ predates that change. Either the test leaves state behind (dice restarted by
 shell's event-stream backoff grown to its 30 s ceiling, the page's
 three-refusal count, contract memory), or recovery really does work only the
 first time. The second would be a product bug.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
