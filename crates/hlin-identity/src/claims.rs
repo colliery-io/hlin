@@ -100,4 +100,26 @@ impl Claims {
     pub fn in_group(&self, group: &str) -> bool {
         self.groups.iter().any(|held| held == group)
     }
+
+    /// The method this token is bound to, if it is bound to a request.
+    ///
+    /// Bound tokens carry `htm` and `htu` among the claims this struct keeps
+    /// in [`Claims::extra`], rather than as fields of their own, so that code
+    /// already building `Claims` by hand keeps compiling. A value that is
+    /// present but not a string reads as `None` here; the request-aware check
+    /// in [`crate::Verifier::verify_request`] refuses it outright.
+    pub fn htm(&self) -> Option<&str> {
+        self.extra.get(crate::METHOD_CLAIM).and_then(Value::as_str)
+    }
+
+    /// The path this token is bound to, relative to the platform's base and in
+    /// the normal form of [`crate::normalise_path`].
+    pub fn htu(&self) -> Option<&str> {
+        self.extra.get(crate::PATH_CLAIM).and_then(Value::as_str)
+    }
+
+    /// Whether this token claims to be bound to a request at all.
+    pub fn is_bound(&self) -> bool {
+        self.extra.contains_key(crate::METHOD_CLAIM) || self.extra.contains_key(crate::PATH_CLAIM)
+    }
 }

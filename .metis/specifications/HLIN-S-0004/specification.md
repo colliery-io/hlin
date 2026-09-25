@@ -52,6 +52,8 @@ Inside: the token, the header, key publication and rotation, the status codes, a
 | REQ-2.2 | The `options` endpoint of a `select` parameter receives the same token as a data endpoint | Options may legitimately differ per principal ([[HLIN-S-0002]]) |
 | REQ-3.1 | Manifest fetches carry no identity token; they are made by the shell as itself | A manifest is identical for every user, so a per-user token would imply otherwise ([[HLIN-S-0001]]) |
 | REQ-3.2 | A platform must be able to run locally without a shell, and the mechanism must be impossible to enable in production | Every platform team develops daily; a bypass that can escape is worse than no bypass |
+| REQ-4.1 | A write (any method other than `GET` or `HEAD`) carries a token bound to its request: `htm` and `htu` name its method and path, and it lives 30 seconds. A platform refuses a write whose token is unbound or bound to another request with 401 | A read token captured in a log must not be replayable as a write ([[HLIN-A-0013]] decision 4) |
+| REQ-4.2 | Reads carry unbound tokens, verified exactly as before | Binding a read buys little, since the principal may read either way, and changing reads would break every platform at once |
 
 ### Non-Functional Requirements
 
@@ -87,6 +89,8 @@ Chosen over RSA and ECDSA for short keys, small signatures and one way to use it
 | `name` | string | no | Display name, for a platform that wants to show who is asking |
 | `email` | string | no | Where the identity provider supplies one |
 | `groups` | array of strings | no | Whatever the identity provider asserts, passed through unchanged |
+| `htm` | string | on a write | The request's method, exactly as sent. Present only on a token bound to one request |
+| `htu` | string | on a write | The request's path relative to the platform's base, without its query, in the normal form below. Present only with `htm` |
 
 `groups` is passed through, not interpreted. The shell does not know what any group means and never decides anything from one; a platform that uses groups is using its identity provider's data, with the shell as courier.
 
@@ -107,7 +111,39 @@ A worked token payload:
 
 ### Lifetime
 
-120 seconds, because a token is minted per request and needs only to survive the request. `jti` is present so a platform *may* keep a replay cache, but with a two-minute window over TLS on an internal network, most will not need one. It costs nothing to include and cannot be added later without a version bump.
+120 seconds for a read, 30 seconds for a bound write, because a token is minted per request and needs only to survive the request. A bound token is sent the moment it is minted, so anything longer is only more time for the same write to be replayed. `jti` is present so a platform *may* keep a replay cache, but with a two-minute window over TLS on an internal network, most will not need one. It costs nothing to include and cannot be added later without a version bump.
+
+### Binding a write to its request
+
+A write's token names the one request it was minted for, so a token captured from a log cannot be spent on a different write, and a read token cannot be spent on any. The names follow DPoP (RFC 9449), without its proof key: the shell is the only party that sees the request before it is sent, so there is no one else to hold a key.
+
+`htu` is the path relative to the platform's base, not a full URL, because the shell addresses a platform by its configured base and the platform may not know the host name the shell used. Both sides reduce the path to one normal form before comparing, and the rules exist because a comparison that normalises differently on the two sides fails silently:
+
+1. Drop everything from the first `?` or `#`.
+2. The path must start with `/`. `/` on its own is the root.
+3. Split on `/`. Every segment must be non-empty, so a double slash or a trailing slash is refused, not collapsed.
+4. Percent-decode each segment exactly once. `%41` is `A`; `%2541` is `%41`, a different path.
+5. Refuse a malformed escape, bytes that are not UTF-8 once decoded, a literal backslash, a segment that decodes to `.` or `..`, and a segment that decodes to contain `/`, `\` or a control character.
+6. Compare case-sensitively, character for character.
+
+Refused shapes are refused rather than normalised because resolving `..` or collapsing slashes would make the binding agree with one server's reading of a path and not another's. The shell's request proxy refuses the same shapes before minting ([[HLIN-S-0007]]), so a request sent through the shell never meets them.
+
+`htm` is compared exactly. Methods are case-sensitive, so `post` is not `POST`, and only `GET` and `HEAD` exactly are reads; any other method, including one nobody has heard of, is a write.
+
+A worked write payload:
+
+```json
+{
+  "iss": "hlin",
+  "sub": "u_01H8XK2P",
+  "aud": "orebank",
+  "iat": 1757244600,
+  "exp": 1757244630,
+  "jti": "01H8XK2PQR7W",
+  "htm": "POST",
+  "htu": "/api/batches/42/retry"
+}
+```
 
 ## Keys
 
@@ -146,15 +182,16 @@ On every request to a panel data endpoint or a `select` options endpoint:
 1. Read `X-Hlin-Identity`. Absent, in production, is a 401.
 2. Verify the signature against the key with the matching `kid`, refetching the key set once if unrecognised.
 3. Check `iss` matches the configured shell, `aud` matches this platform's own id, and `exp` has not passed. Allow 60 seconds of clock skew on `exp` and `iat`.
-4. Take `sub` as the principal. Apply the platform's own rules.
-5. Answer, or refuse with 403.
+4. On a write, require `htm` and `htu`, `htm` equal to the request's method, `htu` equal to the request's path in the normal form above, and `exp - iat` no more than 30 seconds. On a read, accept an unbound token as before. A token that carries `htm` or `htu` is held to them whatever the method, and one carrying only one of them, or a non-string, is refused. Any failure is a 401.
+5. Take `sub` as the principal. Apply the platform's own rules.
+6. Answer, or refuse with 403.
 
 ### Status codes
 
 | Code | Meaning | Panel state |
 |---|---|---|
 | 200 | Here is the data | `ready`, once the envelope validates |
-| 401 | The token was absent, unverifiable, expired, or for another audience | `unavailable (malformed)` |
+| 401 | The token was absent, unverifiable, expired, for another audience, or on a write not bound to this request | `unavailable (malformed)` |
 | 403 | The token was fine; this principal may not have this | `unavailable (forbidden)` |
 
 The distinction is load-bearing. A 401 is the shell's fault or a misconfiguration, and an operator needs to see it. A 403 is the system working correctly, and the viewer needs to see it. A platform that returns 403 for a bad token makes a broken deployment look like a permissions problem forever, and nobody investigates permissions.
@@ -175,16 +212,19 @@ Twelve platforms implementing this from prose is twelve chances to get it wrong,
 
 A small crate should ship this: fetch and cache the key set, verify, check the claims, expose the principal, and return the right status code for each failure. It is a task for a later initiative, and this specification is written so that a platform implementing it by hand is doing something reasonable rather than something reckless.
 
+`hlin-identity` is that crate. `Verifier::verify` checks a read; `Verifier::verify_request` takes the method and path as well and applies the write rule; the `axum` feature's `HlinRequestIdentity` extractor does the same from a request and answers a refusal with a 401 whose body says why. `Issuer::mint_bound` mints a bound token from a `BoundRequest`, which normalises the path and refuses one that cannot be bound before anything is signed.
+
 ## Decision Log
 
 | ADR | Title | Status | Summary |
 |-----|-------|--------|---------|
 | [[HLIN-A-0004]] | Auth hoisted, identity forwarded, dedup per principal | decided | This specification is that decision's contract |
 | [[HLIN-A-0002]] | Content hash + semver, enforced at runtime | decided | Manifest fetches carry no identity, so contract checking is per platform not per person |
+| [[HLIN-A-0013]] | Requests carried with identity bound to each | decided | Decision 4: a write's token is bound to its method and path with a 30-second lifetime; reads stay unbound |
 
 ## Open Items
 
 - Whether `sub` should be the identity provider's subject or a shell-issued pseudonym. A pseudonym keeps the provider's identifiers out of twelve platforms' logs; the provider's own subject is what those platforms already key on elsewhere. The pseudonym is probably right and costs a mapping table.
-- Whether the shell should sign the request path as well as the audience, so a token cannot be replayed against a different endpoint of the same platform. Within a platform this buys little, since the principal is the same either way.
+- Whether the shell should sign the request path as well as the audience, so a token cannot be replayed against a different endpoint of the same platform. **Closed for writes** by [[HLIN-A-0013]]: a write's token carries `htm` and `htu` (see *Binding a write to its request*). **Still open for reads**, where it buys little, since the principal may read either way.
 - Service-to-service calls: a platform calling another platform on a person's behalf is out of scope here and will want its own answer.
 - Whether a platform should be able to declare in its manifest that it requires identity, so the shell can tell an operator about a platform that is not checking.

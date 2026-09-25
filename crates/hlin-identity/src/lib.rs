@@ -42,6 +42,7 @@ compile_error!(
      compiled into a release build; remove it from your feature list"
 );
 
+mod binding;
 mod claims;
 mod issuer;
 mod keys;
@@ -50,6 +51,9 @@ mod verifier;
 #[cfg(feature = "axum")]
 pub mod extract;
 
+pub use binding::{
+    BoundRequest, METHOD_CLAIM, PATH_CLAIM, RequestRefusal, UnsafeRequest, is_read, normalise_path,
+};
 pub use claims::{Claims, Principal};
 pub use issuer::{Issuer, IssuerError};
 pub use keys::{Jwks, JwksFetcher, PublicKey};
@@ -71,6 +75,14 @@ pub const JWKS_PATH: &str = ".well-known/hlin-keys.json";
 /// token lifetime, which is exactly why tokens are per request rather than per
 /// stream (HLIN-S-0004 REQ-1.3).
 pub const TOKEN_LIFETIME_SECONDS: i64 = 120;
+
+/// How long a token bound to one write is good for.
+///
+/// Shorter than a read's, because a bound token exists for one request that
+/// the shell sends the moment it is minted. Anything longer is only more time
+/// for a captured token to be replayed against the same endpoint
+/// ([[HLIN-A-0013]] decision 4).
+pub const BOUND_TOKEN_LIFETIME_SECONDS: i64 = 30;
 
 /// How much clock difference between shell and platform is tolerated.
 pub const CLOCK_SKEW_SECONDS: u64 = 60;

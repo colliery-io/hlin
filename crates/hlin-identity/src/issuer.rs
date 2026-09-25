@@ -6,9 +6,10 @@ use chrono::Utc;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use thiserror::Error;
 
-use crate::TOKEN_LIFETIME_SECONDS;
+use crate::binding::{BoundRequest, METHOD_CLAIM, PATH_CLAIM};
 use crate::claims::{Claims, Principal};
 use crate::keys::{Jwks, PublicKey, base64url, from_base64url, pkcs8_from_seed};
+use crate::{BOUND_TOKEN_LIFETIME_SECONDS, TOKEN_LIFETIME_SECONDS};
 
 /// Why a token could not be minted, or a key could not be loaded.
 #[derive(Debug, Error)]
@@ -127,21 +128,54 @@ impl Issuer {
     /// one is a token that works everywhere, which is the failure this whole
     /// crate exists to prevent.
     pub fn mint(&self, principal: &Principal, audience: &str) -> Result<String, IssuerError> {
+        self.sign(self.claims(principal, audience, TOKEN_LIFETIME_SECONDS))
+    }
+
+    /// Mint a token for one write, and no other request.
+    ///
+    /// The same claims as [`Issuer::mint`], plus `htm` and `htu` naming the
+    /// request, and a thirty-second lifetime. A platform checking the token
+    /// with [`crate::Verifier::verify_request`] accepts it only for that
+    /// method at that path, so a token captured from a log cannot be replayed
+    /// as a different write, or as the same write much later
+    /// ([[HLIN-A-0013]] decision 4).
+    ///
+    /// The request arrives already normalised, so a path that could not be
+    /// bound safely was refused before anything was signed.
+    pub fn mint_bound(
+        &self,
+        principal: &Principal,
+        audience: &str,
+        request: &BoundRequest,
+    ) -> Result<String, IssuerError> {
+        let mut claims = self.claims(principal, audience, BOUND_TOKEN_LIFETIME_SECONDS);
+        claims
+            .extra
+            .insert(METHOD_CLAIM.to_string(), request.method().into());
+        claims
+            .extra
+            .insert(PATH_CLAIM.to_string(), request.path().into());
+        self.sign(claims)
+    }
+
+    fn claims(&self, principal: &Principal, audience: &str, lifetime: i64) -> Claims {
         let now = Utc::now().timestamp();
 
-        let claims = Claims {
+        Claims {
             iss: self.issuer.clone(),
             sub: principal.sub.clone(),
             aud: audience.to_string(),
             iat: now,
-            exp: now + TOKEN_LIFETIME_SECONDS,
+            exp: now + lifetime,
             jti: uuid::Uuid::new_v4().to_string(),
             name: principal.name.clone(),
             email: principal.email.clone(),
             groups: principal.groups.clone(),
             extra: Default::default(),
-        };
+        }
+    }
 
+    fn sign(&self, claims: Claims) -> Result<String, IssuerError> {
         let mut header = Header::new(Algorithm::EdDSA);
         header.kid = Some(self.kid.clone());
 

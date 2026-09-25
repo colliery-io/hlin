@@ -15,9 +15,10 @@ use std::time::{Duration, Instant};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use thiserror::Error;
 
-use crate::CLOCK_SKEW_SECONDS;
+use crate::binding::{RequestRefusal, is_read, normalise_path};
 use crate::claims::Claims;
 use crate::keys::{Jwks, JwksFetcher};
+use crate::{BOUND_TOKEN_LIFETIME_SECONDS, CLOCK_SKEW_SECONDS};
 
 /// How long a fetched key set is trusted before refetching.
 const CACHE_FOR: Duration = Duration::from_secs(3600);
@@ -158,6 +159,64 @@ impl Verifier {
                 .map_err(|error| translate(error, expected_audience))?;
 
         Ok(decoded.claims)
+    }
+
+    /// Check a token for this request, and say who it is for.
+    ///
+    /// Everything [`Verifier::verify`] checks, and then the binding. `method`
+    /// is the request's method exactly as received, and `path` its path
+    /// relative to this platform's base; a query on the end is ignored.
+    ///
+    /// A `GET` or `HEAD` with an unbound token is accepted exactly as `verify`
+    /// would accept it, so reads are unchanged. Any other method needs a token
+    /// bound to it: `htm` equal to the method, `htu` equal to the path once
+    /// both are in the normal form of [`crate::normalise_path`], and a lifetime
+    /// no longer than a bound token's. A token that is bound is held to its
+    /// binding whatever the method, since it was minted for one request only.
+    pub fn verify_request(
+        &self,
+        token: &str,
+        expected_audience: &str,
+        method: &str,
+        path: &str,
+    ) -> Result<Claims, RequestRefusal> {
+        let claims = self.verify(token, expected_audience)?;
+
+        if !claims.is_bound() {
+            return if is_read(method) {
+                Ok(claims)
+            } else {
+                Err(RequestRefusal::Unbound(method.to_string()))
+            };
+        }
+
+        let (Some(bound_method), Some(bound_path)) = (claims.htm(), claims.htu()) else {
+            return Err(RequestRefusal::MalformedBinding);
+        };
+
+        // A shell that minted a long-lived bound token has a bug, and the
+        // thirty seconds are the part of the binding that limits replay of the
+        // same request. Checked on the claims rather than trusted.
+        if claims.exp - claims.iat > BOUND_TOKEN_LIFETIME_SECONDS {
+            return Err(RequestRefusal::TooLong);
+        }
+
+        if bound_method != method {
+            return Err(RequestRefusal::WrongMethod {
+                bound: bound_method.to_string(),
+                presented: method.to_string(),
+            });
+        }
+
+        let presented = normalise_path(path).map_err(RequestRefusal::UnsafeRequest)?;
+        if bound_path != presented {
+            return Err(RequestRefusal::WrongPath {
+                bound: bound_path.to_string(),
+                presented,
+            });
+        }
+
+        Ok(claims)
     }
 
     fn key_bytes(&self, kid: &str) -> Result<Option<Vec<u8>>, Refusal> {
