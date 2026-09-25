@@ -94,6 +94,10 @@ where
     // silent, while guessing writable and being wrong costs one 403 nobody
     // reaches because the surface has not loaded yet either.
     let (read_only, set_read_only) = signal(false);
+    // Who the shell says this is, and where to end their session if it keeps
+    // one. Both empty until `/api/config` answers.
+    let (viewer, set_viewer) = signal(Option::<String>::None);
+    let (sign_out, set_sign_out) = signal(Option::<String>::None);
     let (trouble, set_trouble) = signal(Option::<String>::None);
     let (chosen_range, set_chosen_range) = signal(3600i64);
     let (custom, set_custom) = signal(Option::<TimeRange>::None);
@@ -128,6 +132,10 @@ where
             if let Ok(config) = crate::api::config().await {
                 set_grace.set(config.stream_loss_grace_seconds);
                 set_read_only.set(config.read_only);
+                // The name where there is one, the identifier otherwise: a
+                // person should see who the shell thinks they are either way.
+                set_viewer.set(Some(config.principal.name.unwrap_or(config.principal.sub)));
+                set_sign_out.set(config.sign_out);
             }
             // A link to a surface names the layout; a bare visit gets the
             // principal's own. Either way the address bar ends up naming what
@@ -603,6 +611,24 @@ where
                     {move || if composing() { "Done" } else { "Edit" }}
                 </button>
             </Show>
+
+            {move || viewer.get().map(|who| view! { <span class="viewer">{who}</span> })}
+
+            {move || sign_out.get().map(|path| view! {
+                <button
+                    class="mode sign-out"
+                    on:click=move |_| {
+                        let path = path.clone();
+                        leptos::task::spawn_local(async move {
+                            if let Err(reason) = crate::api::sign_out(&path).await {
+                                set_trouble.set(Some(reason));
+                            }
+                        });
+                    }
+                >
+                    "Sign out"
+                </button>
+            })}
         </header>
 
         {move || trouble.get().map(|reason| view! {

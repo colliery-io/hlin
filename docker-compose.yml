@@ -26,5 +26,26 @@ services:
       timeout: 3s
       retries: 30
 
+  # The identity provider for the collaborative demo (HLIN-T-0061). Behind a
+  # profile, so `angreal db up` and the standard demo start only the database;
+  # `angreal demo up --with collab` starts this as well.
+  #
+  # Bound to loopback because its issuer is http://127.0.0.1:5556/dex: the
+  # shell and the browser both reach it from the host, and nothing else should.
+  dex:
+    image: ghcr.io/dexidp/dex:v2.44.0
+    container_name: hlin-dev-dex
+    profiles: ["collab"]
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    environment:
+      # The static client's secret. Set by the angreal task, which hands the
+      # same value to the shell; empty here makes Dex refuse the client rather
+      # than accept a guessable default.
+      HLIN_DEMO_OIDC_SECRET: ${HLIN_DEMO_OIDC_SECRET:-}
+    ports:
+      - "127.0.0.1:5556:5556"
+    volumes:
+      - ./demo/dex.yaml:/etc/dex/config.yaml:ro
+
 volumes:
   hlin-dev-pgdata:

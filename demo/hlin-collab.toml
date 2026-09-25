@@ -1,0 +1,40 @@
+# The collaborative demo shell (HLIN-I-0010).
+#
+# People sign in as themselves, through Dex, rather than all being the one
+# development user. `angreal demo up --with collab` starts Dex, sets the client
+# secret for both sides, and starts this.
+#
+# No platforms yet: `checklist` and `feed` arrive with their own tasks, and a
+# shell with none starts and signs people in regardless.
+
+port = 8080
+issuer = "hlin"
+key_path = "demo/state/shell.key"
+
+database_url = "postgres://hlin:hlin@localhost:55432/hlin"
+
+[auth]
+strategy = "oidc"
+# Plain http on loopback, which a debug build accepts and a release build
+# refuses (decision 8). Must match `issuer` in demo/dex.yaml exactly.
+issuer = "http://127.0.0.1:5556/dex"
+client_id = "hlin"
+client_secret_env = "HLIN_DEMO_OIDC_SECRET"
+# 127.0.0.1, not localhost, everywhere: the session cookie is scoped to the
+# host the browser used, so the address a person opens, this, and the redirect
+# URI registered with Dex have to be the same name.
+public_url = "http://127.0.0.1:8080"
+# Dex's static passwords carry no groups, so do not ask for them.
+scopes = ["openid", "profile", "email"]
+
+[auth.cookie]
+name = "hlin_session"
+# The browser will not send a Secure cookie over plain http, so a Secure one
+# would sign everybody in and then forget them on the next request.
+secure = false
+same_site = "Lax"
+
+[timings]
+poll_seconds = 10
+debounce_observations = 2
+upstream_timeout_seconds = 10

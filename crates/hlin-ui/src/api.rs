@@ -115,6 +115,27 @@ async fn explain(response: gloo_net::http::Response) -> String {
     }
 }
 
+/// End this browser's session, then start again from the top.
+///
+/// Reloading rather than clearing state in place: the next request carries no
+/// session, the shell answers it with where to sign in, and the page does what
+/// it does for anybody who has not — which is exactly what signing out means.
+pub async fn sign_out(path: &str) -> Result<(), String> {
+    let response = Request::post(path)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !response.ok() {
+        return Err(explain(response).await);
+    }
+
+    if let Some(window) = web_sys::window() {
+        let _ = window.location().set_href("/");
+    }
+    Ok(())
+}
+
 /// Leave, carrying where we were so the shell can put us back.
 fn go_to(login: &str) {
     let Some(window) = web_sys::window() else {

@@ -20,7 +20,7 @@ use axum::routing::{get, post};
 use chrono::Utc;
 use serde::Deserialize;
 
-use crate::config::{AuthConfig, CALLBACK_PATH, LOGIN_PATH, OidcConfig};
+use crate::config::{AuthConfig, CALLBACK_PATH, LOGIN_PATH, LOGOUT_PATH, OidcConfig};
 use crate::server::AppState;
 use crate::store::types::{PendingLogin, Session};
 
@@ -51,7 +51,7 @@ pub fn routes(auth: &AuthConfig) -> Router<AppState> {
     Router::new()
         .route(LOGIN_PATH, get(login))
         .route(CALLBACK_PATH, get(callback))
-        .route("/auth/logout", post(logout))
+        .route(LOGOUT_PATH, post(logout))
 }
 
 /// The name a session is stored under: the SHA-256 of the cookie's value, hex.

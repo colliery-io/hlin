@@ -34,7 +34,21 @@ CONFIGS = {
     "aurora": "demo/hlin-aurora.toml",
     "gallery": "demo/hlin-gallery.toml",
     "live": "demo/hlin-live.toml",
+    "collab": "demo/hlin-collab.toml",
 }
+
+#: Flavours where people sign in through Dex rather than being the development
+#: user. They start the identity provider and none of the sample platforms
+#: above: the collaborative demo brings its own (HLIN-I-0010).
+SIGNED_IN = {"collab"}
+
+#: Where Dex answers, as both the shell and the browser reach it.
+DEX = "http://127.0.0.1:5556/dex"
+
+#: The variable carrying the client secret. Dex reads it (`secretEnv` in
+#: demo/dex.yaml) and so does the shell (`client_secret_env`), which is how the
+#: two agree without the secret being written in either file.
+DEX_SECRET = "HLIN_DEMO_OIDC_SECRET"
 
 SHELL = "http://127.0.0.1:8080"
 
@@ -192,6 +206,54 @@ def _database_up():
     return 1
 
 
+def _compose_dex(*arguments):
+    """Run `docker compose` for the Dex service alone.
+
+    Named service and profile both, so starting or stopping it never touches the
+    database in the same project — which may be somebody else's, started from
+    another checkout.
+    """
+    compose_file = os.path.join(cwd, "docker-compose.yml")
+    return subprocess.run(
+        ["docker", "compose", "-f", compose_file, "-p", "hlin", "--profile", "collab", *arguments],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _dex_up():
+    """Start Dex with the current secret and wait until it publishes discovery.
+
+    Recreated rather than merely started, because the secret is read when the
+    container starts and a Dex left over from an earlier `up` holds a secret the
+    new shell does not have — which fails at the callback, after a person has
+    typed their password, as "this sign-in could not be verified".
+    """
+    result = _compose_dex("up", "-d", "--force-recreate", "dex")
+    if result.returncode != 0:
+        print(result.stderr, flush=True)
+        return 1
+
+    if not _wait_for(f"{DEX}/.well-known/openid-configuration", seconds=60):
+        print("Dex did not come up. `docker logs hlin-dev-dex` says why.", flush=True)
+        return 1
+    return 0
+
+
+def _dex_down():
+    """Stop Dex, if it is running. It keeps nothing worth keeping."""
+    probe = subprocess.run(
+        ["docker", "ps", "-a", "--filter", "name=^hlin-dev-dex$", "--format", "{{.Names}}"],
+        capture_output=True,
+        text=True,
+    )
+    if "hlin-dev-dex" not in probe.stdout:
+        return
+    _compose_dex("rm", "--stop", "--force", "dex")
+    print("stopped Dex", flush=True)
+
+
 def _wait_for(url, seconds=60):
     """Poll a URL until it answers, rather than sleeping and hoping.
 
@@ -244,9 +306,15 @@ def _wait_for_panels(seconds=30):
         the built frontend, two sample platforms and the shell, as background
         processes with logs under demo/state/logs.
 
+        `--with collab` instead signs people in through Dex (a container, with
+        users alice@example.com, bob@example.com and carol@elsewhere.org,
+        password `password`), sets the client secret for Dex and the shell, and
+        starts no sample platforms.
+
         ## When to use
         - To see the product running
-        - Before `angreal demo walkthrough`
+        - Before `angreal demo walkthrough` (standard flavour)
+        - Before `angreal e2e signin` (`--with collab`)
 
         Safe to run repeatedly; it stops whatever it previously started first.
         """,
@@ -257,7 +325,7 @@ def _wait_for_panels(seconds=30):
     name="with_",
     long="with",
     takes_value=True,
-    help="which shell configuration to run: demo, aurora, gallery or live",
+    help="which shell configuration to run: demo, aurora, gallery, live or collab",
 )
 def demo_up(with_=None):
     flavour = with_ or "demo"
@@ -280,6 +348,17 @@ def demo_up(with_=None):
         if _database_up() != 0:
             return 1
 
+    signed_in = flavour in SIGNED_IN
+    if signed_in:
+        # One value, handed to both sides. Whatever is already in the
+        # environment wins, so somebody running the shell by hand can choose it.
+        import secrets
+
+        os.environ.setdefault(DEX_SECRET, secrets.token_urlsafe(24))
+        print("starting Dex", flush=True)
+        if _dex_up() != 0:
+            return 1
+
     print(f"building {frontend}", flush=True)
     if subprocess.run(["trunk", "build"], cwd=os.path.join(cwd, "examples", frontend)).returncode:
         print(
@@ -299,7 +378,7 @@ def demo_up(with_=None):
     # The platforms verify the shell's tokens, and the shell is not up yet. That
     # is deliberate and worth seeing: a platform that cannot reach the issuer's
     # keys refuses callers until it can, and recovers by itself.
-    for platform in PLATFORMS:
+    for platform in [] if signed_in else PLATFORMS:
         argv = [
             "./target/debug/hlin-sample-platform",
             "--name",
@@ -319,7 +398,7 @@ def demo_up(with_=None):
         pid = _start(platform["name"], argv, platform["port"])
         print(f"  {platform['name']} on {platform['port']} (pid {pid})", flush=True)
 
-    for platform in PLATFORMS:
+    for platform in [] if signed_in else PLATFORMS:
         url = f"http://127.0.0.1:{platform['port']}/.well-known/hlin.json"
         if not _wait_for(url, seconds=30):
             print(f"{platform['name']} did not come up. See demo/state/logs.")
@@ -354,6 +433,14 @@ def demo_up(with_=None):
     # nothing at all. A person would refresh; a test suite reports a failure,
     # which is how the first browser run after `up` came to fail while every
     # later one passed.
+    if signed_in:
+        print(f"\nHlin is running at {SHELL}, signing people in through Dex.")
+        print("Sign in as alice@example.com, bob@example.com or carol@elsewhere.org;")
+        print("the password is `password`.")
+        print("`angreal e2e signin` proves it in a browser.")
+        print("`angreal demo down` stops everything.")
+        return 0
+
     if not _wait_for_panels(seconds=30):
         print("The shell came up but no platform is offering panels. See demo/state/logs.")
         return 1
@@ -398,8 +485,8 @@ def demo_status():
     about="stop everything the demo started",
     tool=angreal.ToolDescription(
         """
-        Stop the shell, both sample platforms and the development database, and
-        forget the process registry.
+        Stop the shell, both sample platforms, Dex if `--with collab` started
+        it, and the development database, and forget the process registry.
 
         ## When to use
         - When finished with the demo
@@ -438,6 +525,10 @@ def _stop_everything(keep_database=False):
 
     if os.path.isfile(REGISTRY):
         os.remove(REGISTRY)
+
+    # Whether or not the flavour that started it is the one being stopped: a
+    # Dex left running holds its port and a secret nothing else knows.
+    _dex_down()
 
     if not keep_database:
         _database_down()

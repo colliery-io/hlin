@@ -299,6 +299,9 @@ pub const CALLBACK_PATH: &str = "/auth/callback";
 /// Where a browser that is nobody is sent to become somebody.
 pub const LOGIN_PATH: &str = "/auth/login";
 
+/// Where a browser ends its session. A `POST`, never a link.
+pub const LOGOUT_PATH: &str = "/auth/logout";
+
 /// How the shell's own session cookie is set.
 ///
 /// Each of these is a promise to the deployment rather than a preference, which

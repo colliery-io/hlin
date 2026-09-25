@@ -350,6 +350,12 @@ pub struct ClientConfig {
     /// way round: the alternative hides composition from every older shell.
     #[serde(default)]
     pub read_only: bool,
+
+    /// Where to `POST` to end this browser's session, where the shell keeps
+    /// one. Absent under strategies with nothing to end, and then the front
+    /// end offers no way to try.
+    #[serde(default)]
+    pub sign_out: Option<String>,
 }
 
 /// The viewer, named.
@@ -371,6 +377,10 @@ pub struct PrincipalSummary {
     /// them, with nothing on screen to say so.
     #[serde(default)]
     pub name: Option<String>,
+
+    /// Their email, where the identity provider said.
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
 #[cfg(test)]

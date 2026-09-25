@@ -1,0 +1,62 @@
+# The identity provider the collaborative demo signs people in through.
+#
+# Dex, because it is a real OpenID Connect provider that runs from one file:
+# the shell's `oidc` authenticator talks to it exactly as it would to any other
+# provider, discovery, PKCE, a signed id token and all. Nothing here is
+# production shape — the users are fixed, the password is `password`, and the
+# issuer is plain http on loopback, which only a debug build of the shell
+# accepts (HLIN-I-0010, decision 8).
+#
+# Started by `angreal demo up --with collab`, which also supplies the client
+# secret through HLIN_DEMO_OIDC_SECRET so the shell and Dex agree on it.
+
+# The browser and the shell both reach Dex here, from the host, so one address
+# serves both: the shell fetches discovery and keys from it, and the browser is
+# sent to its login form. It is also the `iss` of every id token, which the
+# shell checks against its configured issuer character for character.
+issuer: http://127.0.0.1:5556/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+oauth2:
+  # Nothing to consent to: the demo's client is the demo's shell.
+  skipApprovalScreen: true
+
+staticClients:
+  - id: hlin
+    name: Hlin
+    # Read from the environment rather than written here, the same rule the
+    # shell's own configuration follows.
+    secretEnv: HLIN_DEMO_OIDC_SECRET
+    # The shell's callback, `{public_url}/auth/callback`. 127.0.0.1 rather than
+    # localhost because the session cookie is host-scoped: a browser that
+    # starts on one name and is returned to the other arrives with no session.
+    redirectURIs:
+      - http://127.0.0.1:8080/auth/callback
+
+enablePasswordDB: true
+
+# Password `password` for all three. Dex wants bcrypt, generated with
+#
+#   htpasswd -bnBC 10 "" password | tr -d ':\n' | sed 's/^\$2y/$2a/'
+#
+# (`$2y` and `$2a` are the same algorithm; `$2a` is the prefix Dex documents).
+# Dex issues `username` as the id token's `name`. No groups: static passwords
+# carry none, and nothing in the demo decides on one (decision 3).
+staticPasswords:
+  - email: alice@example.com
+    hash: "$2a$10$3o2lcBnA8x5nbCATcGWf2e76sFO9fEqEWXoc2AoM/Pk1HCzAzZ9xC"
+    username: Alice
+    userID: 8a5f2a3e-1c4b-4d7e-9f10-a11ce0000001
+  - email: bob@example.com
+    hash: "$2a$10$Uu/iWnFDRmFevutU7Ziycu1NXY25mBjkhK38QH43nPeHjxIlVGLNe"
+    username: Bob
+    userID: 8a5f2a3e-1c4b-4d7e-9f10-b0b000000002
+  - email: carol@elsewhere.org
+    hash: "$2a$10$oSclBfmK8Vn/j8Q64yKZW.jn6wW7u8H2poqhT5agFmyje14R774d."
+    username: Carol
+    userID: 8a5f2a3e-1c4b-4d7e-9f10-ca4010000003

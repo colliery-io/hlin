@@ -92,6 +92,9 @@ client_secret_env = "HLIN_OIDC_CLIENT_SECRET"
 public_url = "https://hlin.example.com"
 ```
 
+To try it without a provider of your own, `angreal demo up --with collab` runs
+the shell on `oidc` against [Dex](https://dexidp.io) in a container (below).
+
 ### An internal certificate authority
 
 The shell reaches everything over TLS — every platform it fronts, every event
@@ -396,6 +399,28 @@ like. `angreal e2e test --headed` runs it in a browser you can watch.
 They work in layouts they create and delete through the API, so a run neither
 depends on nor disturbs a surface you composed. They also avoid asserting on any
 design pack's markup, so the same suite runs against any front end.
+
+### Signing in as somebody
+
+The standard demo makes everybody the same development user. The
+collaborative one signs people in through a real identity provider:
+
+```bash
+angreal demo up --with collab   # Postgres, Dex, the shell on `oidc`
+angreal e2e signin              # signs in through Dex's form as each person
+```
+
+Open `http://127.0.0.1:8080` — `127.0.0.1`, not `localhost`, because the
+session cookie belongs to the host name the browser used — and sign in as
+`alice@example.com`, `bob@example.com` or `carol@elsewhere.org`, password
+`password`. Your name is in the bar, beside **Sign out**.
+
+Dex is configured by `demo/dex.yaml` and the shell by `demo/hlin-collab.toml`.
+Its issuer is plain http on loopback, which only a debug build of the shell
+accepts. `up` generates the client secret and hands it to both through
+`HLIN_DEMO_OIDC_SECRET`, unless that is already set. `angreal demo down` stops
+Dex too. `angreal e2e test` expects the standard demo and says so if pointed at
+this one; `angreal e2e signin` expects this one.
 
 ### Seeing it in a real design system
 

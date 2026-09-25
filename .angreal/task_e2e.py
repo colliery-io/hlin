@@ -26,7 +26,7 @@ e2e = angreal.command_group(name="e2e", about="browser tests")
 
 def _npm_available():
     if subprocess.run(["which", "npm"], capture_output=True).returncode != 0:
-        print("npm is not installed, and it is what runs the browser tests.")
+        print("npm is not installed, and it is what runs the browser tests.", flush=True)
         return False
     return True
 
@@ -43,6 +43,59 @@ def _demo_running():
             return answer.status == 200
     except Exception:
         return False
+
+
+def _signs_people_in():
+    """Whether the running shell sends an unsigned browser to a provider.
+
+    The collaborative demo does; the standard one makes everybody the
+    development user. The suites expect one or the other, and run against the
+    wrong one they fail on every request with a 401 that says nothing about why.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"{SHELL}/api/config", timeout=3):
+            return False
+    except urllib.error.HTTPError as error:
+        if error.code != 401:
+            return False
+        try:
+            return bool(json.loads(error.read().decode("utf-8")).get("login"))
+        except ValueError:
+            return False
+    except Exception:
+        return False
+
+
+def _playwright(argv):
+    """Run Playwright and say where to look afterwards.
+
+    Not `_run`: angreal loads every task file into one namespace, and
+    task_tests.py's `_run` replaced a helper of that name here, running
+    Playwright from the repository root where it finds no configuration.
+    """
+    result = subprocess.run(argv, cwd=E2E)
+
+    if os.path.isdir(SHOTS):
+        shots = sorted(name for name in os.listdir(SHOTS) if name.endswith(".png"))
+        if shots:
+            print(f"\n{len(shots)} screenshots in {SHOTS}")
+            for name in shots:
+                print(f"  {name}")
+
+    # Flushed: angreal exits on a failing task without flushing what Python
+    # buffered, so an unflushed explanation of a failure is never seen.
+    if result.returncode:
+        print(
+            "\nA browser test failed. `npx playwright show-report` in e2e/ has the "
+            "trace, with a screenshot and the DOM at the moment it went wrong.",
+            flush=True,
+        )
+
+    return result.returncode
 
 
 @e2e()
@@ -114,11 +167,20 @@ def e2e_test(headed=False, filter=None):
         return 1
 
     if not _installed():
-        print("Playwright is not installed here. Run `angreal e2e install` first.")
+        print("Playwright is not installed here. Run `angreal e2e install` first.", flush=True)
         return 1
 
     if not _demo_running():
-        print(f"Nothing is answering at {SHELL}. Start it with `angreal demo up`.")
+        print(f"Nothing is answering at {SHELL}. Start it with `angreal demo up`.", flush=True)
+        return 1
+
+    if _signs_people_in():
+        print(
+            f"The shell at {SHELL} signs people in (`demo up --with collab`), and this\n"
+            "suite composes as the development user. Run `angreal e2e signin` against\n"
+            "it, or `angreal demo up` for this suite.",
+            flush=True,
+        )
         return 1
 
     argv = ["npx", "playwright", "test"]
@@ -127,22 +189,63 @@ def e2e_test(headed=False, filter=None):
     if filter:
         argv += ["-g", filter]
 
-    result = subprocess.run(argv, cwd=E2E)
+    return _playwright(argv)
 
-    if os.path.isdir(SHOTS):
-        shots = sorted(name for name in os.listdir(SHOTS) if name.endswith(".png"))
-        if shots:
-            print(f"\n{len(shots)} screenshots in {SHOTS}")
-            for name in shots:
-                print(f"  {name}")
 
-    if result.returncode:
+@e2e()
+@angreal.command(
+    name="signin",
+    about="sign in through Dex in a browser, against the collaborative demo",
+    tool=angreal.ToolDescription(
+        """
+        Drive a real browser through Dex's login form as each of the demo's
+        three people, asserting the name the shell shows, the email its
+        principal carries, and that signing out ends the session.
+
+        ## When to use
+        - After `angreal demo up --with collab`
+        - After changing the oidc authenticator, sessions, or demo/dex.yaml
+
+        Creates sessions and ends them; changes nothing else.
+        """,
+        risk_level="safe",
+    ),
+)
+@angreal.argument(
+    name="headed",
+    long="headed",
+    takes_value=False,
+    is_flag=True,
+    help="show the browser rather than running it headless",
+)
+def e2e_signin(headed=False):
+    if not _npm_available():
+        return 1
+
+    if not _installed():
+        print("Playwright is not installed here. Run `angreal e2e install` first.", flush=True)
+        return 1
+
+    if not _demo_running():
+        print(f"Nothing is answering at {SHELL}. Start it with `angreal demo up --with collab`.", flush=True)
+        return 1
+
+    # Checked here rather than left to the spec, which skips itself against a
+    # shell that does not sign people in: a run that skipped everything would
+    # otherwise report success.
+    if not _signs_people_in():
         print(
-            "\nA browser test failed. `npx playwright show-report` in e2e/ has the "
-            "trace, with a screenshot and the DOM at the moment it went wrong."
+            f"The shell at {SHELL} does not sign people in. Start the collaborative\n"
+            "demo with `angreal demo up --with collab`.",
+            flush=True,
         )
+        return 1
 
-    return result.returncode
+    argv = ["npx", "playwright", "test", "signin.spec.js"]
+    if headed:
+        argv.append("--headed")
+
+    return _playwright(argv)
 
 
 @e2e()

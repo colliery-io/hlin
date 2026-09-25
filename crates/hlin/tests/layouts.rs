@@ -1099,6 +1099,8 @@ async fn a_sessions_email_is_part_of_who_the_holder_is() {
         .unwrap();
     let config: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(config["principal"]["email"], "ada@example.com");
+    // And the front end is told where to end the session, so it can offer to.
+    assert_eq!(config["sign_out"], "/auth/logout");
 }
 
 #[test]

@@ -224,6 +224,8 @@ async fn a_visitor_with_no_cookie_is_answered_and_given_one() {
     let sub = body["principal"]["sub"].as_str().expect("a subject");
     assert!(sub.starts_with("anonymous:"), "{sub}");
     assert_eq!(body["read_only"], serde_json::json!(true));
+    // Nothing to sign out of, so no sign-out to offer.
+    assert!(body["sign_out"].is_null(), "{body}");
 }
 
 #[tokio::test]

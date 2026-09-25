@@ -113,6 +113,11 @@ async fn client_config(
         // arrange a surface, and refuse at Save — which is the worst possible
         // moment to say it.
         "read_only": state.config.read_only(),
+        // Where to end the session, where the shell keeps one. Absent under
+        // every other strategy: `dev` and `anonymous` have nothing to end, and
+        // behind a proxy signing out is the proxy's business.
+        "sign_out": matches!(state.config.auth, crate::config::AuthConfig::Oidc(_))
+            .then_some(crate::config::LOGOUT_PATH),
     }))
 }
 
