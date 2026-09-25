@@ -127,6 +127,13 @@ async fn platform(elsewhere: &str) -> (String, Log) {
                         .map(|_| (Duration::from_millis(5), vec![b'f'; 512]))
                         .collect(),
                 ),
+                // Half of `narrow`'s rate, for five seconds.
+                "paced" => streaming(
+                    Closing::new(&log, &path),
+                    (0..25)
+                        .map(|_| (Duration::from_millis(200), vec![b'p'; 100]))
+                        .collect(),
+                ),
                 "endless" => streaming(
                     Closing::new(&log, &path),
                     (0..20_000)
@@ -1474,6 +1481,38 @@ async fn a_stream_faster_than_its_rate_is_ended_for_it() {
     for _ in 0..20 {
         assert!(matches!(answer.next().await, Some(Frame::Data(_))));
     }
+}
+
+#[tokio::test]
+async fn a_backlog_built_while_the_page_held_the_stream_is_not_too_fast() {
+    // Held for three seconds, the platform's pieces back up in the connection
+    // between, and are read at once when the page reads again: half its rate
+    // for three seconds, more than a second's allowance in one go.
+    let shell = shell().await;
+    let mut answer = Streamed::open(&shell, streamed("/p/narrow/api/paced")).await;
+    assert_eq!(answer.next().await, Some(Frame::Data(vec![b'p'; 100])));
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let (data, ended) = tokio::time::timeout(Duration::from_secs(10), answer.rest())
+        .await
+        .expect("finished when the platform did");
+    assert_eq!(ended, Some(Ended::Finished));
+    assert_eq!(data.len(), 24 * 100);
+}
+
+#[tokio::test]
+async fn a_stream_faster_than_its_rate_is_ended_for_it_after_a_hold_too() {
+    let shell = shell().await;
+    let mut answer = Streamed::open(&shell, streamed("/p/narrow/api/flood")).await;
+    assert!(matches!(answer.next().await, Some(Frame::Data(_))));
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let (data, ended) = tokio::time::timeout(Duration::from_secs(5), answer.rest())
+        .await
+        .expect("ended long before the flood is over");
+    assert_eq!(ended, Some(Ended::Rate));
+    // The hold's allowance and a second's, and little more: not the hundred
+    // kilobytes the platform sent into the connection meanwhile.
+    assert!(data.len() <= SMALL * 4, "{} bytes passed", data.len());
+    shell.waits_for_close("/api/flood").await;
 }
 
 #[tokio::test]

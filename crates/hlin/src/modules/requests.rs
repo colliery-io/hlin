@@ -666,6 +666,7 @@ fn deliver_streamed(
         upstream: Box::pin(answer.bytes_stream()),
         idle: Duration::from_secs(limits.stream_idle_seconds),
         bucket: Bucket::new(limits.stream_bytes_per_second, Instant::now()),
+        handed_over: Instant::now(),
         platform: platform_id.to_string(),
     };
     let body = futures::stream::unfold(Some(flow), |flow| async move {
@@ -687,6 +688,8 @@ struct Flow {
     upstream: std::pin::Pin<Box<dyn futures::Stream<Item = reqwest::Result<bytes::Bytes>> + Send>>,
     idle: Duration,
     bucket: Bucket,
+    /// When the page took the last frame, or the headers before the first.
+    handed_over: Instant,
     platform: String,
 }
 
@@ -698,11 +701,24 @@ impl Flow {
     /// module that is not reading is not idle. And `timeout` looks at the body
     /// before its clock, so a piece that arrived while nobody was asking is
     /// taken however long ago the clock ran out.
+    ///
+    /// The rate is the platform's, not the page's (see [`Bucket`]): the time
+    /// between handing a frame over and being asked for the next is the page
+    /// holding the stream, and a platform the shell had to wait for has been
+    /// caught up with.
     async fn next_frame(mut self) -> (Vec<u8>, Option<Self>) {
         use hlin_stream::streamed::{Ended, data, end};
-        match tokio::time::timeout(self.idle, self.upstream.next()).await {
+        let asked = Instant::now();
+        self.bucket.held(self.handed_over, asked);
+        let next = tokio::time::timeout(self.idle, self.upstream.next()).await;
+        let arrived = Instant::now();
+        if arrived.saturating_duration_since(asked) >= CAUGHT_UP {
+            self.bucket.caught_up(arrived);
+        }
+        self.handed_over = arrived;
+        match next {
             Ok(Some(Ok(piece))) => {
-                if self.bucket.take(piece.len(), Instant::now()) {
+                if self.bucket.take(piece.len(), arrived) {
                     (data(&piece), Some(self))
                 } else {
                     tracing::debug!(
@@ -725,13 +741,30 @@ impl Flow {
     }
 }
 
-/// `stream_bytes_per_second`, as a bucket holding one second's allowance.
+/// How long the shell must wait for a platform's next piece to know it has
+/// read everything the platform had already sent. What is already sitting in
+/// the connection is handed over in microseconds.
+const CAUGHT_UP: Duration = Duration::from_millis(10);
+
+/// `stream_bytes_per_second`, as a bucket holding one second's allowance,
+/// measuring how fast the platform sends rather than how fast the shell
+/// reads.
 ///
 /// A bucket rather than a count per calendar second, so a burst straddling
 /// the turn of a second is judged as the one burst it is; and a second's
-/// worth rather than more, so a platform cannot save up. A stream held up by
-/// a module that stopped reading resumes with at most a second's allowance,
-/// which is about what the connections between had buffered for it.
+/// worth rather than more, so a platform cannot save up while it is being
+/// read.
+///
+/// While the page holds the stream (a module that stopped granting credit),
+/// the platform goes on sending into the connections between until they
+/// fill, and when the page takes more the shell reads that backlog at once:
+/// seconds of the platform's sending, read in milliseconds. So the time a
+/// stream is held earns its allowance past the one-second cap, since a
+/// platform within its rate cannot have sent more than that in the time; and
+/// once the shell has had to wait for the platform, the backlog is gone and
+/// so is what was saved for it. A platform sending faster than the rate
+/// still runs out: over the life of a stream it gets the rate and a second's
+/// allowance, and no more.
 struct Bucket {
     per_second: f64,
     tokens: f64,
@@ -748,11 +781,34 @@ impl Bucket {
         }
     }
 
+    /// Refill for the time up to `now`: never past a second's allowance, and
+    /// never taking away what a hold saved.
+    fn refill(&mut self, now: Instant) {
+        let elapsed = now.saturating_duration_since(self.at).as_secs_f64();
+        let cap = self.per_second.max(self.tokens);
+        self.tokens = (self.tokens + elapsed * self.per_second).min(cap);
+        self.at = self.at.max(now);
+    }
+
+    /// The page held the stream from `from` to `to`: the allowance for that
+    /// time is kept, however long it was.
+    fn held(&mut self, from: Instant, to: Instant) {
+        self.refill(from);
+        let held = to.saturating_duration_since(self.at).as_secs_f64();
+        self.tokens += held * self.per_second;
+        self.at = self.at.max(to);
+    }
+
+    /// The shell has read everything the platform had sent: whatever a hold
+    /// saved goes, leaving a second's allowance at most.
+    fn caught_up(&mut self, now: Instant) {
+        self.refill(now);
+        self.tokens = self.tokens.min(self.per_second);
+    }
+
     /// Whether `bytes` more may pass at `now`, taking them if so.
     fn take(&mut self, bytes: usize, now: Instant) -> bool {
-        let elapsed = now.saturating_duration_since(self.at).as_secs_f64();
-        self.tokens = (self.tokens + elapsed * self.per_second).min(self.per_second);
-        self.at = now;
+        self.refill(now);
         let bytes = bytes as f64;
         if bytes > self.tokens {
             return false;
@@ -835,5 +891,51 @@ mod tests {
         let much_later = start + Duration::from_secs(60);
         assert!(!bucket.take(1001, much_later));
         assert!(bucket.take(1000, much_later));
+    }
+
+    #[test]
+    fn a_hold_keeps_the_allowance_for_the_backlog_it_built() {
+        // A platform sending half its rate, held for four seconds: two
+        // seconds' allowance of backlog, read at once when the page takes more.
+        let start = Instant::now();
+        let mut bucket = Bucket::new(1000, start);
+        assert!(bucket.take(1000, start));
+        let taken = start + Duration::from_secs(4);
+        bucket.held(start, taken);
+        assert!(bucket.take(2000, taken));
+        // And what it saved beyond that stays until the shell catches up.
+        assert!(bucket.take(2000, taken));
+        assert!(!bucket.take(1, taken));
+    }
+
+    #[test]
+    fn catching_up_with_the_platform_ends_what_a_hold_saved() {
+        let start = Instant::now();
+        let mut bucket = Bucket::new(1000, start);
+        let taken = start + Duration::from_secs(5);
+        bucket.held(start, taken);
+        assert!(bucket.take(2000, taken));
+        bucket.caught_up(taken + Duration::from_millis(10));
+        assert!(!bucket.take(1001, taken + Duration::from_millis(10)));
+        assert!(bucket.take(1000, taken + Duration::from_millis(10)));
+    }
+
+    #[test]
+    fn a_hold_does_not_let_a_flood_through() {
+        // Held for two seconds, then sending ten times its rate: once the
+        // two seconds and the one in hand are spent, it is over its rate.
+        let start = Instant::now();
+        let mut bucket = Bucket::new(1000, start);
+        let taken = start + Duration::from_secs(2);
+        bucket.held(start, taken);
+        let mut passed = 0;
+        let mut now = taken;
+        while bucket.take(100, now) {
+            passed += 100;
+            now += Duration::from_millis(10);
+        }
+        assert!((3000..=3400).contains(&passed), "{passed} bytes passed");
+        // Refilled only at the rate, never past the cap.
+        assert!(!bucket.take(1001, now + Duration::from_secs(10)));
     }
 }

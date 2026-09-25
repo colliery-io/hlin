@@ -479,7 +479,7 @@ values in force in `init.limits`. The defaults:
 | `fetches_in_flight` | 8 | Per frame, streams included |
 | `messages_per_second` | 50 | Per frame, `chunk` credit messages excluded |
 | `streams` | 2 | Open streamed responses per frame |
-| `stream_bytes_per_second` | 1 MiB | Per stream, enforced by the shell |
+| `stream_bytes_per_second` | 1 MiB | Per stream, the platform's pace, enforced by the shell (see *Streaming*) |
 | `stream_idle_seconds` | 60 | A stream with no bytes for this long is ended |
 | `state_bytes` | 64 KiB | A `state` blob |
 
@@ -532,6 +532,21 @@ module's own data, not a second route for the platform's events.
 At the proxy, a streamed response is passed through as it arrives: the
 upstream timeout applies until the status and headers, `response_bytes` does
 not apply, and `stream_bytes_per_second` and `stream_idle_seconds` do.
+
+`stream_bytes_per_second` measures how fast the platform sends, not how fast
+the shell reads: it is there to stop a platform flooding the page. The shell
+holds a second's allowance and refills it at the rate, so a platform cannot
+save up while it is being read. But while a module holds its stream the
+platform goes on sending into the connections between until they fill, and
+when the module pulls again the shell reads that backlog at once, seconds of
+sending in milliseconds. So the time a stream is held earns its allowance
+beyond the second, which a platform within its rate cannot have outsent; and
+once the shell has had to wait for the platform's next piece the backlog is
+gone, and so is what was saved for it. A platform sending faster than the
+rate is still ended with `rate`: however a stream is held, no more is read
+from the platform than the rate for the time the stream has been open, and a
+second's allowance.
+
 The page asks for a streamed answer with `X-Hlin-Stream`, and the shell
 answers one with the same header and a framed body (data frames as they
 arrive, then an end frame naming `idle`, `rate` or `unreachable`, or none),

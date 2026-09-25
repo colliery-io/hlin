@@ -101,12 +101,10 @@ test.describe('a module streaming a response through the shell', () => {
     const name = feedName('held');
 
     // Heavy ticks, quickly: about 400 KB a second, far more than the module
-    // will ask for, and well within the default rate. Not much nearer it: the
-    // shell reads the platform only as fast as the browser takes what it
-    // forwards, so a browser that is slow for a moment makes the shell read a
-    // moment's worth at once, and at 800 KB a second that burst could pass
-    // `stream_bytes_per_second` and end the stream as `rate`, which a browser
-    // busy with the tests before this one did.
+    // will ask for, and well within the default rate. The backlog that builds
+    // while the module holds the stream is read at once when it pulls again,
+    // and the shell counts that against the time it was held, not as the
+    // platform going over `stream_bytes_per_second` (HLIN-T-0089).
     const credit = 4096;
     const id = await open(probe, `id=${name}&every_ms=10&bytes=4096`, { credit, auto: false });
 
@@ -139,13 +137,10 @@ test.describe('a module streaming a response through the shell', () => {
     expect(before.bytes).toBeLessThan(64 * 1024 * 1024);
 
     // Credit again, as a module consuming it would, and it flows again, all
-    // the way back. A little at a time, well below the stream's rate limit,
-    // until the platform writes: how much of what the connections hold must
-    // drain before the platform's socket can be written again is the
-    // operating system's buffering, not the shell's (a single 64 KiB was
-    // enough once, and on another machine was not), and granting it all at
-    // once would draw it through the shell faster than
-    // `stream_bytes_per_second` allows.
+    // the way back. A little at a time until the platform writes: how much of
+    // what the connections hold must drain before the platform's socket can
+    // be written again is the operating system's buffering, not the shell's
+    // (a single 64 KiB was enough once, and on another machine was not).
     let flowing = false;
     for (let step = 0; step < 80 && !flowing; step += 1) {
       await pull(probe, id, 192 * 1024);
