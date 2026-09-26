@@ -4,14 +4,14 @@ level: task
 title: "Prove and measure the containerised twenty"
 short_code: "HLIN-T-0095"
 created_at: 2026-09-25T23:55:00.609203+00:00
-updated_at: 2026-09-25T23:55:00.609203+00:00
+updated_at: 2026-09-26T02:39:06.286573+00:00
 parent: HLIN-I-0013
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: HLIN-I-0013
 Run the twenty browser suite and the twenty measurement against the
 containers, signed in through Dex, and record the numbers beside the
 process-based ones in [[HLIN-I-0012]].
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
