@@ -239,6 +239,122 @@ test.describe('the frame budget', () => {
   });
 });
 
+// HLIN-T-0097 and HLIN-T-0098: at the budget, a panel coming into view waits
+// while the frame chosen to make room is suspended. If that frame comes back
+// into view before it has gone, it stays, and the panel waiting on it has to
+// ask for room again; it used to wait, blank in view, until it next entered
+// the viewport. On "Twenty" one scroll could do both at once, because the
+// browser reports each panel's observers in no fixed order: the page chose a
+// frame it had not yet heard was coming into view. `e2e twenty` and
+// `twenty-measure` each failed about one run in eight that way, a panel in
+// view `loading` with no frame.
+//
+// Made certain here, one step at a time. Every module on the page ignores
+// `suspend`, which a module may, so the frame asked to go stays in the
+// document until the shell's deadline. The surface is one tall panel, eleven
+// short ones under it and, further down, the last, all the same module. Scrolled until the tall
+// one is just out of view, twelve are mounted and the last is not near; the
+// window made taller brings the last into view, and the tall one, the only
+// frame out of view, is asked to go; scrolled back a little, the tall one's
+// edge is in view again, and so is the last.
+test.describe('the frame budget, a frame that stays', () => {
+  const SHORT = { width: 1280, height: 800 };
+  const TALL = { width: 1280, height: 1200 };
+  let layoutId;
+
+  test.use({ viewport: SHORT });
+
+  test.beforeAll(async ({ request }) => {
+    layoutId = await layoutOf(request, 'A frame that stays', [
+      ['module-only', { x: 0, y: 0, w: 12, h: 9 }],
+      ...Array.from({ length: 11 }, (_, index) => [
+        'module-only',
+        { x: 0, y: 9 + index, w: 12, h: 1 },
+      ]),
+      // Room between, taken by a panel with no module.
+      ['records-per-second', { x: 0, y: 20, w: 12, h: 3 }],
+      ['module-only', { x: 0, y: 23, w: 12, h: 6 }],
+    ]);
+  });
+
+  test.afterAll(async ({ request }) => {
+    await discardLayout(request, layoutId);
+  });
+
+  test('a panel waiting for room is mounted when the frame it waited on comes back into view', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      if (window.top === window) return;
+      window.addEventListener(
+        'message',
+        (event) => {
+          if (event.data && event.data.type === 'suspend') {
+            window.__suspendIgnored = true;
+            event.stopImmediatePropagation();
+          }
+        },
+        true,
+      );
+    });
+    await openSurface(page, layoutId);
+    const panels = byKey(page, 'module-only');
+    await expect(panels).toHaveCount(13);
+    const tall = panels.nth(0);
+    const last = panels.nth(12);
+    // Where each panel's frame goes, which is what the page watches.
+    const frameBox = (panel) =>
+      panel.locator('.module-frame').evaluate((element) => {
+        const { top, bottom } = element.getBoundingClientRect();
+        return { top: top + window.scrollY, bottom: bottom + window.scrollY };
+      });
+    const tallBox = await frameBox(tall);
+    const eleventhBox = await frameBox(panels.nth(11));
+    const lastBox = await frameBox(last);
+    const away = tallBox.bottom + 10;
+    const back = tallBox.bottom - 30;
+    // The geometry the steps need, checked rather than assumed.
+    expect(eleventhBox.bottom, 'the short ones in view').toBeLessThan(away + SHORT.height);
+    expect(lastBox.top, 'the last not near').toBeGreaterThan(away + SHORT.height + 200);
+    expect(lastBox.top, 'the last in view in the taller window').toBeLessThan(back + TALL.height);
+
+    // The tall one out of view, twelve mounted and ready, and the last not.
+    await page.evaluate((to) => window.scrollTo(0, to), away);
+    await expect(page.locator('section.panel iframe')).toHaveCount(12, { timeout: 20_000 });
+    for (let index = 0; index < 12; index += 1) {
+      await expect(panels.nth(index)).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
+    }
+    await expect(last.locator('iframe')).toHaveCount(0);
+
+    // The last comes into view, and the tall one is asked to go; then, well
+    // inside the deadline, the tall one's edge comes back.
+    await page.setViewportSize(TALL);
+    await page.evaluate(async (to) => {
+      const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      await frame();
+      await frame();
+      window.scrollTo(0, to);
+      await frame();
+      await frame();
+    }, back);
+    const tallFrame = await (await tall.locator('iframe').elementHandle()).contentFrame();
+    expect(
+      await tallFrame.evaluate(() => window.__suspendIgnored === true),
+      'the tall one was asked to suspend, and stayed',
+    ).toBe(true);
+    await expect(tall).toBeInViewport();
+    await expect(last).toBeInViewport();
+
+    // Nothing out of view is left to take, so the last is mounted past the
+    // budget rather than left blank where a person is looking.
+    await expect(last.locator('iframe'), 'the waiting panel is mounted').toHaveCount(1, {
+      timeout: 5_000,
+    });
+    await expect(last).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
+    await expect(tall.locator('iframe')).toHaveCount(1);
+  });
+});
+
 test.describe('changes relayed to a platform’s modules', () => {
   let mine;
   let theirs;
