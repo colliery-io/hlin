@@ -4,14 +4,14 @@ level: initiative
 title: "A person signs in and changes things on two platforms"
 short_code: "HLIN-I-0010"
 created_at: 2026-09-24T17:02:57.785059+00:00
-updated_at: 2026-09-24T23:21:50.424292+00:00
+updated_at: 2026-09-26T11:16:57.764529+00:00
 parent: HLIN-V-0001
 blocked_by: [HLIN-I-0011]
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -258,3 +258,9 @@ now depends on [[HLIN-I-0011]] (the module host) and is its first real use.
 Decisions 1, 4 and 5 rewritten for modules; the manifest `actions` schema,
 typed inputs, chrome forms and demo pack components are gone. Tasks 1 and 2
 (sign-in with Dex) need nothing from the module host and can start now.
+### 2026-09-26 — completed
+
+All eight tasks done and the owner's hands-on check made: it looks good, all
+checked out. Alice and Bob sign in through Dex, change the checklist and the
+feed in their own modules, and see each other's changes without a reload;
+each platform decides who may do what from the token, in its own words.
