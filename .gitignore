@@ -72,6 +72,8 @@ e2e/node_modules/
 e2e/screenshots/
 e2e/report/
 e2e/results/
+# The session global-setup.js keeps for a suite that signs in first.
+e2e/.auth/
 # Numbers from `angreal e2e twenty-measure`; those worth keeping go into HLIN-T-0084.
 e2e/measurements/
 

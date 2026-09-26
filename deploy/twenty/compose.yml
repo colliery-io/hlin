@@ -34,6 +34,11 @@ x-build: &build
 
 x-widget: &widget
   restart: unless-stopped
+  # An init as PID 1, which passes `stop`'s SIGTERM on. A server that is PID
+  # 1 itself is not killed by a signal it has no handler for, and none of
+  # these has one, so without this `stop` waited out its ten seconds' grace
+  # and killed it anyway (HLIN-T-0095).
+  init: true
   # Every widget takes the same flags. `--local-user` is the demo-only
   # stand-in for the platform's own sign-in, so its own UI at `/` works: on,
   # deliberately, because this network is the only thing that reaches it.
@@ -92,6 +97,8 @@ services:
       target: runtime
     image: hlin-twenty/shell
     restart: unless-stopped
+    # As the widgets: so `stop` stops it at once.
+    init: true
     environment:
       HLIN_CONFIG: /etc/hlin/twenty.toml
     env_file:

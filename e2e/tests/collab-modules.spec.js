@@ -23,19 +23,7 @@
 // own.
 
 const { test, expect } = require('@playwright/test');
-const { shot } = require('./helpers');
-
-const PASSWORD = 'password';
-
-async function signIn(page, email, name) {
-  await page.goto('/');
-  await page.locator('#login').waitFor({ state: 'visible' });
-  await page.locator('#login').fill(email);
-  await page.locator('#password').fill(PASSWORD);
-  await page.locator('#submit-login').click();
-  await page.waitForURL((url) => url.port === '8080');
-  await expect(page.locator('header.bar .viewer')).toHaveText(name);
-}
+const { shot, signIn } = require('./helpers');
 
 const checklist = (page) => page.locator('section.panel[data-panel="checklist/items"]');
 const feed = (page) => page.locator('section.panel[data-panel="feed/posts"]');

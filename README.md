@@ -523,7 +523,27 @@ twenty-compose` runs the same twenty the way they are meant to be deployed:
 ```bash
 angreal demo up --with twenty-compose   # build the images, start them, publish "Twenty"
 angreal demo down                       # stop them
+angreal demo down --keep-database       # stop them, leaving the development database up
 ```
+
+**This is the reference for how a platform should serve Hlin.** A platform
+keeps its own UI at the root of its own host and gives Hlin a subtree of it:
+
+- `/` is the platform's own UI, a client-side app behind a catch-all
+  fallback, as any single-page app is served.
+- `/hlin` is Hlin's, and only Hlin's: the manifest at
+  `/hlin/.well-known/hlin.json`, the module's build, the data routes the
+  module calls (verified with the shell's `hlin-token`), and the event stream.
+  An unknown path under it is a 404, never the own UI's `index.html`. The
+  shell's `base_url` for the platform is `https://<host>/hlin`.
+- **The Hlin module is not a second UI.** Each widget has one components
+  crate; its own UI mounts those components with a client that calls the
+  platform's own `/api/`, and its module re-exports the very same components
+  with a client that goes through the bridge. A change in either shows in the
+  other, through nothing but the platform.
+
+`crates/widgets/*` are twenty worked examples, and `deploy/twenty/` deploys
+them that way.
 
 - **One container per widget**, each on its own name on a compose network
   (`clock.comp.test` to `meetings.comp.test`), serving its own UI at `/` and
@@ -559,6 +579,21 @@ and target directory on BuildKit cache mounts. The first build takes a while;
 after that an unchanged build is seconds and an edit recompiles what it
 touched. The files are `deploy/twenty/`: the compose file, the shell's
 configuration, and Dex's.
+
+The twenty suites run against it as they do against the processes:
+
+```bash
+angreal e2e twenty --against compose           # every widget ready, in step, own UIs at their roots
+angreal e2e twenty-measure --against compose   # the numbers, and dice stopped and started twice
+```
+
+Both sign in through Dex as Alice first (Playwright ignores the throwaway
+CA). The widgets' own UIs are published nowhere, so `e2e twenty` opens them by
+their names, `http://clock.comp.test:8080/`, through a small proxy it runs in
+a container on the compose network for the length of the suite
+(`e2e/network-proxy.js`); so `/`, and a 404 for `/hlin/nope`, are checked from
+inside the network, where the shell reaches them. Either refuses to run
+against the wrong stack.
 
 ### Seeing it in a real design system
 

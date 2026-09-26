@@ -8,6 +8,12 @@ const { defineConfig, devices } = require('@playwright/test');
 
 const SHELL = process.env.HLIN_URL || 'http://127.0.0.1:8080';
 
+// Somebody to be, signed in through Dex once by global-setup.js, for a suite
+// run against a shell that signs people in (`angreal e2e twenty --against
+// compose`). Unset, every context starts signed out, as the sign-in suites
+// need.
+const SIGN_IN = process.env.HLIN_SIGN_IN;
+
 // `chromium` is Playwright's headless shell; `chromium-full` is the whole
 // browser in its new headless mode, which is what Chrome ships and the only
 // one here that runs a sandboxed frame in a process of its own.
@@ -42,8 +48,17 @@ module.exports = defineConfig({
 
   reporter: [['list'], ['html', { outputFolder: './report', open: 'never' }]],
 
+  globalSetup: require.resolve('./global-setup'),
+
   use: {
     baseURL: SHELL,
+    ...(SIGN_IN
+      ? {
+          storageState: require('./global-setup').SIGNED_IN,
+          // Dex is on https from the containerised twenty's own CA.
+          ignoreHTTPSErrors: true,
+        }
+      : {}),
     viewport: { width: 1440, height: 900 },
     // A failure should leave enough behind to see what happened without
     // running it again.

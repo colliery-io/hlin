@@ -4,6 +4,11 @@
 //
 //   angreal e2e twenty-measure
 //
+// or against the same twenty in containers, `angreal demo up --with
+// twenty-compose` (HLIN-I-0013, release throughout), signed in through Dex, by
+//
+//   angreal e2e twenty-measure --against compose
+//
 // and skipped elsewhere. Release, because the numbers are about what a
 // deployment would make a browser pay, and a debug module is five times the
 // size of an optimised one.
@@ -17,11 +22,13 @@
 // asserted: the budget of twelve holds while scrolling and nothing in view is
 // unmounted to keep it (REQ-4.3); a widget scrolled away gets its state back;
 // and a widget whose platform is killed degrades alone and recovers when it
-// is started again.
+// is started again, twice in one session.
 //
 // The kill is real: this suite sends SIGKILL to one widget's process, found
 // in the demo's process registry, and starts it again with `angreal demo
-// restart`. So it is its own command, not part of `angreal e2e twenty`.
+// restart`; or, in containers, stops its container with `docker compose
+// stop` and starts it with `docker compose start` (twenty-deployment.js).
+// So it is its own command, not part of `angreal e2e twenty`.
 
 const { test, expect } = require('@playwright/test');
 const { execFileSync } = require('child_process');
@@ -29,12 +36,12 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const { shot } = require('./helpers');
+const { DEPLOYMENT, stopPlatform, startPlatform } = require('./twenty-deployment');
 
 /** How many times each number is taken. The median is what is reported. */
 const RUNS = Number(process.env.HLIN_RUNS || 3);
 
 const ROOT = path.join(__dirname, '..', '..');
-const REGISTRY = path.join(ROOT, 'demo', 'state', 'processes.json');
 const OUT = path.join(__dirname, '..', 'measurements');
 
 /** Frames mounted per surface, at most (HLIN-S-0007, *Budget*). */
@@ -58,6 +65,13 @@ const THROTTLED = {
 
 /** The widget whose platform is killed: in view at the top, and shared. */
 const VICTIM = 'dice';
+
+/**
+ * How many times it is killed and comes back, on the same open page. Twice:
+ * a second outage is where a stream that kept something from the first (an
+ * expired token, HLIN-T-0092) never recovers.
+ */
+const OUTAGES = 2;
 
 const widget = (page, name) => page.locator(`section.panel[data-panel="${name}/${name}"]`);
 const inside = (panel) => panel.frameLocator('iframe');
@@ -438,7 +452,7 @@ test.describe('twenty widgets, measured', () => {
   test.describe.configure({ mode: 'serial' });
 
   let surface;
-  const results = { runs: [], claims: {} };
+  const results = { deployment: DEPLOYMENT, runs: [], claims: {} };
 
   test.beforeAll(async ({ request }) => {
     surface = await theSurface(request);
@@ -448,7 +462,7 @@ test.describe('twenty widgets, measured', () => {
   test.afterAll(async () => {
     if (!results.runs.length) return;
     fs.mkdirSync(OUT, { recursive: true });
-    const file = path.join(OUT, `twenty-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    const file = path.join(OUT, `twenty-${DEPLOYMENT}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
     fs.writeFileSync(file, JSON.stringify(results, null, 2));
     console.log(`\n  written to ${path.relative(ROOT, file)}`);
   });
@@ -774,113 +788,130 @@ test.describe('twenty widgets, measured', () => {
     for (const page of pages) await page.context().close();
   });
 
-  test(`killing ${VICTIM}'s platform degrades its panel alone, and it recovers by itself`, async ({ browser }) => {
-    test.setTimeout(240_000);
+  test(`killing ${VICTIM}'s platform degrades its panel alone, and it recovers by itself, ${OUTAGES} times`, async ({
+    browser,
+  }) => {
+    test.setTimeout(OUTAGES * 240_000);
     const context = await browser.newContext();
     await context.addInitScript(instrument);
     const page = await context.newPage();
     const opened = await openAndTime(page, surface, surface.panels.length);
     expect(opened.inView).toContain(VICTIM);
     expect(opened.inView).toContain('counter');
-
-    const { pid } = JSON.parse(fs.readFileSync(REGISTRY, 'utf8'))[VICTIM];
-    const killedAt = await page.evaluate(() => performance.timeOrigin + performance.now());
-    process.kill(pid, 'SIGKILL');
-    console.log(`  killed ${VICTIM} (pid ${pid})`);
-
-    // The open page. Its module is already running in the browser and
-    // answers the shell's heartbeat whatever its platform is doing; what the
-    // page sees is the shell refusing its requests as `unreachable`. A roll is
-    // two (the write, and the read after it), and the module says so in its
-    // own words and offers to try again; trying is the third in a row, and
-    // the panel goes `stale` (HLIN-S-0007, *Panel states*).
     const victim = widget(page, VICTIM);
     const roll = inside(victim).getByRole('button', { name: 'Roll' });
-    await roll.click();
-    await expect(inside(victim).locator('.w-problem').first(), 'the roll is refused in words').toBeVisible({
-      timeout: 15_000,
-    });
-    const again = inside(victim).locator('.w-failed').getByRole('button', { name: 'Try again' });
-    await expect(again, 'a read that failed offers to try again').toBeVisible({ timeout: 15_000 });
-    await again.click();
-    await expect(victim, 'three refusals running: stale').toHaveAttribute('data-module', 'stale', { timeout: 15_000 });
-    const staleAt = await page.evaluate(() => performance.timeOrigin + performance.now());
+    results.claims.kill = [];
 
-    // Watched past the registry's two missed polls, ten seconds apart, so the
-    // shell has noticed too; what the panel went through is recorded, not
-    // assumed.
-    await page.waitForTimeout(25_000);
-    await shot(page, 230, 'twenty-one-platform-killed');
-    const counter = inside(widget(page, 'counter'));
-    const count = Number(await counter.locator('.w-big').getAttribute('data-value'));
-    await counter.getByRole('button', { name: 'Bump up' }).click();
-    await expect(counter.locator('.w-big'), 'the counter still works').toHaveAttribute('data-value', String(count + 1));
-    const states = await page.evaluate(() => window.__hlin.states);
-    const afterKill = states.filter(([, , , at]) => at >= killedAt);
-    const others = afterKill.filter(([name, module]) => !name.startsWith(`${VICTIM}/`) && module !== 'ready');
-    expect(others, 'no other panel left `ready`').toEqual([]);
-    await expect(victim, 'still stale while its platform is away').toHaveAttribute('data-module', 'stale');
-    const openPage = {
-      victimStates: afterKill
-        .filter(([name]) => name.startsWith(`${VICTIM}/`))
-        .map(([, module, state, at]) => [module, state, Math.round(at - killedAt)]),
-      staleAfterKillMs: Math.round(staleAt - killedAt),
-      victimSays: (await inside(victim).locator('main').innerText().catch(() => '')).slice(0, 200),
-    };
+    for (let outage = 1; outage <= OUTAGES; outage += 1) {
+      const killedAt = await page.evaluate(() => performance.timeOrigin + performance.now());
+      const stopping = Date.now();
+      const how = stopPlatform(VICTIM);
+      // How long taking it away took: nothing for SIGKILL, and for `docker
+      // compose stop` however long the container took to go (ten seconds,
+      // until the widgets were given an init to pass SIGTERM on).
+      const stopTookMs = Date.now() - stopping;
+      console.log(`  outage ${outage}: ${how}, ${stopTookMs} ms`);
 
-    // A page opened while it is down: the module's entry cannot be fetched,
-    // so it is `unavailable` at once, and the other nineteen are as ever.
-    const fresh = await context.newPage();
-    await fresh.goto(surface.url);
-    await expect(widget(fresh, VICTIM)).toHaveAttribute('data-module', /unavailable|fallback/, { timeout: READY });
-    for (const name of opened.inView.filter((name) => name !== VICTIM)) {
-      await expect(widget(fresh, name), `${name} is unaffected`).toHaveAttribute('data-module', 'ready', { timeout: READY });
+      // The open page. Its module is already running in the browser and
+      // answers the shell's heartbeat whatever its platform is doing; what the
+      // page sees is the shell refusing its requests as `unreachable`. A roll
+      // is two (the write, and the read after it), and the module says so in
+      // its own words and offers to try again; trying is the third in a row,
+      // and the panel goes `stale` (HLIN-S-0007, *Panel states*).
+      await roll.click();
+      await expect(inside(victim).locator('.w-problem').first(), 'the roll is refused in words').toBeVisible({
+        timeout: 15_000,
+      });
+      const again = inside(victim).locator('.w-failed').getByRole('button', { name: 'Try again' });
+      await expect(again, 'a read that failed offers to try again').toBeVisible({ timeout: 15_000 });
+      await again.click();
+      await expect(victim, 'three refusals running: stale').toHaveAttribute('data-module', 'stale', { timeout: 15_000 });
+      const staleAt = await page.evaluate(() => performance.timeOrigin + performance.now());
+
+      // Watched past the registry's two missed polls, ten seconds apart, so
+      // the shell has noticed too; what the panel went through is recorded,
+      // not assumed.
+      await page.waitForTimeout(25_000);
+      await shot(page, 230 + (outage - 1) * 3, `twenty-one-platform-killed${outage > 1 ? `-${outage}` : ''}`);
+      const counter = inside(widget(page, 'counter'));
+      const count = Number(await counter.locator('.w-big').getAttribute('data-value'));
+      await counter.getByRole('button', { name: 'Bump up' }).click();
+      await expect(counter.locator('.w-big'), 'the counter still works').toHaveAttribute('data-value', String(count + 1));
+      const states = await page.evaluate(() => window.__hlin.states);
+      const afterKill = states.filter(([, , , at]) => at >= killedAt);
+      const others = afterKill.filter(([name, module]) => !name.startsWith(`${VICTIM}/`) && module !== 'ready');
+      expect(others, 'no other panel left `ready`').toEqual([]);
+      await expect(victim, 'still stale while its platform is away').toHaveAttribute('data-module', 'stale');
+      const openPage = {
+        victimStates: afterKill
+          .filter(([name]) => name.startsWith(`${VICTIM}/`))
+          .map(([, module, state, at]) => [module, state, Math.round(at - killedAt)]),
+        staleAfterKillMs: Math.round(staleAt - killedAt),
+        victimSays: (await inside(victim).locator('main').innerText().catch(() => '')).slice(0, 200),
+      };
+
+      // A page opened while it is down: the module's entry cannot be
+      // fetched, so it is `unavailable` at once, and the other nineteen are
+      // as ever.
+      const fresh = await context.newPage();
+      await fresh.goto(surface.url);
+      await expect(widget(fresh, VICTIM)).toHaveAttribute('data-module', /unavailable|fallback/, { timeout: READY });
+      for (const name of opened.inView.filter((name) => name !== VICTIM)) {
+        await expect(widget(fresh, name), `${name} is unaffected`).toHaveAttribute('data-module', 'ready', {
+          timeout: READY,
+        });
+      }
+      await shot(fresh, 231 + (outage - 1) * 3, `twenty-one-platform-down-on-open${outage > 1 ? `-${outage}` : ''}`);
+      const freshDown = {
+        module: await widget(fresh, VICTIM).getAttribute('data-module'),
+        cause: await widget(fresh, VICTIM).getAttribute('data-module-cause'),
+        data: await widget(fresh, VICTIM).getAttribute('data-state'),
+      };
+
+      // Started again, and nobody touches anything. The shell's subscription
+      // to the platform's event stream comes back, which it takes as a change
+      // to every one of the platform's panels: the open page's module fetches
+      // again, and its first answer clears `stale`; the page opened while it
+      // was down mounts its module again. Neither needs a click or a reload.
+      const restartedAt = Date.now();
+      await startPlatform(VICTIM);
+      const up = Date.now();
+      const BY_ITSELF = 60_000;
+      await expect(victim, 'the open page recovers by itself').toHaveAttribute('data-module', 'ready', {
+        timeout: BY_ITSELF,
+      });
+      await expect(roll, 'and draws its table again').toBeVisible({ timeout: 15_000 });
+      const openPageBack = Date.now() - up;
+      await expect(widget(fresh, VICTIM), 'the page opened while it was down recovers by itself').toHaveAttribute(
+        'data-module',
+        'ready',
+        { timeout: BY_ITSELF },
+      );
+      await expect.poll(() => firstContent(fresh, VICTIM), { timeout: READY }).not.toBeNull();
+      const freshPageBack = Date.now() - up;
+      await shot(fresh, 232 + (outage - 1) * 3, `twenty-one-platform-recovered${outage > 1 ? `-${outage}` : ''}`);
+
+      // And it works: a roll on the open page happens.
+      await roll.click();
+      await page.waitForTimeout(1000);
+      await expect(inside(victim).locator('.w-problem'), 'the open page rolls again').toHaveCount(0);
+      await fresh.close();
+
+      const claim = {
+        outage,
+        how,
+        stopTookMs,
+        openPage,
+        freshPageWhileDown: freshDown,
+        afterRestart: {
+          restartTookMs: up - restartedAt,
+          openPageBackMs: openPageBack,
+          freshPageBackMs: freshPageBack,
+        },
+      };
+      results.claims.kill.push(claim);
+      console.log(`  ${JSON.stringify(claim, null, 2)}`);
     }
-    await shot(fresh, 231, 'twenty-one-platform-down-on-open');
-    const freshDown = {
-      module: await widget(fresh, VICTIM).getAttribute('data-module'),
-      cause: await widget(fresh, VICTIM).getAttribute('data-module-cause'),
-      data: await widget(fresh, VICTIM).getAttribute('data-state'),
-    };
-
-    // Started again, and nobody touches anything. The shell's subscription
-    // to the platform's event stream comes back, which it takes as a change
-    // to every one of the platform's panels: the open page's module fetches
-    // again, and its first answer clears `stale`; the page opened while it
-    // was down mounts its module again. Neither needs a click or a reload.
-    const restartedAt = Date.now();
-    execFileSync('angreal', ['demo', 'restart', VICTIM], { cwd: ROOT, stdio: 'inherit' });
-    const up = Date.now();
-    const BY_ITSELF = 60_000;
-    await expect(victim, 'the open page recovers by itself').toHaveAttribute('data-module', 'ready', {
-      timeout: BY_ITSELF,
-    });
-    await expect(roll, 'and draws its table again').toBeVisible({ timeout: 15_000 });
-    const openPageBack = Date.now() - up;
-    await expect(widget(fresh, VICTIM), 'the page opened while it was down recovers by itself').toHaveAttribute(
-      'data-module',
-      'ready',
-      { timeout: BY_ITSELF },
-    );
-    await expect.poll(() => firstContent(fresh, VICTIM), { timeout: READY }).not.toBeNull();
-    const freshPageBack = Date.now() - up;
-    await shot(fresh, 232, 'twenty-one-platform-recovered');
-
-    // And it works: a roll on the open page happens.
-    await roll.click();
-    await page.waitForTimeout(1000);
-    await expect(inside(victim).locator('.w-problem'), 'the open page rolls again').toHaveCount(0);
-
-    results.claims.kill = {
-      openPage,
-      freshPageWhileDown: freshDown,
-      afterRestart: {
-        restartTookMs: up - restartedAt,
-        openPageBackMs: openPageBack,
-        freshPageBackMs: freshPageBack,
-      },
-    };
-    console.log(`  ${JSON.stringify(results.claims.kill, null, 2)}`);
     await context.close();
   });
 });

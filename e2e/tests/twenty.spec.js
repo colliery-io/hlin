@@ -4,7 +4,14 @@
 //
 //   angreal e2e twenty
 //
-// and skipped elsewhere, like the sign-in suites.
+// or against the same twenty in containers, `angreal demo up --with
+// twenty-compose` (HLIN-I-0013), by
+//
+//   angreal e2e twenty --against compose
+//
+// which signs in through Dex first and reaches the widgets' own UIs on the
+// compose network (twenty-deployment.js says how). Skipped elsewhere, like
+// the sign-in suites.
 //
 // Three claims. Every widget on the published "Twenty" surface reaches
 // `ready`: its platform served a module, the shell hosted it, and it drew.
@@ -15,15 +22,17 @@
 // shell and delivered to each page's module as a bridge `changed`, which the
 // module answers by fetching again.
 //
-// Both browsers are the development user, which is all `dev` sign-in has.
-// That proves the same thing two people would: the relay is per surface, not
-// per person, and the second browser learns of the change only through it.
+// Both browsers are the same person: the development user, which is all
+// `dev` sign-in has, or Alice, signed in through Dex, in containers. That
+// proves the same thing two people would: the relay is per surface, not per
+// person, and the second browser learns of the change only through it.
 //
 // The widgets keep their state in memory for as long as the demo runs, so
 // nothing here assumes where the counter or the poll starts.
 
 const { test, expect } = require('@playwright/test');
 const { shot, shotOf } = require('./helpers');
+const { WIDGETS, ownOrigin, ownContext, ownRequest } = require('./twenty-deployment');
 
 /** How long another browser may take to show a change. */
 const PROPAGATION = 15_000;
@@ -318,10 +327,16 @@ test.describe('twenty widgets on one surface', () => {
   // either is in the other, through nothing but the platform.
   test("a converted widget's own UI is at its own root, and in step with its module", async ({
     browser,
-    request,
+    playwright,
   }) => {
-    for (const [name, port] of Object.entries(OWN_UI)) {
-      const origin = `http://127.0.0.1:${port}`;
+    // Asked from where a person's browser would ask: this machine, or, in
+    // containers, the compose network, the only thing that reaches them.
+    const request = await ownRequest(playwright);
+    for (const name of WIDGETS) {
+      const origin = ownOrigin(name);
+      const root = await request.get(`${origin}/`);
+      expect(root.status(), `${name}: / is its own UI`).toBe(200);
+      expect(await root.text()).toContain('<title>');
       const page = await request.get(`${origin}/nope`);
       expect(page.status(), `${name}: /nope is its own UI`).toBe(200);
       expect(await page.text()).toContain('<title>');
@@ -329,20 +344,21 @@ test.describe('twenty widgets on one surface', () => {
       expect(hlin.status(), `${name}: /hlin/nope`).toBe(404);
       expect(await hlin.text()).not.toContain('<title>');
     }
+    await request.dispose();
 
     const surfacePage = await (await browser.newContext()).newPage();
     await openSurface(surfacePage, surface, panels);
-    const own = await (await browser.newContext({ viewport: { width: 420, height: 360 } })).newPage();
+    const own = await (await ownContext(browser, { viewport: { width: 420, height: 360 } })).newPage();
 
     // The clock and the poll draw at their own roots.
-    await own.goto(`http://127.0.0.1:${OWN_UI.poll}/`);
+    await own.goto(`${ownOrigin('poll')}/`);
     await expect(own.locator('li.poll__option').first()).toBeVisible({ timeout: READY });
-    await own.goto(`http://127.0.0.1:${OWN_UI.clock}/`);
+    await own.goto(`${ownOrigin('clock')}/`);
     await expect(own.locator('li.clock').first()).toBeVisible({ timeout: READY });
     await expect(own.locator('.clock__time').first()).toHaveText(/^\d\d:\d\d:\d\d$/);
 
     // The counter, both ways.
-    await own.goto(`http://127.0.0.1:${OWN_UI.counter}/`);
+    await own.goto(`${ownOrigin('counter')}/`);
     const ownNumber = own.locator('.w-big');
     await expect(ownNumber).toHaveAttribute('data-value', /\d+/, { timeout: READY });
     const module = inside(widget(surfacePage, 'counter', 'counter'));
@@ -358,14 +374,14 @@ test.describe('twenty widgets on one surface', () => {
     await shot(own, 214, 'twenty-counter-own-ui');
 
     // The clock's own page beside its module on "Twenty", as one picture.
-    await own.goto(`http://127.0.0.1:${OWN_UI.clock}/`);
+    await own.goto(`${ownOrigin('clock')}/`);
     await expect(own.locator('li.clock').first()).toBeVisible({ timeout: READY });
     const ownShot = await own.screenshot();
     const moduleShot = await widget(surfacePage, 'clock', 'clock').screenshot();
     const both = await (await browser.newContext()).newPage();
     await both.setContent(
       `<body style="margin:0;display:flex;gap:16px;padding:16px;background:#0d1015;align-items:flex-start;font:13px system-ui;color:#8b95a3">` +
-        `<figure style="margin:0"><img src="data:image/png;base64,${ownShot.toString('base64')}"><figcaption>127.0.0.1:${OWN_UI.clock}/ (its own UI)</figcaption></figure>` +
+        `<figure style="margin:0"><img src="data:image/png;base64,${ownShot.toString('base64')}"><figcaption>${new URL(ownOrigin('clock')).host}/ (its own UI)</figcaption></figure>` +
         `<figure style="margin:0"><img src="data:image/png;base64,${moduleShot.toString('base64')}"><figcaption>its Hlin module on "Twenty"</figcaption></figure>` +
         `</body>`,
     );
@@ -387,9 +403,9 @@ test.describe('twenty widgets on one surface', () => {
       weather: '.weather__now',
       pomodoro: '.pomodoro',
     };
-    const own = await (await browser.newContext({ viewport: { width: 420, height: 360 } })).newPage();
+    const own = await (await ownContext(browser, { viewport: { width: 420, height: 360 } })).newPage();
     for (const [name, selector] of Object.entries(drawn)) {
-      await own.goto(`http://127.0.0.1:${OWN_UI[name]}/`);
+      await own.goto(`${ownOrigin(name)}/`);
       await expect(own.locator(selector).first(), `${name}'s own UI`).toBeVisible({ timeout: READY });
       await expect(own.locator('.w-refusal, .w-failed'), `${name}'s own UI`).toHaveCount(0);
     }
@@ -398,7 +414,7 @@ test.describe('twenty widgets on one surface', () => {
     await openSurface(surfacePage, surface, panels);
     const module = inside(widget(surfacePage, 'dice', 'dice'));
     await expect(module.locator('.dice__latest')).toBeVisible({ timeout: READY });
-    await own.goto(`http://127.0.0.1:${OWN_UI.dice}/`);
+    await own.goto(`${ownOrigin('dice')}/`);
     const ownLatest = own.locator('.dice__latest');
     await expect(ownLatest).toBeVisible({ timeout: READY });
     const before = Number(await ownLatest.getAttribute('data-number'));
@@ -416,7 +432,7 @@ test.describe('twenty widgets on one surface', () => {
   test('widgets thirteen to twenty draw at their own roots, the log streaming', async ({
     browser,
   }) => {
-    const own = await (await browser.newContext({ viewport: { width: 520, height: 480 } })).newPage();
+    const own = await (await ownContext(browser, { viewport: { width: 520, height: 480 } })).newPage();
     const drawn = {
       shoutbox: '.shoutbox__say',
       reactions: 'button.reactions__pill',
@@ -428,7 +444,7 @@ test.describe('twenty widgets on one surface', () => {
       meetings: 'ul.meetings, main.widget > p.w-quiet',
     };
     for (const [name, selector] of Object.entries(drawn)) {
-      await own.goto(`http://127.0.0.1:${OWN_UI[name]}/`);
+      await own.goto(`${ownOrigin(name)}/`);
       await expect(own.locator(selector).first(), `${name} at its own root`).toBeVisible({
         timeout: READY,
       });
@@ -436,7 +452,7 @@ test.describe('twenty widgets on one surface', () => {
     }
 
     // The converter works it out in the page, asking for nothing.
-    await own.goto(`http://127.0.0.1:${OWN_UI.converter}/`);
+    await own.goto(`${ownOrigin('converter')}/`);
     const asked = [];
     own.on('request', (request) => asked.push(request.url()));
     await own.getByRole('textbox', { name: 'Value' }).fill('2');
@@ -445,7 +461,7 @@ test.describe('twenty widgets on one surface', () => {
 
     // The deploy log, on its own page: lines keep arriving on a stream of its
     // own `/api/`, as they do in its module through the bridge (above).
-    await own.goto(`http://127.0.0.1:${OWN_UI.deploys}/`);
+    await own.goto(`${ownOrigin('deploys')}/`);
     const stayed = forbidReloads(own, 'the deploy log');
     await expect(own.locator('.deploys__status--live')).toBeVisible({ timeout: READY });
     const newest = async () =>
@@ -462,7 +478,7 @@ test.describe('twenty widgets on one surface', () => {
     await openSurface(surfacePage, surface, panels);
     const module = inside(widget(surfacePage, 'shoutbox', 'shoutbox'));
     await widget(surfacePage, 'shoutbox', 'shoutbox').scrollIntoViewIfNeeded();
-    await own.goto(`http://127.0.0.1:${OWN_UI.shoutbox}/`);
+    await own.goto(`${ownOrigin('shoutbox')}/`);
     const words = `Said on its own page ${Date.now()}`;
     await own.getByRole('textbox', { name: 'Say something' }).fill(words);
     await own.getByRole('button', { name: 'Send' }).click();
@@ -472,27 +488,3 @@ test.describe('twenty widgets on one surface', () => {
     );
   });
 });
-
-/** The converted widgets' own UIs, at their demo ports (`WIDGETS`). */
-const OWN_UI = {
-  clock: 8201,
-  counter: 8202,
-  poll: 8203,
-  notes: 8204,
-  dice: 8205,
-  stopwatch: 8206,
-  quote: 8207,
-  sparkline: 8208,
-  kanban: 8209,
-  status: 8210,
-  weather: 8211,
-  pomodoro: 8212,
-  shoutbox: 8213,
-  reactions: 8214,
-  bookmarks: 8215,
-  oncall: 8216,
-  picker: 8217,
-  deploys: 8218,
-  converter: 8219,
-  meetings: 8220,
-};

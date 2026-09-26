@@ -17,24 +17,11 @@
 // collab-modules.spec.js then changes things through the modules.
 
 const { test, expect } = require('@playwright/test');
-const { shot, shotOf } = require('./helpers');
-
-const PASSWORD = 'password';
+const { shot, shotOf, signIn } = require('./helpers');
 
 /** Seeded by hlin-sample-checklist on the `team` list, and by hlin-sample-feed. */
 const TEAM_ITEM = "Book a room for Thursday's review";
 const POST = 'Welcome to the feed.';
-
-/** Sign in through Dex's form from wherever the shell sends an unsigned page. */
-async function signIn(page, email, name) {
-  await page.goto('/');
-  await page.locator('#login').waitFor({ state: 'visible' });
-  await page.locator('#login').fill(email);
-  await page.locator('#password').fill(PASSWORD);
-  await page.locator('#submit-login').click();
-  await page.waitForURL((url) => url.port === '8080');
-  await expect(page.locator('header.bar .viewer')).toHaveText(name);
-}
 
 function checklist(page) {
   return page.locator('section.panel[data-panel="checklist/items"]');

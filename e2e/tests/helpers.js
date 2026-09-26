@@ -149,7 +149,38 @@ async function drewSomething(panel) {
   });
 }
 
+/** The demo's people, as demo/dex.yaml and deploy/twenty/dex.yaml define them. */
+const PEOPLE = {
+  'alice@example.com': 'Alice',
+  'bob@example.com': 'Bob',
+  'carol@elsewhere.org': 'Carol',
+};
+
+/** Every one of them has the same password. */
+const PASSWORD = 'password';
+
+/**
+ * Sign in through Dex's form from wherever the shell sends an unsigned page,
+ * and wait to be back on the shell as this person.
+ *
+ * Back on the shell is anywhere but Dex, whose every page is under `/dex`:
+ * the shell is on 8080 in the collaborative demo and on 8090 in the
+ * containerised twenty.
+ */
+async function signIn(page, email, name = PEOPLE[email]) {
+  await page.goto('/');
+  await page.locator('#login').waitFor({ state: 'visible' });
+  await page.locator('#login').fill(email);
+  await page.locator('#password').fill(PASSWORD);
+  await page.locator('#submit-login').click();
+  await page.waitForURL((url) => !url.pathname.startsWith('/dex'));
+  await expect(page.locator('header.bar .viewer')).toHaveText(name);
+}
+
 module.exports = {
+  PEOPLE,
+  PASSWORD,
+  signIn,
   SHOTS,
   shot,
   shotOf,

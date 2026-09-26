@@ -76,6 +76,40 @@ the owner wants the demo to match it (2026-09-25):
 | 4 | [[HLIN-T-0094]] A builder Dockerfile and a compose file for Postgres, Dex, shell and twenty; a demo flavour that brings it up and publishes "Twenty" | 2, 3 |
 | 5 | [[HLIN-T-0095]] The twenty suites and measurement against the containers; results recorded beside [[HLIN-I-0012]]'s | 4 |
 
+## Results
+
+Measured by [[HLIN-T-0095]] with `angreal e2e twenty-measure --against
+compose` against `angreal demo up --with twenty-compose`: release
+throughout, signed in through Dex as Alice, medians of three, on the Apple M3
+Pro (12 cores, 36 GB) of [[HLIN-I-0012]]'s numbers, headless Chromium from
+Playwright 1.63, 1280×720, six widgets in view. Beside them, [[HLIN-I-0012]]'s
+process-based numbers (release, the shell compressing once):
+
+| | Processes | Containers |
+|---|---|---|
+| Cold, navigation → six drawn, loopback | 599 ms | 603 ms |
+| Cold over 50 Mbit/s, 40 ms → six drawn | 1,091 ms | 1,076 ms |
+| Warm → six drawn | 534 ms | 533 ms |
+| Cold bytes, first screen | 1.95 MB | 1.94 MB |
+| Warm bytes, first screen | 0.05 MB | 0.05 MB |
+| JS heap / browser resident memory | 15.1 / 526 MB | 15.6 / 525 MB |
+| Frames mounted while scrolling, at the peak | 12 | 12 |
+| A counter bump, one browser to another | 77 ms | 93 ms |
+| Platform back → open page `ready` by itself | 4.8 s | 4.8 s, then 3.8 s |
+
+The same, within the runs' spread: both are a release shell compressing each
+file once, and the containers change only the path to it (Docker Desktop's
+port forwarding to the published 8090; the compose bridge from shell to
+widget, rather than loopback). A change's trip crosses both and is about
+15 ms longer. The twenty suite passes against the containers (9 of 9),
+including every widget's own UI at `/` and a 404 for `/hlin/nope`, checked
+from inside the compose network; a widget stopped with `docker compose stop`
+and started again degrades its panel alone and recovers by itself, twice in
+one session. Proving it found that `docker compose stop` took ten seconds,
+since no server here handles SIGTERM and PID 1 ignores a signal it has no
+handler for; `init: true` in the compose file makes it 0.2 s. Details in
+[[HLIN-T-0095]].
+
 ## Status Updates
 
 ### 2026-09-25 — opened
@@ -93,3 +127,11 @@ platforms' own authentication is not what this demo designs, so in the demo
 `/api/` acts as a fixed local user, marked demo-only; the containers are not
 published, so it is reachable only on the compose network. Converting twenty
 widgets is split: the pattern and three widgets, then two batches.
+
+### 2026-09-26 — proved and measured
+
+[[HLIN-T-0095]]: the twenty suites run against the containers (`angreal e2e
+twenty --against compose`, `twenty-measure --against compose`), signed in
+through Dex; the numbers match the process-based ones (Results, above). The
+README says how to run it and that it is the reference for how a platform
+serves Hlin.
