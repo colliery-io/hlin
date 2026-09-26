@@ -4,14 +4,14 @@ level: task
 title: "Find why the twenty suites time out once in a while"
 short_code: "HLIN-T-0098"
 created_at: 2026-09-26T01:17:50.539837+00:00
-updated_at: 2026-09-26T01:17:50.539837+00:00
+updated_at: 2026-09-26T02:03:10.545792+00:00
 parent: HLIN-I-0013
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -37,6 +37,8 @@ and warm test. Each is rare, but a suite that fails one run in a few is a
 suite people stop believing, and at twenty frames this may be a real bug
 (a lost `init`, a mount the budget never completes, a first fetch that never
 answers) rather than a slow machine.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

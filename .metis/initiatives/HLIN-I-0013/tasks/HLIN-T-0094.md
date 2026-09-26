@@ -4,14 +4,14 @@ level: task
 title: "Twenty widget containers, a shell and Dex in one compose file"
 short_code: "HLIN-T-0094"
 created_at: 2026-09-25T23:54:59.675828+00:00
-updated_at: 2026-09-25T23:54:59.675828+00:00
+updated_at: 2026-09-26T02:03:10.485278+00:00
 parent: HLIN-I-0013
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -30,6 +30,8 @@ Bring up the intended deployment on one machine: twenty widget containers
 each on its own `*.comp.test` name, the shell as a release build on `oidc`
 against Dex, and Postgres, all on one compose network with only the shell's
 port published.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
