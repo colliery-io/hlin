@@ -4,14 +4,14 @@ level: task
 title: "Each widget serves its own UI at the root and Hlin under /hlin"
 short_code: "HLIN-T-0093"
 created_at: 2026-09-25T23:54:58.370523+00:00
-updated_at: 2026-09-25T23:55:39.331749+00:00
+updated_at: 2026-09-26T00:50:46.745599+00:00
 parent: HLIN-I-0013
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: true
@@ -32,6 +32,8 @@ behind a catch-all SPA fallback, the platform's own core UI mounts them with a
 client that calls the platform's own `/api/`. Under `/hlin/`, the Hlin module
 is a **re-export of those same components** (owner, 2026-09-25) mounted with a
 client that goes through the bridge. The module has no UI of its own.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

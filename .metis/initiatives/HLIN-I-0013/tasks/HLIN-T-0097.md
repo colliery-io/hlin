@@ -4,14 +4,14 @@ level: task
 title: "Widgets thirteen to twenty on shared components"
 short_code: "HLIN-T-0097"
 created_at: 2026-09-25T23:56:04.577471+00:00
-updated_at: 2026-09-25T23:56:04.577471+00:00
+updated_at: 2026-09-26T00:50:46.838721+00:00
 parent: HLIN-I-0013
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -33,6 +33,8 @@ widget support crates: a components crate, a core-UI SPA at `/` mounting them
 with the direct client, and a module crate that only re-exports them and mounts
 them with the Hlin client; `/api/` and `/hlin/api/` over the same handlers;
 Hlin under `/hlin`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
