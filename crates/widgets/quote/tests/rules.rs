@@ -4,6 +4,7 @@
 use hlin_widget_quote::{PANEL, QUOTES, Quotes, api, widget};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::json;
 
 async fn quote() -> Running {
@@ -101,4 +102,38 @@ async fn pin_and_unpin_through_the_shell() {
     };
     assert_eq!(table.rows[0]["quote"], unpinned.body["text"]);
     assert_eq!(table.rows[0]["by"], unpinned.body["by"]);
+}
+
+// -- Its own UI (HLIN-I-0013) ---------------------------------------------
+
+/// The quote as its own UI reaches it: `/api/` from the root, as the demo's
+/// local user, over the same handlers as Hlin's `/hlin/api/`.
+async fn quote_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Quotes::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn its_own_ui_pins_the_quote_through_the_same_handlers() {
+    let quote = quote_with_its_own_ui().await;
+    let pinned = quote
+        .own("PUT", "/api/quote/pin", Some(&testing::fresh_key()), None)
+        .await;
+    assert_eq!(pinned.status, 200, "{}", pinned.body);
+    assert_eq!(pinned.body["pinned"], true);
+    let refused = quote
+        .own("POST", "/api/quote/next", Some(&testing::fresh_key()), None)
+        .await;
+    assert_eq!(refused.status, 409, "the same rule as under /hlin/api/");
+    assert!(refused.body["message"].is_string());
 }

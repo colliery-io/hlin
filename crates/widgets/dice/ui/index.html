@@ -1,0 +1,17 @@
+<!doctype html>
+<!--
+  The dice's own UI: the page at the root of its origin. An ordinary Trunk
+  site, served behind a catch-all fallback, so none of the module's CSP
+  arrangements apply. Every converted widget's is this file with its title
+  changed.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dice</title>
+    <link data-trunk rel="rust" data-wasm-opt="z"
+          data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue" />
+  </head>
+  <body></body>
+</html>

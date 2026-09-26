@@ -1,9 +1,9 @@
 <!doctype html>
 <!--
-  The status widget's module: the entry document the shell loads into the panel's
+  The status light's module: the entry document the shell loads into the panel's
   frame. Everything it runs is a file beside it, because the module CSP allows
-  nothing inline but styles. Every widget's is this file with its title
-  changed.
+  nothing inline but styles, which is how the components bring their own.
+  Every converted widget's is this file with its title changed.
 -->
 <html lang="en">
   <head>
@@ -15,9 +15,6 @@
          rustc now emits by default, and refused the module without them. -->
     <link data-trunk rel="rust" data-wasm-opt="z"
           data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue" />
-    <!-- `crossorigin`, because the frame's origin is opaque: the integrity
-         check Trunk adds can only read a stylesheet fetched with CORS. -->
-    <link data-trunk rel="css" href="module.css" crossorigin="anonymous" />
     <link data-trunk rel="copy-file" href="boot.js" />
   </head>
   <body></body>

@@ -4,6 +4,7 @@
 use hlin_widget_status::{Light, Lights, PANEL, SERVICES, STRIP, WINDOW, api, light, widget};
 use hlin_widget_support::envelope::{Envelope, Health};
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::json;
 
 /// 2026-01-15T12:00:00Z.
@@ -118,4 +119,40 @@ async fn choosing_is_announced_and_the_fallback_is_that_services_light() {
     ));
     assert!(light.detail.unwrap().starts_with("Up "));
     assert!(light.since.is_some());
+}
+
+// -- Its own UI (HLIN-I-0013) ---------------------------------------------
+
+/// The light as its own UI reaches it: `/api/` from the root, as the demo's
+/// local user, over the same handlers as Hlin's `/hlin/api/`.
+async fn status_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Lights::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn its_own_ui_chooses_a_service_and_reads_it_back() {
+    let status = status_with_its_own_ui().await;
+    let chosen = status
+        .own(
+            "PUT",
+            "/api/status/service",
+            Some(&testing::fresh_key()),
+            Some(json!({ "service": "queue" })),
+        )
+        .await;
+    assert_eq!(chosen.status, 200, "{}", chosen.body);
+
+    let reading = status.own("GET", "/api/status", None, None).await;
+    assert_eq!(reading.body["service"], "queue");
 }

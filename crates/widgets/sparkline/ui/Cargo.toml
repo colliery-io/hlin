@@ -1,0 +1,18 @@
+[package]
+name = "hlin-widget-sparkline-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The sparkline's own UI: its components, served at the root of its origin"
+publish = false
+
+[[bin]]
+name = "hlin-widget-sparkline-ui"
+path = "src/main.rs"
+
+[dependencies]
+hlin-widget-sparkline-components = { path = "../components" }
+hlin-widget-ui = { workspace = true, features = ["direct"] }

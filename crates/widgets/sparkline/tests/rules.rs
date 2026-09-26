@@ -6,6 +6,7 @@ use hlin_widget_sparkline::{
 };
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::json;
 
 const MINUTE: i64 = 60_000;
@@ -217,4 +218,40 @@ async fn the_fallback_is_cut_to_the_range_the_shell_asks_for() {
     };
     let points = series.series[0].points.len();
     assert!((14..=16).contains(&points), "{points} points in 15 minutes");
+}
+
+// -- Its own UI (HLIN-I-0013) ---------------------------------------------
+
+/// The sparkline as its own UI reaches it: `/api/` from the root, as the demo's
+/// local user, over the same handlers as Hlin's `/hlin/api/`.
+async fn sparkline_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Sparklines::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn its_own_ui_chooses_a_metric_and_reads_it_back() {
+    let sparkline = sparkline_with_its_own_ui().await;
+    let chosen = sparkline
+        .own(
+            "PUT",
+            "/api/sparkline/metric",
+            Some(&testing::fresh_key()),
+            Some(json!({ "metric": "errors" })),
+        )
+        .await;
+    assert_eq!(chosen.status, 200, "{}", chosen.body);
+
+    let drawn = sparkline.own("GET", "/api/sparkline", None, None).await;
+    assert_eq!(drawn.body["metric"], "errors");
 }

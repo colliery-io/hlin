@@ -6,6 +6,7 @@ use hlin_widget_pomodoro::{BREAK, FOCUS, PANEL, Phase, Timers, api, widget};
 use hlin_widget_support::Claims;
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::json;
 
 async fn pomodoro() -> Running {
@@ -272,4 +273,40 @@ async fn the_fallback_says_the_minutes_left() {
     };
     assert_eq!(resting.value, 5);
     assert_eq!(resting.label.as_deref(), Some("Break"));
+}
+
+// -- Its own UI (HLIN-I-0013) ---------------------------------------------
+
+/// The focus timer as its own UI reaches it: `/api/` from the root, as the demo's
+/// local user, over the same handlers as Hlin's `/hlin/api/`.
+async fn pomodoro_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Timers::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn its_own_ui_starts_a_focus_and_reads_it_back() {
+    let pomodoro = pomodoro_with_its_own_ui().await;
+    let started = pomodoro
+        .own(
+            "POST",
+            "/api/pomodoro/start",
+            Some(&testing::fresh_key()),
+            Some(json!({ "phase": "focus" })),
+        )
+        .await;
+    assert_eq!(started.status, 200, "{}", started.body);
+
+    let timer = pomodoro.own("GET", "/api/pomodoro", None, None).await;
+    assert_eq!(timer.body["phase"], "focus");
 }

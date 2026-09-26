@@ -1,5 +1,5 @@
 /* The dice's own look, against the shell's `--hlin-*` tokens and the shared
- * classes in hlin-widget-module's widget.css. Nothing else. */
+ * classes in hlin-widget-ui's widget.css. Nothing else. */
 
 .dice__die {
   padding: 2px 8px;

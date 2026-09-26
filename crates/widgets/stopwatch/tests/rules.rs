@@ -4,6 +4,7 @@
 use hlin_widget_stopwatch::{MOST_LAPS, PANEL, Stopwatches, api, reading, widget};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::json;
 
 async fn stopwatch() -> Running {
@@ -138,4 +139,44 @@ async fn a_write_is_announced_so_the_owners_other_browser_follows() {
     };
     assert_eq!(stat.label.as_deref(), Some("Running"));
     assert!(stat.value.as_str().unwrap().starts_with("0:0"));
+}
+
+// -- Its own UI (HLIN-I-0013) ---------------------------------------------
+
+/// The stopwatch as its own UI reaches it: `/api/` from the root, as the demo's
+/// local user, over the same handlers as Hlin's `/hlin/api/`.
+async fn stopwatch_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Stopwatches::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn its_own_ui_starts_its_users_stopwatch_and_nobody_elses() {
+    let stopwatch = stopwatch_with_its_own_ui().await;
+    let started = stopwatch
+        .own(
+            "POST",
+            "/api/stopwatch/start",
+            Some(&testing::fresh_key()),
+            None,
+        )
+        .await;
+    assert_eq!(started.status, 200, "{}", started.body);
+
+    let mine = stopwatch.own("GET", "/api/stopwatch", None, None).await;
+    assert_eq!(mine.body["running"], true);
+    let alices = stopwatch
+        .get(&person("u-alice", "Alice"), "/api/stopwatch")
+        .await;
+    assert_eq!(alices.body["running"], false);
 }

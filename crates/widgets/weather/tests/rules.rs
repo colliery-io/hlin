@@ -5,6 +5,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
 use hlin_widget_support::{Claims, Widget};
+use hlin_widget_support::{ModuleFiles, Site};
 use hlin_widget_weather::{
     CITIES, HOURS_AHEAD, PANEL, Sky, Units, Weather, api, city, reading, widget,
 };
@@ -244,4 +245,40 @@ async fn the_fallback_lists_every_city_home_first() {
     };
     assert_eq!(table.rows.len(), CITIES.len());
     assert_eq!(table.rows[0]["city"], "Lima");
+}
+
+// -- Its own UI (HLIN-I-0013) ---------------------------------------------
+
+/// The weather as its own UI reaches it: `/api/` from the root, as the demo's
+/// local user, over the same handlers as Hlin's `/hlin/api/`.
+async fn weather_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Weather::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn its_own_ui_switches_units_and_reads_them_back() {
+    let weather = weather_with_its_own_ui().await;
+    let converted = weather
+        .own(
+            "PUT",
+            "/api/weather/units",
+            Some(&testing::fresh_key()),
+            Some(json!({ "units": "f" })),
+        )
+        .await;
+    assert_eq!(converted.status, 200, "{}", converted.body);
+
+    let outlook = weather.own("GET", "/api/weather", None, None).await;
+    assert_eq!(outlook.body["units"], "f");
 }

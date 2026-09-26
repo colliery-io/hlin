@@ -3,6 +3,7 @@
 use hlin_widget_kanban::{Column, LONGEST, MOST, PANEL, api, widget};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::{Value, json};
 
 async fn kanban() -> Running {
@@ -229,4 +230,40 @@ async fn a_change_is_announced_and_the_fallback_is_the_column() {
     assert_eq!(table.rows.len(), 4);
     assert_eq!(table.rows[3]["card"], "Ship");
     assert_eq!(table.rows[3]["position"], 4);
+}
+
+// -- Its own UI (HLIN-I-0013) ---------------------------------------------
+
+/// The column as its own UI reaches it: `/api/` from the root, as the demo's
+/// local user, over the same handlers as Hlin's `/hlin/api/`.
+async fn kanban_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Column::new("To do"),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn its_own_ui_adds_a_card_to_the_same_column_hlin_reads() {
+    let kanban = kanban_with_its_own_ui().await;
+    let added = kanban
+        .own(
+            "POST",
+            "/api/cards",
+            Some(&testing::fresh_key()),
+            Some(json!({ "text": "From its own page" })),
+        )
+        .await;
+    assert_eq!(added.status, 201, "{}", added.body);
+
+    let seen = kanban.get(&person("u-bob", "Bob"), "/api/cards").await.body;
+    assert_eq!(texts(&seen), ["From its own page"]);
 }

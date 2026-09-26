@@ -3,6 +3,7 @@
 use hlin_widget_dice::{DICE, Dice, KEPT, PANEL, api, notation, widget};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::json;
 
 async fn dice(seed: u64) -> Running {
@@ -182,4 +183,41 @@ async fn a_roll_is_announced_and_the_fallback_lists_it() {
     assert_eq!(table.rows[0]["who"], "Alice");
     assert_eq!(table.rows[0]["total"], rolled.body["total"]);
     assert!(table.rows[0]["roll"].as_str().unwrap().starts_with("2d8 ("));
+}
+
+// -- Its own UI (HLIN-I-0013) ---------------------------------------------
+
+/// The dice as its own UI reaches it: `/api/` from the root, as the demo's
+/// local user, over the same handlers as Hlin's `/hlin/api/`.
+async fn dice_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Dice::seeded(1),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn its_own_ui_rolls_on_the_same_table_hlin_reads() {
+    let dice = dice_with_its_own_ui().await;
+    let rolled = dice
+        .own(
+            "POST",
+            "/api/dice/roll",
+            Some(&testing::fresh_key()),
+            Some(json!({ "sides": 6, "count": 3 })),
+        )
+        .await;
+    assert_eq!(rolled.status, 201, "{}", rolled.body);
+
+    let seen = dice.get(&person("u-bob", "Bob"), "/api/dice").await;
+    assert_eq!(seen.body["rolls"][0]["name"], "Local User");
+    assert_eq!(seen.body["rolls"][0]["total"], rolled.body["total"]);
 }

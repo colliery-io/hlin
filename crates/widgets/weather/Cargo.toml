@@ -9,6 +9,11 @@ repository.workspace = true
 description = "Widget 11 of twenty: synthetic weather for a few cities"
 publish = false
 
+[features]
+# Both builds compiled into the binary (`hlin_widget_support::dist!`), for a
+# container that ships one file. Build `ui/` and `module/` with Trunk first.
+embed = ["hlin-widget-support/embed"]
+
 [[bin]]
 name = "hlin-widget-weather"
 path = "src/main.rs"

@@ -1,5 +1,5 @@
 /* The note's own look, against the shell's `--hlin-*` tokens and the shared
- * classes in hlin-widget-module's widget.css. Nothing else.
+ * classes in hlin-widget-ui's widget.css. Nothing else.
  *
  * A sticky note without a yellow of its own: the warning colour, faintly,
  * behind the text, so it reads as a note on every theme and drifts with the

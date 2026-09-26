@@ -1881,14 +1881,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-dice-module"
+name = "hlin-widget-dice-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-dice-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-dice-components",
+ "hlin-widget-module",
+]
+
+[[package]]
+name = "hlin-widget-dice-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-dice-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -1904,14 +1919,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-kanban-module"
+name = "hlin-widget-kanban-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-kanban-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-kanban-components",
+ "hlin-widget-module",
+]
+
+[[package]]
+name = "hlin-widget-kanban-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-kanban-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -1965,14 +1995,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-notes-module"
+name = "hlin-widget-notes-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-notes-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-notes-components",
+]
+
+[[package]]
+name = "hlin-widget-notes-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-notes-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2076,15 +2121,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-pomodoro-module"
+name = "hlin-widget-pomodoro-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "js-sys",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-pomodoro-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-pomodoro-components",
+]
+
+[[package]]
+name = "hlin-widget-pomodoro-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-pomodoro-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2100,14 +2160,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-quote-module"
+name = "hlin-widget-quote-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-quote-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-quote-components",
+]
+
+[[package]]
+name = "hlin-widget-quote-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-quote-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2172,14 +2247,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-sparkline-module"
+name = "hlin-widget-sparkline-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-sparkline-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-sparkline-components",
+]
+
+[[package]]
+name = "hlin-widget-sparkline-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-sparkline-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2196,15 +2286,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-status-module"
+name = "hlin-widget-status-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "js-sys",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-status-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-status-components",
+]
+
+[[package]]
+name = "hlin-widget-status-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-status-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2220,15 +2325,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-stopwatch-module"
+name = "hlin-widget-stopwatch-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "js-sys",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-stopwatch-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-stopwatch-components",
+]
+
+[[package]]
+name = "hlin-widget-stopwatch-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-stopwatch-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2282,14 +2402,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-weather-module"
+name = "hlin-widget-weather-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-weather-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-weather-components",
+]
+
+[[package]]
+name = "hlin-widget-weather-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-ui",
+ "hlin-widget-weather-components",
 ]
 
 [[package]]

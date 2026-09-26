@@ -372,7 +372,56 @@ test.describe('twenty widgets on one surface', () => {
     await both.setViewportSize({ width: 1000, height: 420 });
     await shot(both, 215, 'twenty-clock-own-ui-beside-module');
   });
+
+  // HLIN-T-0096: widgets four to twelve draw at their own roots with the
+  // direct client, and a roll on the dice's own page reaches its module.
+  test('widgets four to twelve draw their own UIs, and the dice roll both ways', async ({ browser }) => {
+    const drawn = {
+      notes: '.note',
+      dice: '.dice__latest',
+      stopwatch: '.stopwatch',
+      quote: '.quote',
+      sparkline: '.sparkline',
+      kanban: '.kanban__head',
+      status: '.status',
+      weather: '.weather__now',
+      pomodoro: '.pomodoro',
+    };
+    const own = await (await browser.newContext({ viewport: { width: 420, height: 360 } })).newPage();
+    for (const [name, selector] of Object.entries(drawn)) {
+      await own.goto(`http://127.0.0.1:${OWN_UI[name]}/`);
+      await expect(own.locator(selector).first(), `${name}'s own UI`).toBeVisible({ timeout: READY });
+      await expect(own.locator('.w-refusal, .w-failed'), `${name}'s own UI`).toHaveCount(0);
+    }
+
+    const surfacePage = await (await browser.newContext()).newPage();
+    await openSurface(surfacePage, surface, panels);
+    const module = inside(widget(surfacePage, 'dice', 'dice'));
+    await expect(module.locator('.dice__latest')).toBeVisible({ timeout: READY });
+    await own.goto(`http://127.0.0.1:${OWN_UI.dice}/`);
+    const ownLatest = own.locator('.dice__latest');
+    await expect(ownLatest).toBeVisible({ timeout: READY });
+    const before = Number(await ownLatest.getAttribute('data-number'));
+    await own.getByRole('button', { name: 'Roll' }).click();
+    await expect(ownLatest).toHaveAttribute('data-number', String(before + 1));
+    await propagated('a roll on its own page reaches its module', (options) =>
+      expect(module.locator('.dice__latest')).toHaveAttribute('data-number', String(before + 1), options),
+    );
+  });
 });
 
 /** The converted widgets' own UIs, at their demo ports (`WIDGETS`). */
-const OWN_UI = { clock: 8201, counter: 8202, poll: 8203 };
+const OWN_UI = {
+  clock: 8201,
+  counter: 8202,
+  poll: 8203,
+  notes: 8204,
+  dice: 8205,
+  stopwatch: 8206,
+  quote: 8207,
+  sparkline: 8208,
+  kanban: 8209,
+  status: 8210,
+  weather: 8211,
+  pomodoro: 8212,
+};
