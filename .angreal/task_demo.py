@@ -473,11 +473,25 @@ def _wasm_opt_ready():
         scrolling surface with every widget on it. A converted widget's own
         UI is at its port's `/`, as the demo-only `--local-user`.
 
+        `--with twenty-compose` is the same twenty as they are meant to be
+        deployed (HLIN-I-0013), in containers from deploy/twenty/compose.yml
+        (project `hlin-twenty`): each widget on its own `<name>.comp.test`
+        name, the shell a release build on `oidc` against a Dex of its own
+        (https at dex.localhost:5557, from a CA it makes under
+        demo/state/twenty), and Postgres of its own. Builds all twenty-one
+        images from one builder stage (long the first time, quick after),
+        waits until every container is healthy, signs in through Dex as Alice
+        to publish "Twenty", and prints http://127.0.0.1:8090. Leaves the
+        process demo, the development database and 8080 alone; `--release`
+        does not apply, everything is release. `docker compose ... stop
+        clock` / `start clock` is a platform going down and coming back.
+
         ## When to use
         - To see the product running
         - Before `angreal demo walkthrough` (standard flavour)
         - Before `angreal e2e signin` (`--with collab`)
         - Before `angreal e2e twenty` (`--with twenty`)
+        - To see the twenty deployed as intended (`--with twenty-compose`)
 
         Safe to run repeatedly; it stops whatever it previously started first.
         """,
@@ -488,7 +502,10 @@ def _wasm_opt_ready():
     name="with_",
     long="with",
     takes_value=True,
-    help="which shell configuration to run: demo, aurora, gallery, live, collab or twenty",
+    help=(
+        "which shell configuration to run: demo, aurora, gallery, live, collab, twenty, "
+        "or twenty-compose (the twenty in containers)"
+    ),
 )
 @angreal.argument(
     name="release",
@@ -498,6 +515,12 @@ def _wasm_opt_ready():
     help="build the frontend and modules optimised, as a deployment would",
 )
 def demo_up(with_=None, release=False):
+    # Containers, release builds throughout, with nothing of the process
+    # demo's: its own ports, Dex and database. So it neither stops nor is
+    # stopped by the rest of `up`.
+    if with_ == "twenty-compose":
+        return _compose_up()
+
     global RELEASE, WASM_OPT
     RELEASE = bool(release)
     WASM_OPT = RELEASE and _wasm_opt_ready()
@@ -720,7 +743,8 @@ def demo_status():
         Stop the shell, the sample platforms (or the checklist and feed, and
         Dex, if `--with collab` started them, or the widgets, if `--with
         twenty` did), and the development database, and forget the process
-        registry.
+        registry. Also the containerised twenty (`--with twenty-compose`),
+        whose database and signing key go with it.
 
         ## When to use
         - When finished with the demo
@@ -738,6 +762,9 @@ def demo_status():
     help="leave the development database running",
 )
 def demo_down(keep_database=False):
+    # Not in `_stop_everything`, which `up` runs too: the containerised twenty
+    # shares nothing with the process demo, so starting one leaves the other.
+    _compose_down()
     return _stop_everything(keep_database=keep_database)
 
 
@@ -818,13 +845,17 @@ def _build_modules():
     return 0
 
 
-def _signed_in_as(email, password):
+def _signed_in_as(email, password, shell=SHELL, context=None):
     """A URL opener carrying a session for this person, signed in through Dex.
 
     The same journey a browser makes, with nothing the shell does not offer
     everybody: `/auth/login` sends it to Dex, Dex's form is posted, and Dex
     sends it back to `/auth/callback`, which sets the session cookie. No
     backdoor, so what is seeded is exactly what a person could have composed.
+
+    `shell` is where the shell is published, and `context` the TLS context to
+    reach Dex with, where Dex is on https from a CA of the demo's own (the
+    containerised twenty's).
     """
     import html
     import http.cookiejar
@@ -832,10 +863,13 @@ def _signed_in_as(email, password):
     import urllib.parse
 
     jar = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    handlers = [urllib.request.HTTPCookieProcessor(jar)]
+    if context is not None:
+        handlers.append(urllib.request.HTTPSHandler(context=context))
+    opener = urllib.request.build_opener(*handlers)
 
     try:
-        with opener.open(f"{SHELL}/auth/login?next=/api/config", timeout=15) as page:
+        with opener.open(f"{shell}/auth/login?next=/api/config", timeout=15) as page:
             form_url = page.geturl()
             body = page.read().decode("utf-8", "replace")
     except (urllib.error.URLError, OSError) as error:
@@ -856,16 +890,16 @@ def _signed_in_as(email, password):
         print(f"signing in as {email} failed: {error}", flush=True)
         return None
 
-    if not landed.startswith(SHELL) or (config.get("principal") or {}).get("email") != email:
+    if not landed.startswith(shell) or (config.get("principal") or {}).get("email") != email:
         print(f"signing in as {email} did not come back signed in (at {landed})", flush=True)
         return None
     return opener
 
 
-def _as(opener, method, path, body=None):
+def _as(opener, method, path, body=None, shell=SHELL):
     """One JSON request with a session. Returns (status, parsed body or None)."""
     request = urllib.request.Request(
-        SHELL + path,
+        shell + path,
         data=None if body is None else json.dumps(body).encode("utf-8"),
         headers={"content-type": "application/json"},
         method=method,
@@ -1300,24 +1334,26 @@ def _twenty_panels():
     ]
 
 
-def _publish_twenty():
-    """Publish "Twenty" as the development user.
+def _publish_twenty(opener=None, shell=SHELL, logs="demo/state/logs"):
+    """Publish "Twenty" as the development user, or as whoever `opener` is
+    signed in as.
 
     With `dev` sign-in every request is that user, so the shell's own API is
     enough, with none of the collaborative demo's signing in first, and
-    nothing here a person could not have done by hand. Their "Twenty" is
-    replaced rather than a new one created, so running `up` again leaves one
-    surface; and replacing it makes it their most recently changed layout,
-    which is where they land.
+    nothing here a person could not have done by hand. The containerised
+    twenty signs in through Dex first and passes its session as `opener`.
+    Their "Twenty" is replaced rather than a new one created, so running `up`
+    again leaves one surface; and replacing it makes it their most recently
+    changed layout, which is where they land.
     """
-    opener = urllib.request.build_opener()
+    opener = opener or urllib.request.build_opener()
 
     # The registry polls on its own schedule; a panel it has not seen yet
     # would be accepted and drawn as gone.
     wanted = {(widget["name"], widget["name"]) for widget in WIDGETS}
     deadline = time.time() + 30
     while True:
-        status, catalog = _as(opener, "GET", "/api/panels")
+        status, catalog = _as(opener, "GET", "/api/panels", shell=shell)
         offered = (
             {(p["id"], panel["key"]) for p in catalog for panel in p["panels"]}
             if status == 200
@@ -1327,11 +1363,11 @@ def _publish_twenty():
             break
         if time.time() > deadline:
             missing = ", ".join(f"{p}/{k}" for p, k in sorted(wanted - offered))
-            print(f"the shell is not offering {missing}. See demo/state/logs.", flush=True)
+            print(f"the shell is not offering {missing}. See {logs}.", flush=True)
             return 1
         time.sleep(0.5)
 
-    status, owned = _as(opener, "GET", "/api/layouts")
+    status, owned = _as(opener, "GET", "/api/layouts", shell=shell)
     if status != 200:
         print(f"could not list the layouts: {status} {owned}", flush=True)
         return 1
@@ -1339,7 +1375,9 @@ def _publish_twenty():
     if existing:
         layout = existing["id"]
     else:
-        status, created = _as(opener, "POST", "/api/layouts", {"title": TWENTY_TITLE})
+        status, created = _as(
+            opener, "POST", "/api/layouts", {"title": TWENTY_TITLE}, shell=shell
+        )
         if status != 201:
             print(f"could not create the surface: {status} {created}", flush=True)
             return 1
@@ -1350,13 +1388,222 @@ def _publish_twenty():
         "PUT",
         f"/api/layouts/{layout}",
         {"title": TWENTY_TITLE, "visibility": "published", "panels": _twenty_panels()},
+        shell=shell,
     )
     if status != 200:
         print(f"could not publish the surface: {status} {written}", flush=True)
         return 1
 
-    print(f"  published {SHELL}/s/{layout}", flush=True)
+    print(f"  published {shell}/s/{layout}", flush=True)
     return 0
+
+
+# -- The twenty, in containers --------------------------------------------
+
+#: The containerised twenty (HLIN-T-0094): twenty widget containers, the
+#: shell as a release build signing people in through Dex, and Postgres, on a
+#: compose network and project of their own. Nothing here is shared with the
+#: process demo: its own ports, its own Dex, its own database.
+COMPOSE_FILE = os.path.join(cwd, "deploy", "twenty", "compose.yml")
+COMPOSE_CONFIG = os.path.join(cwd, "deploy", "twenty", "hlin.toml")
+COMPOSE_PROJECT = "hlin-twenty"
+
+#: Where the containerised shell is published: loopback, and not 8080, so it
+#: and the process demo can run at once.
+COMPOSE_SHELL = "http://127.0.0.1:8090"
+
+#: Dex's issuer there, which the browser and the shell's container both reach
+#: (deploy/twenty/dex.yaml says how).
+COMPOSE_DEX = "https://dex.localhost:5557/dex"
+
+#: What `up` makes for it, mounted by the compose file: the client secret
+#: Dex and the shell share, and Dex's certificate with the CA that signed it.
+COMPOSE_STATE = os.path.join(STATE, "twenty")
+COMPOSE_SECRET = os.path.join(COMPOSE_STATE, "oidc.env")
+COMPOSE_TLS = os.path.join(COMPOSE_STATE, "tls")
+
+
+def _compose(*arguments, capture=True):
+    return subprocess.run(
+        ["docker", "compose", "-f", COMPOSE_FILE, "-p", COMPOSE_PROJECT, *arguments],
+        cwd=cwd,
+        capture_output=capture,
+        text=True,
+    )
+
+
+def _compose_drift():
+    """What differs between `WIDGETS` and the compose file and shell
+    configuration, or None.
+
+    The two files are written out in full, so a person can read them and run
+    `docker compose` on them by hand; this is what keeps them the same list.
+    """
+    import re
+
+    wanted = [widget["name"] for widget in WIDGETS]
+    with open(COMPOSE_CONFIG) as handle:
+        config = handle.read()
+    configured = re.findall(r'^id = "([^"]+)"', config, re.MULTILINE)
+    if configured != wanted:
+        return f"{COMPOSE_CONFIG} lists {configured}, not {wanted}"
+    for widget in wanted:
+        if f'base_url = "http://{widget}.comp.test:8080{HLIN_BASE}"' not in config:
+            return f"{COMPOSE_CONFIG} does not put {widget} at {widget}.comp.test"
+
+    services = _compose("config", "--services")
+    if services.returncode != 0:
+        return f"`docker compose config` failed: {services.stderr.strip()}"
+    missing = sorted(set(wanted) - set(services.stdout.split()))
+    if missing:
+        return f"{COMPOSE_FILE} has no service for {', '.join(missing)}"
+    return None
+
+
+def _compose_secret():
+    """The client secret Dex and the shell share, kept across `up`s.
+
+    Kept, because the compose file reads it for both whenever either is
+    (re)created, and a new one each time would recreate both for nothing.
+    """
+    import secrets
+
+    os.makedirs(COMPOSE_STATE, exist_ok=True)
+    if not os.path.isfile(COMPOSE_SECRET):
+        with open(COMPOSE_SECRET, "w") as handle:
+            handle.write(f"{DEX_SECRET}={secrets.token_urlsafe(24)}\n")
+
+
+def _compose_tls():
+    """A CA of the demo's own, and a certificate from it for `dex.localhost`.
+
+    A release shell will sign nobody in through a plain-http issuer, so Dex
+    serves https. Made once and kept: the shell trusts the CA through its
+    `ca_bundle`, and a person who chose to trust it in their browser should
+    not have to again. Nothing but this demo's Dex is signed by it.
+    """
+    ca, cert, key = (os.path.join(COMPOSE_TLS, name) for name in ("ca.pem", "dex.crt", "dex.key"))
+    if all(os.path.isfile(path) for path in (ca, cert, key)):
+        return 0
+    os.makedirs(COMPOSE_TLS, exist_ok=True)
+    ca_key = os.path.join(COMPOSE_TLS, "ca.key")
+    request = os.path.join(COMPOSE_TLS, "dex.csr")
+    extensions = os.path.join(COMPOSE_TLS, "dex.ext")
+    with open(extensions, "w") as handle:
+        handle.write(
+            "basicConstraints = critical, CA:FALSE\n"
+            "keyUsage = critical, digitalSignature, keyEncipherment\n"
+            "extendedKeyUsage = serverAuth\n"
+            "subjectAltName = DNS:dex.localhost\n"
+        )
+    steps = [
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650",
+         "-keyout", ca_key, "-out", ca, "-subj", "/CN=Hlin twenty demo CA",
+         "-addext", "basicConstraints=critical,CA:TRUE",
+         "-addext", "keyUsage=critical,keyCertSign,cRLSign"],
+        ["openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", key,
+         "-out", request, "-subj", "/CN=dex.localhost"],
+        ["openssl", "x509", "-req", "-in", request, "-CA", ca, "-CAkey", ca_key,
+         "-CAcreateserial", "-days", "825", "-out", cert, "-extfile", extensions],
+    ]
+    for step in steps:
+        made = subprocess.run(step, capture_output=True, text=True)
+        if made.returncode != 0:
+            print(f"could not make Dex's certificate: {made.stderr.strip()}", flush=True)
+            return 1
+    # Dex runs as its own user in its container and reads the key through a
+    # bind mount. A throwaway key for a throwaway CA, on loopback.
+    os.chmod(key, 0o644)
+    return 0
+
+
+def _compose_context():
+    """A TLS context trusting the demo's CA, to reach Dex as the shell does."""
+    import ssl
+
+    return ssl.create_default_context(cafile=os.path.join(COMPOSE_TLS, "ca.pem"))
+
+
+def _wait_for_tls(url, context, seconds=60):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=2, context=context) as answer:
+                if answer.status == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def _compose_up():
+    """`demo up --with twenty-compose`: build, start, publish, say where."""
+    drift = _compose_drift()
+    if drift:
+        print(f"the containerised twenty has drifted from WIDGETS: {drift}", flush=True)
+        return 1
+    _compose_secret()
+    if _compose_tls() != 0:
+        return 1
+
+    # Built by compose, all twenty-one images from the one builder stage;
+    # quick when nothing changed, since that stage is cached.
+    print("building the images (the first build takes a while)", flush=True)
+    started = time.time()
+    if _compose("build", capture=False).returncode != 0:
+        print("The images did not build.", flush=True)
+        return 1
+    print(f"  built in {time.time() - started:.0f}s", flush=True)
+
+    print("starting Postgres, Dex, the shell and twenty widgets", flush=True)
+    if _compose("up", "-d", "--wait", "--wait-timeout", "180", capture=False).returncode != 0:
+        print(
+            "Not everything came up healthy. "
+            f"`docker compose -f {os.path.relpath(COMPOSE_FILE, cwd)} -p {COMPOSE_PROJECT} ps` "
+            "says which.",
+            flush=True,
+        )
+        return 1
+
+    context = _compose_context()
+    if not _wait_for_tls(f"{COMPOSE_DEX}/.well-known/openid-configuration", context):
+        print(f"Dex is not answering at {COMPOSE_DEX}.", flush=True)
+        return 1
+    if not _wait_for(f"{COMPOSE_SHELL}/api/health", seconds=60):
+        print(f"The shell is not answering at {COMPOSE_SHELL}.", flush=True)
+        return 1
+
+    print(f"signing in as {COLLAB_AUTHOR} to publish `{TWENTY_TITLE}`", flush=True)
+    opener = _signed_in_as(COLLAB_AUTHOR, COLLAB_PASSWORD, shell=COMPOSE_SHELL, context=context)
+    if opener is None:
+        return 1
+    logs = f"`docker compose -p {COMPOSE_PROJECT} logs`"
+    if _publish_twenty(opener, shell=COMPOSE_SHELL, logs=logs) != 0:
+        return 1
+
+    compose = f"docker compose -f {os.path.relpath(COMPOSE_FILE, cwd)} -p {COMPOSE_PROJECT}"
+    ca = os.path.relpath(os.path.join(COMPOSE_TLS, "ca.pem"), cwd)
+    print(f"\nHlin is running at {COMPOSE_SHELL}, in containers, with {len(WIDGETS)} widgets")
+    print(f"on `{TWENTY_TITLE}`. Sign in as alice@example.com, bob@example.com or")
+    print("carol@elsewhere.org; the password is `password`.")
+    print(f"Dex is at {COMPOSE_DEX}, on https from a CA of this demo's own ({ca}),")
+    print("so a browser warns once unless told to trust it.")
+    print("A platform going down and coming back:")
+    print(f"  {compose} stop clock")
+    print(f"  {compose} start clock")
+    print("`angreal demo down` stops everything.")
+    return 0
+
+
+def _compose_down():
+    """Stop the containerised twenty, if it is running, and throw away its
+    database and the shell's key: `up` publishes "Twenty" again."""
+    running = _compose("ps", "-a", "-q")
+    if running.returncode != 0 or not running.stdout.strip():
+        return
+    _compose("down", "--volumes", "--remove-orphans")
+    print("stopped the containerised twenty", flush=True)
 
 
 # -- A surface worth opening ----------------------------------------------

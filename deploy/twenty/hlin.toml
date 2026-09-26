@@ -1,0 +1,154 @@
+# The containerised twenty's shell (HLIN-T-0094): a release build, on `oidc`
+# against Dex, with the twenty widgets on the compose network.
+#
+# Mounted over the image's own configuration by deploy/twenty/compose.yml.
+# The platforms below must be the list in `WIDGETS` (.angreal/task_demo.py),
+# in its order; `angreal demo up --with twenty-compose` refuses to start if
+# this file or the compose file has drifted from it.
+
+# Every interface: loopback inside a container is the container's own. The
+# compose file publishes this port on 127.0.0.1:8090, and nothing else of the
+# shell's.
+bind = "0.0.0.0"
+port = 8080
+issuer = "hlin"
+
+# The demo pack, as `demo up --with twenty` draws the surface.
+frontend = "/home/hlin/frontend-demo"
+
+key_path = "/home/hlin/state/shell.key"
+
+database_url = "postgres://hlin:hlin@postgres:5432/hlin"
+
+# The throwaway CA that signed Dex's certificate, merged with the image's own
+# roots. Without it the shell cannot fetch Dex's discovery document, and says
+# so at the first sign-in.
+ca_bundle = "/etc/hlin-trust/ca.pem"
+
+[auth]
+strategy = "oidc"
+# https, which a release build insists on, at the one name both the browser
+# and this container resolve to Dex (deploy/twenty/dex.yaml says how). Must
+# match `issuer` there exactly.
+issuer = "https://dex.localhost:5557/dex"
+client_id = "hlin"
+client_secret_env = "HLIN_DEMO_OIDC_SECRET"
+# The published address. 127.0.0.1, not localhost, everywhere: the session
+# cookie is scoped to the host the browser used.
+public_url = "http://127.0.0.1:8090"
+scopes = ["openid", "profile", "email"]
+
+[auth.cookie]
+name = "hlin_twenty_session"
+# Served over plain http on loopback, where a browser will not send a Secure
+# cookie.
+secure = false
+same_site = "Lax"
+
+[timings]
+poll_seconds = 10
+debounce_observations = 2
+upstream_timeout_seconds = 10
+
+# The twenty, each at the `/hlin` subtree of its own host on the compose
+# network, as each would be at `https://<name>.comp.net/hlin` (HLIN-I-0013).
+
+[[platforms]]
+id = "clock"
+base_url = "http://clock.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "counter"
+base_url = "http://counter.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "poll"
+base_url = "http://poll.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "notes"
+base_url = "http://notes.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "dice"
+base_url = "http://dice.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "stopwatch"
+base_url = "http://stopwatch.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "quote"
+base_url = "http://quote.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "sparkline"
+base_url = "http://sparkline.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "kanban"
+base_url = "http://kanban.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "status"
+base_url = "http://status.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "weather"
+base_url = "http://weather.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "pomodoro"
+base_url = "http://pomodoro.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "shoutbox"
+base_url = "http://shoutbox.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "reactions"
+base_url = "http://reactions.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "bookmarks"
+base_url = "http://bookmarks.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "oncall"
+base_url = "http://oncall.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "picker"
+base_url = "http://picker.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "deploys"
+base_url = "http://deploys.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "converter"
+base_url = "http://converter.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }
+
+[[platforms]]
+id = "meetings"
+base_url = "http://meetings.comp.test:8080/hlin"
+auth = { strategy = "hlin-token" }

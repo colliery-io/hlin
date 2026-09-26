@@ -1,0 +1,345 @@
+# The twenty-widget deployment on one machine (HLIN-I-0013, HLIN-T-0094).
+#
+# Twenty widget containers, each serving its own UI at `/` and Hlin under
+# `/hlin` on its own name (`clock.comp.test` … `meetings.comp.test`, as each
+# would be `clock.comp.net`); the shell, a release build, as `hlin.comp.test`;
+# Dex, which people sign in through; and Postgres. One network, of this
+# project's own, so nothing here meets the development database or the
+# collaborative demo's Dex.
+#
+#   angreal demo up --with twenty-compose     build, start, publish "Twenty"
+#   angreal demo down                         stop it (and the process demo)
+#
+# By hand, from the repository root, once `up` has made demo/state/twenty:
+#
+#   docker compose -f deploy/twenty/compose.yml -p hlin-twenty stop clock
+#   docker compose -f deploy/twenty/compose.yml -p hlin-twenty start clock
+#
+# which is a platform going down and coming back: `unless-stopped` leaves a
+# container stopped by hand stopped, and restarts one that died by itself.
+#
+# Published, both on loopback only: the shell on 8090 (the process demo has
+# 8080), and Dex on 5557, because a browser signing in is sent to Dex. The
+# widgets and Postgres are reachable only on the network.
+
+name: hlin-twenty
+
+x-build: &build
+  context: ../..
+  dockerfile: Dockerfile
+  args:
+    # The twenty as well as the shell, so all twenty-one images come from
+    # the one builder stage, built once.
+    TWENTY: "1"
+
+x-widget: &widget
+  restart: unless-stopped
+  # Every widget takes the same flags. `--local-user` is the demo-only
+  # stand-in for the platform's own sign-in, so its own UI at `/` works: on,
+  # deliberately, because this network is the only thing that reaches it.
+  # Nothing publishes a widget's port.
+  command:
+    - --port=8080
+    - --bind=0.0.0.0
+    - --shell-keys=http://hlin.comp.test:8080/.well-known/hlin-keys.json
+    - --local-user=Local User
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/hlin/.well-known/hlin.json"]
+    interval: 5s
+    timeout: 3s
+    retries: 12
+    start_period: 2s
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hlin
+      POSTGRES_PASSWORD: hlin
+      POSTGRES_DB: hlin
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [comp]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hlin -d hlin"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  dex:
+    image: ghcr.io/dexidp/dex:v2.44.0
+    restart: unless-stopped
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    env_file:
+      # HLIN_DEMO_OIDC_SECRET, written by `up`, read by the shell too.
+      - path: ../../demo/state/twenty/oidc.env
+        required: false
+    ports:
+      - "127.0.0.1:5557:5557"
+    volumes:
+      - ./dex.yaml:/etc/dex/config.yaml:ro
+      - ../../demo/state/twenty/tls:/etc/dex/tls:ro
+    networks:
+      comp:
+        # The issuer's host, which the browser resolves to loopback by itself
+        # and the shell resolves here (dex.yaml says why).
+        aliases: [dex.localhost]
+
+  hlin:
+    build:
+      <<: *build
+      target: runtime
+    image: hlin-twenty/shell
+    restart: unless-stopped
+    environment:
+      HLIN_CONFIG: /etc/hlin/twenty.toml
+    env_file:
+      - path: ../../demo/state/twenty/oidc.env
+        required: false
+    ports:
+      - "127.0.0.1:8090:8080"
+    volumes:
+      - ./hlin.toml:/etc/hlin/twenty.toml:ro
+      - ../../demo/state/twenty/tls/ca.pem:/etc/hlin-trust/ca.pem:ro
+      - shell-state:/home/hlin/state
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dex:
+        condition: service_started
+    networks:
+      comp:
+        aliases: [hlin.comp.test]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  clock:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: clock }
+    image: hlin-twenty/clock
+    networks:
+      comp:
+        aliases: [clock.comp.test]
+
+  counter:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: counter }
+    image: hlin-twenty/counter
+    networks:
+      comp:
+        aliases: [counter.comp.test]
+
+  poll:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: poll }
+    image: hlin-twenty/poll
+    networks:
+      comp:
+        aliases: [poll.comp.test]
+
+  notes:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: notes }
+    image: hlin-twenty/notes
+    networks:
+      comp:
+        aliases: [notes.comp.test]
+
+  dice:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: dice }
+    image: hlin-twenty/dice
+    networks:
+      comp:
+        aliases: [dice.comp.test]
+
+  stopwatch:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: stopwatch }
+    image: hlin-twenty/stopwatch
+    networks:
+      comp:
+        aliases: [stopwatch.comp.test]
+
+  quote:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: quote }
+    image: hlin-twenty/quote
+    networks:
+      comp:
+        aliases: [quote.comp.test]
+
+  sparkline:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: sparkline }
+    image: hlin-twenty/sparkline
+    networks:
+      comp:
+        aliases: [sparkline.comp.test]
+
+  kanban:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: kanban }
+    image: hlin-twenty/kanban
+    networks:
+      comp:
+        aliases: [kanban.comp.test]
+
+  status:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: status }
+    image: hlin-twenty/status
+    networks:
+      comp:
+        aliases: [status.comp.test]
+
+  weather:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: weather }
+    image: hlin-twenty/weather
+    networks:
+      comp:
+        aliases: [weather.comp.test]
+
+  pomodoro:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: pomodoro }
+    image: hlin-twenty/pomodoro
+    networks:
+      comp:
+        aliases: [pomodoro.comp.test]
+
+  shoutbox:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: shoutbox }
+    image: hlin-twenty/shoutbox
+    networks:
+      comp:
+        aliases: [shoutbox.comp.test]
+
+  reactions:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: reactions }
+    image: hlin-twenty/reactions
+    networks:
+      comp:
+        aliases: [reactions.comp.test]
+
+  bookmarks:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: bookmarks }
+    image: hlin-twenty/bookmarks
+    networks:
+      comp:
+        aliases: [bookmarks.comp.test]
+
+  oncall:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: oncall }
+    image: hlin-twenty/oncall
+    networks:
+      comp:
+        aliases: [oncall.comp.test]
+
+  picker:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: picker }
+    image: hlin-twenty/picker
+    networks:
+      comp:
+        aliases: [picker.comp.test]
+
+  deploys:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: deploys }
+    image: hlin-twenty/deploys
+    networks:
+      comp:
+        aliases: [deploys.comp.test]
+
+  converter:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: converter }
+    image: hlin-twenty/converter
+    networks:
+      comp:
+        aliases: [converter.comp.test]
+
+  meetings:
+    <<: *widget
+    build:
+      <<: *build
+      target: widget
+      args: { TWENTY: "1", WIDGET: meetings }
+    image: hlin-twenty/meetings
+    networks:
+      comp:
+        aliases: [meetings.comp.test]
+
+networks:
+  comp: {}
+
+volumes:
+  pgdata: {}
+  shell-state: {}

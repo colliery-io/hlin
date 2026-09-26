@@ -514,6 +514,52 @@ accepts. `up` generates the client secret and hands it to both through
 the platforms and Dex too. `angreal e2e test` expects the standard demo and says so if pointed at
 this one; `angreal e2e signin` and `angreal e2e walkthrough` expect this one.
 
+### The containerised twenty
+
+`angreal demo up --with twenty` runs twenty small widget platforms as
+processes on ports 8201 to 8220, which is quick to work on. `--with
+twenty-compose` runs the same twenty the way they are meant to be deployed:
+
+```bash
+angreal demo up --with twenty-compose   # build the images, start them, publish "Twenty"
+angreal demo down                       # stop them
+```
+
+- **One container per widget**, each on its own name on a compose network
+  (`clock.comp.test` to `meetings.comp.test`), serving its own UI at `/` and
+  Hlin under `/hlin`, with both builds compiled into its one binary. None is
+  published: the shell reaches them at `http://<name>.comp.test:8080/hlin`.
+- **The shell is a release build** (`hlin.comp.test`), published on
+  `http://127.0.0.1:8090` and nothing else, signing people in through a Dex
+  and keeping layouts in a Postgres of the stack's own: project `hlin-twenty`,
+  leaving the development database, the collaborative demo's Dex and 8080
+  alone.
+- **Dex is on https**, because a release shell will not trust a plain-http
+  issuer. Its issuer is `https://dex.localhost:5557/dex`, one address that
+  works from both sides: a browser resolves any `*.localhost` to loopback,
+  where Dex is published, and the shell's container resolves it on the compose
+  network, where it is Dex's alias. `up` makes a throwaway CA for it under
+  `demo/state/twenty/tls`, which the shell trusts through `ca_bundle`; your
+  browser warns once unless you trust `ca.pem` too.
+- `up` signs in through Dex as Alice and publishes **Twenty**, all twenty
+  widgets on one surface; sign in as `alice@example.com` (or Bob, or Carol),
+  password `password`.
+- **A platform going down and coming back** is a container stopped and
+  started:
+
+  ```bash
+  docker compose -f deploy/twenty/compose.yml -p hlin-twenty stop clock
+  docker compose -f deploy/twenty/compose.yml -p hlin-twenty start clock
+  ```
+
+Every image comes from one builder stage in the repository's `Dockerfile`
+(`TWENTY=1`), which compiles the shell, its front ends, every module and own
+UI (release, `wasm-opt`) and every widget server once, with cargo's registry
+and target directory on BuildKit cache mounts. The first build takes a while;
+after that an unchanged build is seconds and an edit recompiles what it
+touched. The files are `deploy/twenty/`: the compose file, the shell's
+configuration, and Dex's.
+
 ### Seeing it in a real design system
 
 The demo pack exists so this repository can demonstrate itself while depending

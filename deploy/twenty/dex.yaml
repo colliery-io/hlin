@@ -1,0 +1,65 @@
+# The identity provider the containerised twenty sign people in through
+# (HLIN-T-0094). The collaborative demo's Dex (demo/dex.yaml) with the same
+# three people, and two differences, both forced by the shell being a release
+# build.
+#
+# **https.** A release shell refuses a plain-http issuer, loopback or not
+# (HLIN-I-0010, decision 8), so Dex serves TLS, from a certificate for
+# `dex.localhost` signed by a throwaway CA that `angreal demo up --with
+# twenty-compose` makes (demo/state/twenty/tls). The shell trusts that CA
+# through its `ca_bundle`; a browser does not, and says so once.
+#
+# **One name, from both sides.** The issuer is the `iss` of every id token and
+# the shell checks it character for character, so the browser and the shell
+# must reach Dex at the same address. `dex.localhost` is that address:
+#
+# - the browser resolves any `*.localhost` to loopback by itself (Chrome,
+#   Firefox, curl and macOS's resolver all do), and Dex is published on
+#   127.0.0.1:5557;
+# - the shell's container resolves it through the compose network, where it
+#   is Dex's alias, and Dex listens on 5557 inside as well.
+#
+# So the same URL reaches the same Dex from both, with nothing edited on the
+# host and no forwarder in the shell's container.
+issuer: https://dex.localhost:5557/dex
+
+storage:
+  type: memory
+
+web:
+  https: 0.0.0.0:5557
+  tlsCert: /etc/dex/tls/dex.crt
+  tlsKey: /etc/dex/tls/dex.key
+
+oauth2:
+  # Nothing to consent to: the demo's client is the demo's shell.
+  skipApprovalScreen: true
+
+staticClients:
+  - id: hlin
+    name: Hlin
+    # Read from the environment, which the compose file fills from
+    # demo/state/twenty/oidc.env, the same file the shell's is filled from.
+    secretEnv: HLIN_DEMO_OIDC_SECRET
+    # The shell's callback, `{public_url}/auth/callback`: the one port the
+    # compose file publishes for it. 127.0.0.1 rather than localhost because
+    # the session cookie is host-scoped.
+    redirectURIs:
+      - http://127.0.0.1:8090/auth/callback
+
+enablePasswordDB: true
+
+# Password `password` for all three, as in demo/dex.yaml.
+staticPasswords:
+  - email: alice@example.com
+    hash: "$2a$10$3o2lcBnA8x5nbCATcGWf2e76sFO9fEqEWXoc2AoM/Pk1HCzAzZ9xC"
+    username: Alice
+    userID: 8a5f2a3e-1c4b-4d7e-9f10-a11ce0000001
+  - email: bob@example.com
+    hash: "$2a$10$Uu/iWnFDRmFevutU7Ziycu1NXY25mBjkhK38QH43nPeHjxIlVGLNe"
+    username: Bob
+    userID: 8a5f2a3e-1c4b-4d7e-9f10-b0b000000002
+  - email: carol@elsewhere.org
+    hash: "$2a$10$oSclBfmK8Vn/j8Q64yKZW.jn6wW7u8H2poqhT5agFmyje14R774d."
+    username: Carol
+    userID: 8a5f2a3e-1c4b-4d7e-9f10-ca4010000003
