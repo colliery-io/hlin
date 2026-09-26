@@ -2,8 +2,13 @@
 //! are the ones every widget takes (`hlin_widget_support::Common`).
 
 use hlin_widget_deploys::{Deploys, api, widget};
+use hlin_widget_support::{Builds, dist};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    hlin_widget_support::run(widget(), Deploys::default(), api()).await
+    let builds = Builds {
+        ui: dist!("ui/dist"),
+        module: dist!("module/dist"),
+    };
+    hlin_widget_support::run_with(widget(), Deploys::default(), api(), builds).await
 }

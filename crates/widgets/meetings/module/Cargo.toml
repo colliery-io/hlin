@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "The meetings widget's own UI: a Leptos module the shell hosts in a frame"
+description = "The meetings widget's Hlin module: its components, mounted in a frame the shell hosts"
 publish = false
 
 [[bin]]
@@ -14,10 +14,5 @@ name = "hlin-widget-meetings-module"
 path = "src/main.rs"
 
 [dependencies]
+hlin-widget-meetings-components = { path = "../components" }
 hlin-widget-module = { workspace = true }
-hlin-module = { workspace = true }
-leptos = { workspace = true, features = ["csr"] }
-serde = { workspace = true }
-serde_json = { workspace = true }
-# What time the browser thinks it is, and its time zone's offset.
-js-sys = "0.3"

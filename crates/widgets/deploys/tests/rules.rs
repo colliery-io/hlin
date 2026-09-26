@@ -6,6 +6,7 @@ use chrono::Utc;
 use hlin_widget_deploys::{Deploys, Line, PANEL, RECENT, api, line, widget};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 
 /// Fast enough that a test sees lines arrive, slow enough to tell apart.
 const TICK: Duration = Duration::from_millis(50);
@@ -192,4 +193,39 @@ async fn the_fallback_is_the_recent_lines_newest_first() {
             .collect()
     };
     assert!((0..20).any(|back| texts == expected(newest - back)));
+}
+
+// -- Its own UI's `/api/`, over the same handler -----------------------------
+
+#[tokio::test]
+async fn its_own_page_follows_the_same_log_at_its_own_api() {
+    let log = Deploys::every(TICK);
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    let running =
+        testing::start_site(widget(), log.clone(), api(), ModuleFiles::none(), layout).await;
+
+    // As its own UI reads it: same origin, no token, streamed.
+    let mut body = reqwest::Client::new()
+        .get(format!("{}/api/deploys/log", running.origin))
+        .send()
+        .await
+        .expect("the widget answers");
+    assert_eq!(body.status(), 200);
+    assert_eq!(log.open_readers(), 1);
+    let got = lines(&mut body, RECENT as usize + 3).await;
+    for pair in got.windows(2) {
+        assert_eq!(pair[1].seq, pair[0].seq + 1, "in order, with no gaps");
+    }
+    // And the same lines through Hlin, a line for a line, from the newest
+    // few (further back than the recent lines is not asked for).
+    let newest = &got[got.len() - 3..];
+    let mut hlin = open(&running, &format!("?after={}", newest[0].seq - 1)).await;
+    assert_eq!(lines(&mut hlin, 3).await, newest);
+
+    drop(body);
+    drop(hlin);
+    until_nobody_is_reading(&log).await;
 }

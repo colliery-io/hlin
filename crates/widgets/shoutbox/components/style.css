@@ -1,5 +1,5 @@
 /* The shoutbox's own look, against the shell's `--hlin-*` tokens and the
- * shared classes in hlin-widget-module's widget.css. Nothing else. */
+ * shared classes in hlin-widget-ui's widget.css. Nothing else. */
 
 /* Newest first in the document, laid out bottom up: the latest shout sits
  * just above the line you type on, and the log scrolls up into the past. */

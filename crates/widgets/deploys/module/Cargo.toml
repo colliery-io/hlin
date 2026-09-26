@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "The deploy log's own UI: a Leptos module that streams the log through the shell"
+description = "The deploy log's Hlin module: its components, mounted in a frame the shell hosts"
 publish = false
 
 [[bin]]
@@ -14,10 +14,5 @@ name = "hlin-widget-deploys-module"
 path = "src/main.rs"
 
 [dependencies]
+hlin-widget-deploys-components = { path = "../components" }
 hlin-widget-module = { workspace = true }
-hlin-module = { workspace = true }
-leptos = { workspace = true, features = ["csr"] }
-serde = { workspace = true }
-serde_json = { workspace = true }
-# The browser's time zone, for showing when each line happened.
-js-sys = "0.3"

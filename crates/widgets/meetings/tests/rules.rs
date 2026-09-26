@@ -4,6 +4,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use hlin_widget_meetings::{Meetings, PANEL, api, day, widget};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::json;
 
 /// Ten past noon on a Friday: the stand-up is over, the afternoon is not.
@@ -204,4 +205,62 @@ async fn the_fallback_is_todays_meetings_with_your_answers() {
     let at = today.iter().position(|meeting| meeting.id == id).unwrap();
     assert_eq!(table.rows[at]["answer"], "Going");
     assert_eq!(table.rows[0]["title"], "Stand-up");
+}
+
+// -- Its own UI's `/api/` and Hlin's `/hlin/api/`, over the same handlers ----
+
+/// Today's meetings, laid out as the demo runs it: its own `/api/` as a fixed local
+/// user, Hlin's surface under `/hlin`.
+async fn meetings_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Meetings::at(noon()),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn an_answer_on_its_own_page_is_the_local_users_and_nobody_elses() {
+    let meetings = meetings_with_its_own_ui().await;
+    let alice = person("u-alice", "Alice");
+    let id = later();
+
+    let answered = meetings
+        .own(
+            "PUT",
+            &answer(&id),
+            Some("k1"),
+            Some(json!({ "answer": "going" })),
+        )
+        .await;
+    assert!((200..300).contains(&answered.status), "{}", answered.body);
+    meetings
+        .write(
+            &alice,
+            "PUT",
+            &answer(&id),
+            Some(json!({ "answer": "maybe" })),
+        )
+        .await;
+
+    let find = |today: &serde_json::Value| {
+        today
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|meeting| meeting["id"] == id.as_str())
+            .unwrap()["answer"]
+            .clone()
+    };
+    let own = meetings.own("GET", "/api/meetings", None, None).await;
+    let hlin = meetings.get(&alice, "/api/meetings").await;
+    assert_eq!(find(&own.body), "going");
+    assert_eq!(find(&hlin.body), "maybe");
 }

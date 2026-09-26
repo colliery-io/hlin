@@ -3,6 +3,7 @@
 use hlin_widget_bookmarks::{Bookmarks, LONGEST_TITLE, MOST, PANEL, api, host, widget};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::{Value, json};
 
 async fn bookmarks() -> Running {
@@ -233,4 +234,52 @@ async fn the_fallback_is_the_links_newest_first() {
     assert_eq!(table.rows.len(), 3);
     assert_eq!(table.rows[0]["title"], "The Leptos book");
     assert_eq!(table.rows[0]["added_by"], "The team");
+}
+
+// -- Its own UI's `/api/` and Hlin's `/hlin/api/`, over the same handlers ----
+
+/// The bookmarks, laid out as the demo runs it: its own `/api/` as a fixed local
+/// user, Hlin's surface under `/hlin`.
+async fn bookmarks_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Bookmarks::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_link_added_on_its_own_page_is_on_hlins_list_and_back() {
+    let bookmarks = bookmarks_with_its_own_ui().await;
+    let alice = person("u-alice", "Alice");
+
+    let added = bookmarks
+        .own(
+            "POST",
+            "/api/bookmarks",
+            Some("k1"),
+            Some(json!({ "url": "https://example.com/own", "title": "Own" })),
+        )
+        .await;
+    assert!((200..300).contains(&added.status), "{}", added.body);
+    bookmarks
+        .write(
+            &alice,
+            "POST",
+            "/api/bookmarks",
+            Some(json!({ "url": "https://example.com/hlin", "title": "Hlin" })),
+        )
+        .await;
+
+    let own = bookmarks.own("GET", "/api/bookmarks", None, None).await;
+    let hlin = bookmarks.get(&alice, "/api/bookmarks").await;
+    assert_eq!(titles(&own.body), titles(&hlin.body));
+    assert_eq!(titles(&own.body), ["Hlin", "Own"]);
 }

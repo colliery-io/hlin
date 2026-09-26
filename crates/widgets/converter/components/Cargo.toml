@@ -1,0 +1,14 @@
+[package]
+name = "hlin-widget-converter-components"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The converter's components, mounted by its own UI and by its Hlin module alike"
+publish = false
+
+[dependencies]
+hlin-widget-ui = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }

@@ -408,6 +408,69 @@ test.describe('twenty widgets on one surface', () => {
       expect(module.locator('.dice__latest')).toHaveAttribute('data-number', String(before + 1), options),
     );
   });
+
+  // HLIN-T-0097: widgets thirteen to twenty at their own roots. Each draws
+  // there with the direct client; the deploy log streams its own `/api/` as
+  // its module streams through the bridge; a shout said on the shoutbox's own
+  // page is in its module on "Twenty".
+  test('widgets thirteen to twenty draw at their own roots, the log streaming', async ({
+    browser,
+  }) => {
+    const own = await (await browser.newContext({ viewport: { width: 520, height: 480 } })).newPage();
+    const drawn = {
+      shoutbox: '.shoutbox__say',
+      reactions: 'button.reactions__pill',
+      bookmarks: '.bookmarks__add',
+      oncall: '.oncall__name',
+      picker: '.picker__stage',
+      deploys: 'li.deploys__line',
+      converter: '.converter__answer',
+      meetings: 'ul.meetings, main.widget > p.w-quiet',
+    };
+    for (const [name, selector] of Object.entries(drawn)) {
+      await own.goto(`http://127.0.0.1:${OWN_UI[name]}/`);
+      await expect(own.locator(selector).first(), `${name} at its own root`).toBeVisible({
+        timeout: READY,
+      });
+      await expect(own.locator('.w-refusal, .w-failed'), `${name}: nothing refused`).toHaveCount(0);
+    }
+
+    // The converter works it out in the page, asking for nothing.
+    await own.goto(`http://127.0.0.1:${OWN_UI.converter}/`);
+    const asked = [];
+    own.on('request', (request) => asked.push(request.url()));
+    await own.getByRole('textbox', { name: 'Value' }).fill('2');
+    await expect(own.locator('.converter__answer')).toHaveAttribute('data-value', /\d/);
+    expect(asked, 'the converter asks its platform for nothing').toEqual([]);
+
+    // The deploy log, on its own page: lines keep arriving on a stream of its
+    // own `/api/`, as they do in its module through the bridge (above).
+    await own.goto(`http://127.0.0.1:${OWN_UI.deploys}/`);
+    const stayed = forbidReloads(own, 'the deploy log');
+    await expect(own.locator('.deploys__status--live')).toBeVisible({ timeout: READY });
+    const newest = async () =>
+      Number(await own.locator('li.deploys__line').first().getAttribute('data-seq'));
+    const before = await newest();
+    await propagated('three more deploy lines arrive on its own page', (options) =>
+      expect.poll(newest, options).toBeGreaterThanOrEqual(before + 3),
+    );
+    await shot(own, 216, 'twenty-deploys-own-ui-streaming');
+    stayed();
+
+    // A shout on the shoutbox's own page, in its module on "Twenty".
+    const surfacePage = await (await browser.newContext()).newPage();
+    await openSurface(surfacePage, surface, panels);
+    const module = inside(widget(surfacePage, 'shoutbox', 'shoutbox'));
+    await widget(surfacePage, 'shoutbox', 'shoutbox').scrollIntoViewIfNeeded();
+    await own.goto(`http://127.0.0.1:${OWN_UI.shoutbox}/`);
+    const words = `Said on its own page ${Date.now()}`;
+    await own.getByRole('textbox', { name: 'Say something' }).fill(words);
+    await own.getByRole('button', { name: 'Send' }).click();
+    await expect(own.locator('li.shoutbox__shout--mine', { hasText: words })).toBeVisible();
+    await propagated('a shout on its own page reaches its module', (options) =>
+      expect(module.locator('li.shoutbox__shout', { hasText: words })).toBeVisible(options),
+    );
+  });
 });
 
 /** The converted widgets' own UIs, at their demo ports (`WIDGETS`). */
@@ -424,4 +487,12 @@ const OWN_UI = {
   status: 8210,
   weather: 8211,
   pomodoro: 8212,
+  shoutbox: 8213,
+  reactions: 8214,
+  bookmarks: 8215,
+  oncall: 8216,
+  picker: 8217,
+  deploys: 8218,
+  converter: 8219,
+  meetings: 8220,
 };

@@ -1,0 +1,18 @@
+[package]
+name = "hlin-widget-shoutbox-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The shoutbox's own UI: its components, served at the root of its origin"
+publish = false
+
+[[bin]]
+name = "hlin-widget-shoutbox-ui"
+path = "src/main.rs"
+
+[dependencies]
+hlin-widget-shoutbox-components = { path = "../components" }
+hlin-widget-ui = { workspace = true, features = ["direct"] }

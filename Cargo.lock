@@ -1732,14 +1732,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-bookmarks-module"
+name = "hlin-widget-bookmarks-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-bookmarks-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-bookmarks-components",
+ "hlin-widget-module",
+]
+
+[[package]]
+name = "hlin-widget-bookmarks-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-bookmarks-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -1794,12 +1809,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "hlin-widget-converter-components"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-ui",
+ "leptos",
+]
+
+[[package]]
 name = "hlin-widget-converter-module"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
+ "hlin-widget-converter-components",
  "hlin-widget-module",
- "leptos",
+]
+
+[[package]]
+name = "hlin-widget-converter-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-converter-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -1856,15 +1886,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-deploys-module"
+name = "hlin-widget-deploys-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "js-sys",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-deploys-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-deploys-components",
+ "hlin-widget-module",
+]
+
+[[package]]
+name = "hlin-widget-deploys-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-deploys-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -1958,15 +2003,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-meetings-module"
+name = "hlin-widget-meetings-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "js-sys",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-meetings-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-meetings-components",
+ "hlin-widget-module",
+]
+
+[[package]]
+name = "hlin-widget-meetings-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-meetings-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2034,14 +2094,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-oncall-module"
+name = "hlin-widget-oncall-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-oncall-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-oncall-components",
+]
+
+[[package]]
+name = "hlin-widget-oncall-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-oncall-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2059,14 +2134,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-picker-module"
+name = "hlin-widget-picker-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-picker-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-picker-components",
+]
+
+[[package]]
+name = "hlin-widget-picker-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-picker-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2198,14 +2288,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-reactions-module"
+name = "hlin-widget-reactions-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-reactions-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-reactions-components",
+]
+
+[[package]]
+name = "hlin-widget-reactions-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-reactions-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]
@@ -2222,15 +2327,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "hlin-widget-shoutbox-module"
+name = "hlin-widget-shoutbox-components"
 version = "0.0.1"
 dependencies = [
- "hlin-module",
- "hlin-widget-module",
+ "hlin-widget-ui",
  "js-sys",
  "leptos",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hlin-widget-shoutbox-module"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-module",
+ "hlin-widget-shoutbox-components",
+]
+
+[[package]]
+name = "hlin-widget-shoutbox-ui"
+version = "0.0.1"
+dependencies = [
+ "hlin-widget-shoutbox-components",
+ "hlin-widget-ui",
 ]
 
 [[package]]

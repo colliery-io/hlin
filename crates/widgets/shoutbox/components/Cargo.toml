@@ -1,0 +1,18 @@
+[package]
+name = "hlin-widget-shoutbox-components"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The shoutbox's components, mounted by its own UI and by its Hlin module alike"
+publish = false
+
+[dependencies]
+hlin-widget-ui = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The browser's clock, to show when something was said in its own time.
+js-sys = "0.3"

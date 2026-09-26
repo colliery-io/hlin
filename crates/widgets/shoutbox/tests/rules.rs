@@ -3,6 +3,7 @@
 use hlin_widget_shoutbox::{KEPT, LONGEST, PANEL, Shoutbox, api, widget};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::{Value, json};
 
 async fn shoutbox() -> Running {
@@ -196,4 +197,77 @@ async fn the_fallback_is_the_latest_shouts_newest_first() {
     assert_eq!(table.rows.len(), 2);
     assert_eq!(table.rows[0]["text"], "second");
     assert_eq!(table.rows[0]["name"], "Alice");
+}
+
+// -- Its own UI's `/api/` and Hlin's `/hlin/api/`, over the same handlers ----
+
+/// The shoutbox, laid out as the demo runs it: its own `/api/` as a fixed local
+/// user, Hlin's surface under `/hlin`.
+async fn shoutbox_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Shoutbox::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_shout_from_its_own_page_and_one_through_hlin_are_one_conversation() {
+    let shoutbox = shoutbox_with_its_own_ui().await;
+    let alice = person("u-alice", "Alice");
+
+    let said = shoutbox
+        .own(
+            "POST",
+            "/api/shouts",
+            Some("k1"),
+            Some(json!({ "text": "from its own page" })),
+        )
+        .await;
+    assert!((200..300).contains(&said.status), "{}", said.body);
+    shoutbox
+        .write(
+            &alice,
+            "POST",
+            "/api/shouts",
+            Some(json!({ "text": "through Hlin" })),
+        )
+        .await;
+
+    let own = shoutbox.own("GET", "/api/shouts", None, None).await;
+    let hlin = shoutbox.get(&alice, "/api/shouts").await;
+    assert_eq!(texts(&own.body), texts(&hlin.body));
+    assert_eq!(texts(&own.body).len(), 2);
+    // Each is "mine" only to whoever said it.
+    let mine = |room: &Value| -> Vec<bool> {
+        room["shouts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|shout| shout["mine"].as_bool().unwrap())
+            .collect()
+    };
+    assert_ne!(mine(&own.body), mine(&hlin.body));
+
+    // And its own page takes back its own shout.
+    let id = own.body["shouts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|shout| shout["mine"] == true)
+        .unwrap()["id"]
+        .clone();
+    let taken = shoutbox
+        .own("DELETE", &format!("/api/shouts/{id}"), Some("k2"), None)
+        .await;
+    assert!((200..300).contains(&taken.status), "{}", taken.body);
+    let left = shoutbox.get(&alice, "/api/shouts").await;
+    assert_eq!(texts(&left.body), ["through Hlin"]);
 }

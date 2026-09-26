@@ -1,23 +1,20 @@
 <!doctype html>
 <!--
-  The oncall's module: the entry document the shell loads into the panel's
+  The on-call rota's module: the entry document the shell loads into the panel's
   frame. Everything it runs is a file beside it, because the module CSP allows
-  nothing inline but styles. Every widget's is this file with its title
-  changed.
+  nothing inline but styles, which is how the components bring their own.
+  Every converted widget's is this file with its title changed.
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Oncall</title>
+    <title>On call</title>
     <!-- wasm-opt for size, on a release build only (Trunk skips it
          otherwise). It validates against the MVP unless told which features
          rustc now emits by default, and refused the module without them. -->
     <link data-trunk rel="rust" data-wasm-opt="z"
           data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue" />
-    <!-- `crossorigin`, because the frame's origin is opaque: the integrity
-         check Trunk adds can only read a stylesheet fetched with CORS. -->
-    <link data-trunk rel="css" href="module.css" crossorigin="anonymous" />
     <link data-trunk rel="copy-file" href="boot.js" />
   </head>
   <body></body>

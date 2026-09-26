@@ -1,6 +1,6 @@
 //! The converter's rules: which units there are, and the arithmetic.
 //!
-//! All of it here, in the module, because none of it needs a platform: the
+//! All of it here, in the components, because none of it needs a platform: the
 //! units do not change and the answer is only ever for the person typing.
 //!
 //! Every unit is an affine map onto its quantity's base unit,

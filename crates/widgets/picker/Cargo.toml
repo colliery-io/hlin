@@ -9,6 +9,11 @@ repository.workspace = true
 description = "Widget 17 of twenty: pick someone at random from the people who use it"
 publish = false
 
+[features]
+# Both builds compiled into the binary (`hlin_widget_support::dist!`), for a
+# container that ships one file. Build `ui/` and `module/` with Trunk first.
+embed = ["hlin-widget-support/embed"]
+
 [[bin]]
 name = "hlin-widget-picker"
 path = "src/main.rs"

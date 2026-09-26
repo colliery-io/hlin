@@ -8,6 +8,7 @@ use hlin_widget_oncall::{
 use hlin_widget_support::Claims;
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::{Value, json};
 
 async fn rota() -> Running {
@@ -182,4 +183,29 @@ async fn the_fallback_is_this_week_and_the_next_few() {
     let this_week = monday(Utc::now().date_naive());
     assert_eq!(table.rows[0]["week"], week_name(this_week));
     assert_eq!(table.rows[0]["name"], on_call(&roster(), this_week));
+}
+
+// -- Its own UI's `/api/` and Hlin's `/hlin/api/`, over the same handlers ----
+
+/// The rota, laid out as the demo runs it: its own `/api/` as a fixed local
+/// user, Hlin's surface under `/hlin`.
+async fn rota_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(widget(), Rota::seed(), api(), ModuleFiles::none(), layout).await
+}
+
+#[tokio::test]
+async fn its_own_page_is_shown_the_same_rota_as_hlin() {
+    let rota = rota_with_its_own_ui().await;
+    let alice = person("u-alice", "Alice");
+    for path in ["/api/oncall", "/api/oncall/2024-W01"] {
+        let own = rota.own("GET", path, None, None).await;
+        let hlin = rota.get(&alice, path).await;
+        assert_eq!(own.status, 200, "{path}: {}", own.body);
+        assert_eq!(own.body["turn"], hlin.body["turn"], "{path}");
+        assert_eq!(own.body["roster"], hlin.body["roster"], "{path}");
+    }
 }

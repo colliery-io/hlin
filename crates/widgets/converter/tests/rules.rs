@@ -1,7 +1,7 @@
 //! The converter, as the shell sees it: a module to host, and nothing else.
 //!
-//! Its rules (the units and the arithmetic) are its module's, and are tested
-//! there, in `module/src/units.rs`.
+//! Its rules (the units and the arithmetic) are its components', and are
+//! tested there, in `components/src/units.rs`.
 
 use hlin_widget_converter::{PANEL, api, widget};
 use hlin_widget_support::testing::{self, person};
@@ -30,23 +30,33 @@ fn it_declares_no_fallback_and_says_why() {
 }
 
 #[test]
-fn the_module_makes_no_requests() {
-    // The rule is the module's, so it is checked in the module's words: no
-    // fetch, streamed or not, and none of the widget kit's calls that make one.
+fn neither_its_module_nor_its_own_ui_makes_requests() {
+    // The rule is the components', which both mount, so it is checked in
+    // their words: no fetch, streamed or not, and none of the widget kit's
+    // calls that make one, with either client.
     for (file, source) in [
-        ("main.rs", include_str!("../module/src/main.rs")),
-        ("units.rs", include_str!("../module/src/units.rs")),
+        (
+            "components/src/lib.rs",
+            include_str!("../components/src/lib.rs"),
+        ),
+        (
+            "components/src/units.rs",
+            include_str!("../components/src/units.rs"),
+        ),
+        ("module/src/main.rs", include_str!("../module/src/main.rs")),
+        ("ui/src/main.rs", include_str!("../ui/src/main.rs")),
     ] {
         for call in [
             "Request::",
             ".fetch(",
             ".fetch_stream(",
+            ".stream(",
             ".attempt(",
             ".load::",
             ".send(",
             ".send_then(",
         ] {
-            assert!(!source.contains(call), "module/src/{file} calls {call}");
+            assert!(!source.contains(call), "{file} calls {call}");
         }
     }
 }

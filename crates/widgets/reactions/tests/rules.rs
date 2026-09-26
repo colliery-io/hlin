@@ -3,6 +3,7 @@
 use hlin_widget_reactions::{EMOJI, MOST_EACH, NAMES_SHOWN, PANEL, Reactions, api, widget};
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::{Value, json};
 
 async fn reactions() -> Running {
@@ -180,4 +181,47 @@ async fn the_fallback_is_every_emoji_and_its_count() {
     assert_eq!(table.rows.len(), EMOJI.len());
     assert_eq!(table.rows[0]["reaction"], "👍 Thumbs up");
     assert_eq!(table.rows[0]["count"], 1);
+}
+
+// -- Its own UI's `/api/` and Hlin's `/hlin/api/`, over the same handlers ----
+
+/// The reactions, laid out as the demo runs it: its own `/api/` as a fixed local
+/// user, Hlin's surface under `/hlin`.
+async fn reactions_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Reactions::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_reaction_from_its_own_page_and_one_through_hlin_are_counted_together() {
+    let reactions = reactions_with_its_own_ui().await;
+    let alice = person("u-alice", "Alice");
+    let (emoji, _, _) = EMOJI[0];
+    let path = format!("/api/reactions/{emoji}");
+
+    let reacted = reactions.own("PUT", &path, Some("k1"), None).await;
+    assert!((200..300).contains(&reacted.status), "{}", reacted.body);
+    reactions.write(&alice, "PUT", &path, None).await;
+
+    let count = |board: &Value| board["reactions"][0]["count"].clone();
+    let own = reactions.own("GET", "/api/reactions", None, None).await;
+    let hlin = reactions.get(&alice, "/api/reactions").await;
+    assert_eq!(count(&own.body), 2);
+    assert_eq!(count(&hlin.body), 2);
+
+    let taken = reactions.own("DELETE", &path, Some("k2"), None).await;
+    assert!((200..300).contains(&taken.status), "{}", taken.body);
+    let hlin = reactions.get(&alice, "/api/reactions").await;
+    assert_eq!(count(&hlin.body), 1);
+    assert_eq!(hlin.body["reactions"][0]["mine"], true);
 }

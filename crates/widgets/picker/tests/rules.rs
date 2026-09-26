@@ -5,6 +5,7 @@ use hlin_widget_picker::{PANEL, Picker, REMEMBERED, api, widget};
 use hlin_widget_support::Claims;
 use hlin_widget_support::envelope::Envelope;
 use hlin_widget_support::testing::{self, Running, person};
+use hlin_widget_support::{ModuleFiles, Site};
 use serde_json::{Value, json};
 
 async fn picker() -> Running {
@@ -217,4 +218,53 @@ async fn the_fallback_is_the_latest_picks() {
     assert_eq!(table.rows.len(), 1);
     assert_eq!(table.rows[0]["name"], "Alice");
     assert_eq!(table.rows[0]["by"], "Alice");
+}
+
+// -- Its own UI's `/api/` and Hlin's `/hlin/api/`, over the same handlers ----
+
+/// The picker, laid out as the demo runs it: its own `/api/` as a fixed local
+/// user, Hlin's surface under `/hlin`.
+async fn picker_with_its_own_ui() -> Running {
+    let layout = Site {
+        local_user: Some("Local User".to_string()),
+        ..Site::default()
+    };
+    testing::start_site(
+        widget(),
+        Picker::default(),
+        api(),
+        ModuleFiles::none(),
+        layout,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_pick_on_its_own_page_is_the_pick_hlin_shows() {
+    let picker = picker_with_its_own_ui().await;
+    let alice = person("u-alice", "Alice");
+    // Alice is seen through Hlin, the local user on its own page.
+    picker.get(&alice, "/api/picker").await;
+
+    let picked = picker
+        .own("POST", "/api/picker/pick", Some("k1"), None)
+        .await;
+    assert!((200..300).contains(&picked.status), "{}", picked.body);
+    let own = picker.own("GET", "/api/picker", None, None).await;
+    let hlin = picker.get(&alice, "/api/picker").await;
+    assert_eq!(own.body["picks"], hlin.body["picks"]);
+    assert_eq!(hlin.body["picks"][0]["by"], "Local User");
+
+    // Sitting out on its own page is seen through Hlin.
+    let out = picker
+        .own(
+            "PUT",
+            "/api/picker/me",
+            Some("k2"),
+            Some(json!({ "in": false })),
+        )
+        .await;
+    assert!((200..300).contains(&out.status), "{}", out.body);
+    let hlin = picker.get(&alice, "/api/picker").await;
+    assert_eq!(hlin.body["in_draw"], 1);
 }

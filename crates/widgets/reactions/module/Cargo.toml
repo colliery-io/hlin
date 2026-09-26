@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "The reactions's own UI: a Leptos module the shell hosts in a frame"
+description = "The reactions' Hlin module: its components, mounted in a frame the shell hosts"
 publish = false
 
 [[bin]]
@@ -14,8 +14,5 @@ name = "hlin-widget-reactions-module"
 path = "src/main.rs"
 
 [dependencies]
+hlin-widget-reactions-components = { path = "../components" }
 hlin-widget-module = { workspace = true }
-hlin-module = { workspace = true }
-leptos = { workspace = true, features = ["csr"] }
-serde = { workspace = true }
-serde_json = { workspace = true }

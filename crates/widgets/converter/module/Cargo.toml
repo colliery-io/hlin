@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "The converter's own UI, and all of its rules: a Leptos module that asks for nothing"
+description = "The converter's Hlin module: its components, mounted in a frame the shell hosts"
 publish = false
 
 [[bin]]
@@ -14,6 +14,5 @@ name = "hlin-widget-converter-module"
 path = "src/main.rs"
 
 [dependencies]
+hlin-widget-converter-components = { path = "../components" }
 hlin-widget-module = { workspace = true }
-hlin-module = { workspace = true }
-leptos = { workspace = true, features = ["csr"] }

@@ -1,5 +1,5 @@
 /* The bookmarks' own look, against the shell's `--hlin-*` tokens and the
- * shared classes in hlin-widget-module's widget.css. Nothing else. */
+ * shared classes in hlin-widget-ui's widget.css. Nothing else. */
 
 .bookmarks__list {
   gap: 2px;

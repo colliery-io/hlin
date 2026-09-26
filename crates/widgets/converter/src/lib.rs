@@ -1,10 +1,12 @@
 //! Widget 19 of twenty ([[HLIN-I-0012]]): a unit converter, entirely local.
 //!
-//! Everything this widget does happens in its module: the units, the
-//! arithmetic and what the person typed. The module makes no requests at all,
-//! so this server is only what the shell needs to host it: the manifest, the
-//! module's files, health and the (silent) event stream, all from
-//! `hlin_widget_support::router`. It has no routes of its own and no state.
+//! Everything this widget does happens in its components, in the browser: the
+//! units, the arithmetic and what the person typed. They make no requests at
+//! all, as its own UI or as its module, so this server is only what serves
+//! them: its own UI at the root, and what the shell needs to host the module
+//! (the manifest, the module's files, health and the silent event stream,
+//! all from `hlin_widget_support::router`). It has no routes of its own and
+//! no state.
 //!
 //! **No fallback**, and on purpose. A shell-drawn fallback is data the
 //! platform serves in an envelope, for the shell to draw when the module
