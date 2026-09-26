@@ -806,6 +806,7 @@ fn on_load(instance: &str) {
 /// The panel came into or went out of view (`Some`), or the tab was shown or
 /// hidden (`None`).
 fn seen(instance: &str, in_view: Option<bool>) {
+    let mut stayed = false;
     let (changed, remount) = PAGE.with(|page| {
         let mut page = page.borrow_mut();
         let Some(host) = page.hosts.get_mut(instance) else {
@@ -821,7 +822,7 @@ fn seen(instance: &str, in_view: Option<bool>) {
             host.in_view = in_view;
             if in_view {
                 // Back before its suspension ran out: it stays.
-                host.suspending = None;
+                stayed = host.suspending.take().is_some();
             }
         }
         let remount = host.in_view && host.iframe.is_none();
@@ -832,6 +833,12 @@ fn seen(instance: &str, in_view: Option<bool>) {
         host.liveness.visible(visible, at);
         (host.liveness.has_loaded().then_some(visible), remount)
     });
+    // A frame that was waiting for this one to leave would otherwise wait
+    // until it next came into view, blank where a person is looking: it asks
+    // for room again, and another goes, or it is mounted past the budget.
+    if stayed {
+        mount_waiting();
+    }
     if let Some(visible) = changed {
         post(
             instance,
