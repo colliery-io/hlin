@@ -4,14 +4,14 @@ level: initiative
 title: "Twenty platforms, deployed the way we intend"
 short_code: "HLIN-I-0013"
 created_at: 2026-09-25T23:54:57.213964+00:00
-updated_at: 2026-09-25T23:55:39.305890+00:00
+updated_at: 2026-09-26T05:38:26.383635+00:00
 parent: HLIN-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -135,3 +135,21 @@ twenty --against compose`, `twenty-measure --against compose`), signed in
 through Dex; the numbers match the process-based ones (Results, above). The
 README says how to run it and that it is the reference for how a platform
 serves Hlin.
+### 2026-09-26 — completed
+
+All six tasks done. Every widget serves its own UI at `/` behind a catch-all
+fallback and Hlin under `/hlin`; every Hlin module is a re-export of the base
+SPA's components and a mount. Twenty containers, a release shell and Dex come
+up from one compose file (`angreal demo up --with twenty-compose`), and the
+twenty suites pass against them signed in through Dex, with a widget
+container stopped and started twice as an outage. The containers measure the
+same as the processes within run-to-run spread.
+
+The intermittent timeouts were one product bug (a panel waiting for
+frame-budget room stayed blank when the frame it waited on came back into
+view), fixed in [[HLIN-T-0097]] and now guarded by a test; 104 runs since
+without a failure.
+
+Verified on main at close: 1085 Rust tests; collab sign-in 9 and walkthrough
+3 after the shared sign-in helper moved; the agents' runs of Aurora (78),
+twenty and twenty-measure 20 of 20 each, and both against the containers.
