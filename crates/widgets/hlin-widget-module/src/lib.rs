@@ -22,18 +22,12 @@
 //!
 //! The components, the handle they use and the stylesheet are
 //! `hlin-widget-ui`'s, shared with the widget's own UI.
-//!
-//! The rest of this crate ([`start`], [`Widget`], [`loaded_view`]) is the
-//! shape a module had before, when it had its own UI. It stays until the last
-//! widget is converted ([[HLIN-T-0096]], [[HLIN-T-0097]]).
 
 mod hlin;
-mod legacy;
 mod words;
 
 pub use hlin::{Hlin, mount};
 pub use hlin_widget_ui::{Loaded, STYLE};
-pub use legacy::{Widget, loaded_view, start};
 pub use words::{outcome, platform_words, shell_words, worth_retrying};
 
 /// What the shell logs as the kit a widget was drawn with, so drift between
