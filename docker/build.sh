@@ -36,8 +36,15 @@ fi
 # at once, each finding the compiling done and only running wasm-bindgen and
 # wasm-opt. The other way round, a Trunk per crate would queue on cargo's lock
 # and compile one after another (the same order `demo up --with twenty` uses).
-projects="examples/frontend-gallery examples/frontend-demo"
-packages="-p frontend-gallery -p frontend-demo"
+projects="examples/frontend-gallery"
+packages="-p frontend-gallery"
+# The demo pack's own frontend only for the twenty widgets, which are drawn
+# with it: the released image serves the gallery and should not pay for a
+# second frontend it never uses.
+if [ "${TWENTY:-0}" = "1" ]; then
+  projects="$projects examples/frontend-demo"
+  packages="$packages -p frontend-demo"
+fi
 for widget in $widgets; do
   for kind in module ui; do
     if [ -f "crates/widgets/$widget/$kind/Cargo.toml" ]; then
@@ -85,5 +92,10 @@ for widget in $widgets; do
   cp "target/release/hlin-widget-$widget" "$out/bin/"
 done
 cp -R examples/frontend-gallery/dist "$out/frontend-gallery"
-cp -R examples/frontend-demo/dist "$out/frontend-demo"
+if [ "${TWENTY:-0}" = "1" ]; then
+  cp -R examples/frontend-demo/dist "$out/frontend-demo"
+else
+  # Empty, so the runtime stage's COPY still has something to copy.
+  mkdir -p "$out/frontend-demo"
+fi
 ls -l "$out/bin"
