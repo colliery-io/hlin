@@ -22,13 +22,18 @@ use hlin_identity::{BoundRequest, Issuer, Principal, Verifier};
 use serde_json::Value;
 
 use crate::files::ModuleFiles;
-use crate::platform::{Platform, router};
+use crate::platform::Platform;
+use crate::site::{Site, site};
 use crate::widget::Widget;
 
 /// A widget running on a loopback port, and a shell's worth of calling it.
 pub struct Running {
-    /// Where it answers: `http://127.0.0.1:{port}`.
+    /// Where Hlin's surface answers, as the shell's `base_url` would name it:
+    /// `http://127.0.0.1:{port}/hlin`. Every path a test sends is under it.
     pub base: String,
+    /// The widget's origin, `http://127.0.0.1:{port}`: its own UI and its own
+    /// `/api/` ([`Running::own`]).
+    pub origin: String,
     /// The platform id tokens are minted for.
     pub id: String,
     /// Where the fallback's data is, and which envelope it promises.
@@ -71,6 +76,18 @@ pub async fn start_with<S: Send + 'static>(
     api: Router<Platform<S>>,
     module: ModuleFiles,
 ) -> Running {
+    start_site(widget, state, api, module, Site::default()).await
+}
+
+/// [`start_with`], with the origin laid out as `layout` says: a UI of its own,
+/// a local user for its own `/api/`, another base for Hlin's surface.
+pub async fn start_site<S: Send + 'static>(
+    widget: Widget<S>,
+    state: S,
+    api: Router<Platform<S>>,
+    module: ModuleFiles,
+    layout: Site,
+) -> Running {
     let issuer = Issuer::generate("hlin");
     let id = widget.panel.to_string();
     let fallback = widget.fallback.as_ref().map(|fallback| {
@@ -85,14 +102,16 @@ pub async fn start_with<S: Send + 'static>(
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .expect("a loopback port");
-    let base = format!("http://{}", listener.local_addr().expect("an address"));
-    let app = router(platform, api);
+    let origin = format!("http://{}", listener.local_addr().expect("an address"));
+    let base = format!("{origin}{}", layout.hlin_base);
+    let app = site(platform, api, layout);
     tokio::spawn(async move {
         axum::serve(listener, app).await.expect("the widget serves");
     });
 
     Running {
         base,
+        origin,
         id,
         fallback,
         issuer,
@@ -151,7 +170,8 @@ impl Running {
         self.send(method, path, Some(&token), Some(key), body).await
     }
 
-    /// Anything at all: for the requests the shell would never send.
+    /// Anything at all under Hlin's base: for the requests the shell would
+    /// never send.
     pub async fn send(
         &self,
         method: &str,
@@ -160,10 +180,32 @@ impl Running {
         key: Option<&str>,
         body: Option<Value>,
     ) -> Answered {
-        let mut request = self.client.request(
-            method.parse().expect("a method"),
-            format!("{}{}", self.base, path),
-        );
+        self.send_to(format!("{}{}", self.base, path), method, token, key, body)
+            .await
+    }
+
+    /// A request to the widget's origin rather than Hlin's base, with no
+    /// token, as the widget's own UI sends it: `path` from the root.
+    pub async fn own(
+        &self,
+        method: &str,
+        path: &str,
+        key: Option<&str>,
+        body: Option<Value>,
+    ) -> Answered {
+        self.send_to(format!("{}{}", self.origin, path), method, None, key, body)
+            .await
+    }
+
+    async fn send_to(
+        &self,
+        url: String,
+        method: &str,
+        token: Option<&str>,
+        key: Option<&str>,
+        body: Option<Value>,
+    ) -> Answered {
+        let mut request = self.client.request(method.parse().expect("a method"), url);
         if let Some(token) = token {
             request = request.header(hlin_identity::IDENTITY_HEADER, token);
         }

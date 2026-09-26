@@ -1,11 +1,14 @@
-/* Every widget's stylesheet, injected by `hlin_widget_module::start`.
+/* Every widget's stylesheet, injected wherever its components are mounted:
+ * in Hlin's frame (`hlin_widget_module`) and at the root of its own origin
+ * (`hlin_widget_ui::direct`).
  *
  * Written against the shell's `--hlin-*` tokens and nothing else
  * (HLIN-S-0007, *theme*): the SDK sets whatever tokens the shell sends as
  * custom properties on <html>, so a widget follows the surface it sits on,
  * and one that drifts from its neighbours shows it. Each has a fallback, for a
- * pack that does not send it. A widget's own `module.css` uses the same
- * tokens, and these classes, rather than colours of its own. */
+ * pack that does not send it, and for the widget's own UI, where no shell
+ * sends any. A widget's own `style.css`, beside its components, uses the
+ * same tokens, and these classes, rather than colours of its own. */
 
 html,
 body {

@@ -1,14 +1,16 @@
 [workspace]
 # `crates/hlin*` rather than `crates/*`, because `crates/widgets` is a folder of
 # crates rather than one: the twenty small platforms of HLIN-I-0012 and what
-# they share, each with its module beside it. A glob that matched the folder
-# itself would fail for want of a Cargo.toml there, and `exclude` would take
-# everything under it too.
+# they share, each with its components, its own UI and its module beside it.
+# A glob that matched the folder itself would fail for want of a Cargo.toml
+# there, and `exclude` would take everything under it too.
 members = [
     "crates/hlin*",
     "crates/hlin*/module",
     "crates/widgets/*",
     "crates/widgets/*/module",
+    "crates/widgets/*/components",
+    "crates/widgets/*/ui",
     "examples/*",
 ]
 
@@ -89,6 +91,7 @@ hlin-bridge = { path = "crates/hlin-bridge", version = "0.0.1" }
 hlin-module = { path = "crates/hlin-module", version = "0.0.1" }
 hlin-widget-support = { path = "crates/widgets/hlin-widget-support", version = "0.0.1" }
 hlin-widget-module = { path = "crates/widgets/hlin-widget-module", version = "0.0.1" }
+hlin-widget-ui = { path = "crates/widgets/hlin-widget-ui", version = "0.0.1" }
 
 # The examples name Hlin's crates by version, from crates.io, because that is
 # what somebody outside this repository writes and an example that lies about

@@ -4,8 +4,11 @@
 //! The widgets' own tests check their rules. These check what none of them
 //! should have to: that a write needs a token bound to it and a key, that a
 //! key is honoured per person and bound to its request, that a refusal
-//! changes nothing and is not remembered, and that the manifest, the module's
-//! files and the event stream are where the manifest says.
+//! changes nothing and is not remembered, that the manifest, the module's
+//! files and the event stream are where the manifest says, and that the
+//! widget's origin is laid out as a real platform's is: its own UI at the
+//! root, Hlin's surface under `/hlin`, and nothing of one answered by the
+//! other.
 
 use axum::Router;
 use axum::extract::State;
@@ -13,7 +16,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use hlin_widget_support::envelope::{ColumnType, Envelope, Line, Point, Records, Series};
 use hlin_widget_support::testing::{self, Running, person};
-use hlin_widget_support::{Fallback, ModuleFiles, Platform, Refusal, Reply, Viewer, Widget, Write};
+use hlin_widget_support::{
+    Fallback, ModuleFiles, Platform, Refusal, Reply, Site, Viewer, Widget, Write,
+};
 use serde_json::json;
 
 type Words = Vec<String>;
@@ -388,4 +393,136 @@ async fn a_series_fallback_follows_the_time_range_and_is_cut_to_it() {
         )
         .await;
     assert_eq!(minutes(asked), [3, 4, 5]);
+}
+
+// -- The origin: the widget's own UI at the root, Hlin under /hlin ----------
+
+/// The toy widget with a UI of its own and a module, `/api/` as `local_user`.
+async fn laid_out(local_user: Option<&str>) -> Running {
+    let module = ModuleFiles::from_files([
+        ("index.html".to_string(), b"module entry".to_vec()),
+        ("boot.js".to_string(), b"// boot".to_vec()),
+    ]);
+    let ui = ModuleFiles::from_files([
+        ("index.html".to_string(), b"the widget's own page".to_vec()),
+        ("ui-0123456789abcdef.js".to_string(), b"// ui".to_vec()),
+    ]);
+    let layout = Site {
+        local_user: local_user.map(str::to_string),
+        ui: Some(ui),
+        ..Site::default()
+    };
+    testing::start_site(widget(), Words::new(), api(), module, layout).await
+}
+
+#[tokio::test]
+async fn hlins_surface_is_under_its_base_and_the_widgets_own_ui_is_at_the_root() {
+    let words = laid_out(None).await;
+    assert!(words.base.ends_with("/hlin"));
+
+    let manifest = words
+        .own("GET", "/hlin/.well-known/hlin.json", None, None)
+        .await;
+    assert_eq!(manifest.body["platform"]["id"], "words");
+    let entry = words
+        .own("GET", "/hlin/ui/words/index.html", None, None)
+        .await;
+    assert_eq!(entry.body, json!("module entry"));
+
+    for page in ["/", "/index.html", "/lists/today"] {
+        let answer = words.own("GET", page, None, None).await;
+        assert_eq!(answer.status, 200, "{page}");
+        assert_eq!(answer.body, json!("the widget's own page"), "{page}");
+    }
+    let script = words
+        .own("GET", "/ui-0123456789abcdef.js", None, None)
+        .await;
+    assert_eq!(script.body, json!("// ui"));
+}
+
+#[tokio::test]
+async fn nothing_unknown_under_hlin_is_ever_answered_with_the_widgets_own_page() {
+    let words = laid_out(Some("Dana")).await;
+    for missing in [
+        // A module file that is not in the build.
+        "/hlin/ui/words/missing.js",
+        "/hlin/ui/words/nope",
+        // A route the widget does not have.
+        "/hlin/api/nope",
+        "/hlin/nope",
+        "/hlin",
+        // The manifest's path, anywhere but under the base.
+        "/.well-known/hlin.json",
+        "/hlin/hlin/.well-known/hlin.json",
+        // The widget's own API, and a file its UI does not have.
+        "/api/nope",
+        "/nope.js",
+    ] {
+        let answer = words.own("GET", missing, None, None).await;
+        assert_eq!(answer.status, 404, "{missing}");
+        assert_ne!(answer.body, json!("the widget's own page"), "{missing}");
+    }
+}
+
+#[tokio::test]
+async fn the_widgets_own_api_is_refused_unless_a_local_user_is_named() {
+    let words = laid_out(None).await;
+    let refused = words.own("GET", "/api/words", None, None).await;
+    assert_eq!(refused.status, 401);
+    assert!(
+        refused.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("--local-user")
+    );
+    let refused = words
+        .own("POST", "/api/words/add", Some("k1"), Some(json!("hi")))
+        .await;
+    assert_eq!(refused.status, 401);
+    // Health answers whoever asks, as under Hlin's base.
+    assert_eq!(
+        words.own("GET", "/api/health", None, None).await.status,
+        200
+    );
+}
+
+#[tokio::test]
+async fn the_widgets_own_ui_and_hlin_share_the_same_handlers_and_data() {
+    let words = laid_out(Some("Dana")).await;
+    let alice = person("u-alice", "Alice");
+    let mut hlin_hears = words.listen(&alice).await;
+
+    // A write from the widget's own page: no token, a key, and announced on
+    // the stream Hlin listens to.
+    let added = words
+        .own("POST", "/api/words/add", Some("k1"), Some(json!("one")))
+        .await;
+    assert_eq!(added.status, 201, "{}", added.body);
+    assert_eq!(
+        hlin_hears.changed().await,
+        Some(json!({ "panel": "words" }))
+    );
+    assert_eq!(words.get(&alice, "/api/words").await.body, json!(["one"]));
+
+    // And one from Hlin, seen by the widget's own page.
+    words
+        .write(&alice, "POST", "/api/words/add", Some(json!("two")))
+        .await;
+    let seen = words.own("GET", "/api/words", None, None).await;
+    assert_eq!(seen.body, json!(["one", "two"]));
+
+    // Its own page's writes need a key as Hlin's do.
+    let keyless = words
+        .own("POST", "/api/words/add", None, Some(json!("three")))
+        .await;
+    assert_eq!(keyless.status, 400);
+}
+
+#[tokio::test]
+async fn a_local_user_never_reaches_hlins_routes() {
+    let words = laid_out(Some("Dana")).await;
+    for path in ["/hlin/api/words", "/hlin/api/events"] {
+        let answer = words.own("GET", path, None, None).await;
+        assert_eq!(answer.status, 401, "{path}");
+    }
 }

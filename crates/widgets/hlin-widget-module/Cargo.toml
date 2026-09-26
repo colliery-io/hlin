@@ -6,11 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "The module side of the twenty widgets: connect, fetch again when told, write with a retry, and one stylesheet"
+description = "A widget's Hlin module: its components, mounted with a client over the bridge"
 publish = false
 
 [dependencies]
 hlin-module = { workspace = true }
+hlin-widget-ui = { workspace = true }
 leptos = { workspace = true, features = ["csr"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

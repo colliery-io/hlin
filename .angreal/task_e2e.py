@@ -346,12 +346,14 @@ def _is_twenty():
         widget on it reaches `ready`, scrolling each into view; then open it
         in a second browser context and show that bumping the counter and
         voting in the poll in one reaches the other without a reload,
-        printing how long each took. Writes a screenshot per step.
+        printing how long each took. Then opens the converted widgets' own
+        UIs at their own ports' roots, and shows a counter bump there reach
+        its module on "Twenty" and back. Writes a screenshot per step.
 
         ## When to use
         - After `angreal demo up --with twenty`
-        - After adding a widget, or changing hlin-widget-support or
-          hlin-widget-module
+        - After adding or converting a widget, or changing
+          hlin-widget-support, hlin-widget-ui or hlin-widget-module
 
         Bumps the counter and moves the development user's vote, in the
         widgets' memory, which `demo down` forgets.

@@ -14,6 +14,9 @@ publish = false
 # tokens from a real issuer, one per person. A widget turns it on in its
 # `[dev-dependencies]`; no binary carries it.
 testing = ["dep:reqwest", "dep:futures"]
+# Compiles a widget's two builds into its binary (`dist!`), for a container
+# that ships one file. A widget forwards its own `embed` feature to this.
+embed = ["dep:rust-embed"]
 
 [dependencies]
 async-stream = "0.3"
@@ -35,6 +38,7 @@ sha2 = { workspace = true }
 # method and path the request actually arrived with.
 reqwest = { workspace = true, optional = true }
 futures = { version = "0.3", optional = true }
+rust-embed = { version = "8", optional = true }
 
 [dev-dependencies]
 # This crate's own tests use its `testing` helpers, as every widget's do.

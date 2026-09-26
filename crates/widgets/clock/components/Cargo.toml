@@ -1,0 +1,18 @@
+[package]
+name = "hlin-widget-clock-components"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The clock's components, mounted by its own UI and by its Hlin module alike"
+publish = false
+
+[dependencies]
+hlin-widget-ui = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# What time the browser thinks it is, which is all a ticking clock needs.
+js-sys = "0.3"

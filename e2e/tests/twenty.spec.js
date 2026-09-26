@@ -311,4 +311,68 @@ test.describe('twenty widgets on one surface', () => {
     await expect(line).toHaveAttribute('data-step', String(24 * 60_000));
     await shot(page, 213, 'twenty-sparkline-day');
   });
+
+  // HLIN-I-0013: a converted widget serves its own UI at the root of its
+  // origin, and Hlin's surface under `/hlin`. Its Hlin module is the same
+  // components with another client, so the two are one widget: a change in
+  // either is in the other, through nothing but the platform.
+  test("a converted widget's own UI is at its own root, and in step with its module", async ({
+    browser,
+    request,
+  }) => {
+    for (const [name, port] of Object.entries(OWN_UI)) {
+      const origin = `http://127.0.0.1:${port}`;
+      const page = await request.get(`${origin}/nope`);
+      expect(page.status(), `${name}: /nope is its own UI`).toBe(200);
+      expect(await page.text()).toContain('<title>');
+      const hlin = await request.get(`${origin}/hlin/nope`);
+      expect(hlin.status(), `${name}: /hlin/nope`).toBe(404);
+      expect(await hlin.text()).not.toContain('<title>');
+    }
+
+    const surfacePage = await (await browser.newContext()).newPage();
+    await openSurface(surfacePage, surface, panels);
+    const own = await (await browser.newContext({ viewport: { width: 420, height: 360 } })).newPage();
+
+    // The clock and the poll draw at their own roots.
+    await own.goto(`http://127.0.0.1:${OWN_UI.poll}/`);
+    await expect(own.locator('li.poll__option').first()).toBeVisible({ timeout: READY });
+    await own.goto(`http://127.0.0.1:${OWN_UI.clock}/`);
+    await expect(own.locator('li.clock').first()).toBeVisible({ timeout: READY });
+    await expect(own.locator('.clock__time').first()).toHaveText(/^\d\d:\d\d:\d\d$/);
+
+    // The counter, both ways.
+    await own.goto(`http://127.0.0.1:${OWN_UI.counter}/`);
+    const ownNumber = own.locator('.w-big');
+    await expect(ownNumber).toHaveAttribute('data-value', /\d+/, { timeout: READY });
+    const module = inside(widget(surfacePage, 'counter', 'counter'));
+    const before = Number(await ownNumber.getAttribute('data-value'));
+    await own.getByRole('button', { name: 'Bump up' }).click();
+    await propagated('a bump on its own page reaches its module', (options) =>
+      expect(module.locator('.w-big')).toHaveAttribute('data-value', String(before + 1), options),
+    );
+    await module.getByRole('button', { name: 'Bump up' }).click();
+    await propagated('a bump in its module reaches its own page', (options) =>
+      expect(ownNumber).toHaveAttribute('data-value', String(before + 2), options),
+    );
+    await shot(own, 214, 'twenty-counter-own-ui');
+
+    // The clock's own page beside its module on "Twenty", as one picture.
+    await own.goto(`http://127.0.0.1:${OWN_UI.clock}/`);
+    await expect(own.locator('li.clock').first()).toBeVisible({ timeout: READY });
+    const ownShot = await own.screenshot();
+    const moduleShot = await widget(surfacePage, 'clock', 'clock').screenshot();
+    const both = await (await browser.newContext()).newPage();
+    await both.setContent(
+      `<body style="margin:0;display:flex;gap:16px;padding:16px;background:#0d1015;align-items:flex-start;font:13px system-ui;color:#8b95a3">` +
+        `<figure style="margin:0"><img src="data:image/png;base64,${ownShot.toString('base64')}"><figcaption>127.0.0.1:${OWN_UI.clock}/ (its own UI)</figcaption></figure>` +
+        `<figure style="margin:0"><img src="data:image/png;base64,${moduleShot.toString('base64')}"><figcaption>its Hlin module on "Twenty"</figcaption></figure>` +
+        `</body>`,
+    );
+    await both.setViewportSize({ width: 1000, height: 420 });
+    await shot(both, 215, 'twenty-clock-own-ui-beside-module');
+  });
 });
+
+/** The converted widgets' own UIs, at their demo ports (`WIDGETS`). */
+const OWN_UI = { clock: 8201, counter: 8202, poll: 8203 };

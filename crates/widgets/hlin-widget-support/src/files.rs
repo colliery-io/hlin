@@ -1,23 +1,26 @@
 //! A widget's built module, served as files under its `assets` prefix
-//! ([[HLIN-S-0007]], *Assets*).
+//! ([[HLIN-S-0007]], *Assets*), and its own UI, served at its root.
 //!
 //! Trunk builds `module/` beside each widget crate into `module/dist/`, and
-//! this serves that directory's files under `/ui/{panel}/`. The shell fetches
-//! them as itself, with no viewer identity, and serves them to a sandboxed
-//! frame from its own origin, so there is nothing to this side but a file
-//! server: code is the same for everybody, and who is looking matters only to
-//! the API.
+//! this serves that directory's files under `{hlin base}/ui/{panel}/`. The
+//! shell fetches them as itself, with no viewer identity, and serves them to a
+//! sandboxed frame from its own origin, so there is nothing to this side but a
+//! file server: code is the same for everybody, and who is looking matters
+//! only to the API. A widget's own UI (`ui/dist/`) is served by the same
+//! rules, at the root ([`crate::site()`]).
 //!
 //! The feed's file server (`hlin-sample-feed`), moved here so twenty widgets
-//! do not carry twenty copies. The two decisions it made hold for all of them:
+//! do not carry twenty copies. The decisions it made hold for all of them:
 //!
-//! - **Read from disk at start, not embedded.** Embedding would make every
-//!   widget binary depend on a WebAssembly build, so `cargo check` and `cargo
-//!   test` of the workspace would need Trunk and twenty finished modules
-//!   first. Read at start, a checkout builds and tests without Trunk, and a
-//!   widget started with no module built still serves its manifest; the shell
-//!   finds the entry missing and draws the fallback, which is what the
-//!   fallback is for. Held in memory once read and looked up by exact name, so
+//! - **Read from disk at start, unless embedded on purpose.** Embedding by
+//!   default would make every widget binary depend on a WebAssembly build, so
+//!   `cargo check` and `cargo test` of the workspace would need Trunk and
+//!   twenty finished builds first. Read at start, a checkout builds and tests
+//!   without Trunk, and a widget started with no module built still serves its
+//!   manifest; the shell finds the entry missing and draws the fallback, which
+//!   is what the fallback is for. A container turns on the widget's `embed`
+//!   feature after building both, and ships one file ([`crate::Dist`]).
+//!   Either way the files are held in memory and looked up by exact name, so
 //!   no path a caller sends ever reaches the filesystem.
 //! - **Hashed names are `immutable`.** Trunk puts a content hash in the name of
 //!   everything it builds but the entry document, so a new build is a new
@@ -105,6 +108,11 @@ impl ModuleFiles {
     /// Whether there is an entry document to serve.
     pub fn has_entry(&self) -> bool {
         self.files.contains_key("index.html")
+    }
+
+    /// Whether there is a file of exactly this name.
+    pub fn has(&self, name: &str) -> bool {
+        self.files.contains_key(name)
     }
 
     /// One file's answer to a request with these headers: the file, `304`

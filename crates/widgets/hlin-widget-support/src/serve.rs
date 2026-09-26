@@ -6,14 +6,17 @@ use std::sync::Arc;
 use axum::Router;
 use clap::{CommandFactory, FromArgMatches, Parser};
 
+use crate::dist::{Builds, Dist};
 use crate::files::ModuleFiles;
-use crate::platform::{Platform, router};
+use crate::platform::Platform;
+use crate::site::{HLIN_BASE, Site, site};
 use crate::widget::Widget;
 
 /// The flags every widget takes.
 ///
 /// A widget with flags of its own flattens this into its own `Parser` and
-/// calls [`serve`]; one without calls [`run`], which parses these alone.
+/// calls [`serve`]; one without calls [`run`] or [`run_with`], which parse
+/// these alone.
 #[derive(clap::Args, Debug, Clone)]
 pub struct Common {
     /// The platform's id, which is also its `platform.id` and the audience
@@ -41,12 +44,31 @@ pub struct Common {
     #[arg(long, default_value = "hlin")]
     pub shell_issuer: String,
 
+    /// Where Hlin's surface is served: the manifest, the module, the API
+    /// Hlin calls and the event stream. The shell's `base_url` for this
+    /// platform ends in it.
+    #[arg(long, default_value = HLIN_BASE)]
+    pub hlin_base: String,
+
+    /// DEMO ONLY: answer the widget's own `/api/` as this one person, with
+    /// no sign-in at all, so its own UI at `/` works. Off by default, which
+    /// refuses `/api/`. Never on a widget anyone else can reach.
+    #[arg(long)]
+    pub local_user: Option<String>,
+
     /// Where the built module is: Trunk's output for the widget's `module/`.
     ///
-    /// Read once, at start. Without it the widget still runs, and the shell
-    /// draws its fallback, or says the panel cannot be shown.
+    /// Read once, at start. Without it the widget reads the build it was
+    /// compiled with, or the one in this repository; without any, it still
+    /// runs, and the shell draws its fallback, or says the panel cannot be
+    /// shown.
     #[arg(long)]
     pub module_dir: Option<PathBuf>,
+
+    /// Where the widget's own UI is built: Trunk's output for its `ui/`.
+    /// Read once, at start, and chosen as `--module-dir` is.
+    #[arg(long)]
+    pub ui_dir: Option<PathBuf>,
 }
 
 #[derive(Parser)]
@@ -55,7 +77,8 @@ struct Cli {
     common: Common,
 }
 
-/// A widget's whole `main`: parse [`Common`], then [`serve`].
+/// The whole `main` of a widget with no UI of its own yet: parse [`Common`],
+/// then [`serve`] its module from `widget.built`.
 pub async fn run<S: Send + 'static>(
     widget: Widget<S>,
     state: S,
@@ -63,15 +86,39 @@ pub async fn run<S: Send + 'static>(
 ) -> anyhow::Result<()> {
     let command = Cli::command().name(widget.name).about(widget.description);
     let cli = Cli::from_arg_matches(&command.get_matches())?;
-    serve(cli.common, widget, state, api).await
+    serve(cli.common, widget, state, api, None).await
 }
 
-/// Check the widget's manifest, read its module, and serve it until stopped.
+/// The whole `main` of a widget with its own UI: parse [`Common`], then
+/// [`serve`] both builds.
+///
+/// ```text
+/// hlin_widget_support::run_with(widget(), Counter::default(), api(), Builds {
+///     ui: hlin_widget_support::dist!("ui/dist"),
+///     module: hlin_widget_support::dist!("module/dist"),
+/// })
+/// ```
+pub async fn run_with<S: Send + 'static>(
+    widget: Widget<S>,
+    state: S,
+    api: Router<Platform<S>>,
+    builds: Builds,
+) -> anyhow::Result<()> {
+    let command = Cli::command().name(widget.name).about(widget.description);
+    let cli = Cli::from_arg_matches(&command.get_matches())?;
+    serve(cli.common, widget, state, api, Some(builds)).await
+}
+
+/// Check the widget's manifest, read its builds, and serve it until stopped.
+///
+/// `builds` is `None` for a widget with no UI of its own yet, whose module is
+/// at `widget.built`.
 pub async fn serve<S: Send + 'static>(
     common: Common,
     widget: Widget<S>,
     state: S,
     api: Router<Platform<S>>,
+    builds: Option<Builds>,
 ) -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -87,6 +134,9 @@ pub async fn serve<S: Send + 'static>(
     if let Some(defect) = widget.defects(&id) {
         anyhow::bail!("this widget's own manifest is one the shell would refuse: {defect}");
     }
+    if let Some(defect) = Site::base_defect(&common.hlin_base) {
+        anyhow::bail!("--hlin-base {:?}: {defect}", common.hlin_base);
+    }
 
     let url = common
         .shell_keys
@@ -96,34 +146,59 @@ pub async fn serve<S: Send + 'static>(
         Box::new(HttpJwks { url }),
     ));
 
-    let dir = common
-        .module_dir
-        .unwrap_or_else(|| PathBuf::from(widget.built));
-    let module = match ModuleFiles::read(&dir) {
-        Ok(files) if files.has_entry() => {
-            tracing::info!(dir = %dir.display(), "serving the widget's module");
+    let module_dist = builds.map_or(Dist::at(widget.built), |builds| builds.module);
+    let module = match module_dist.files(common.module_dir.as_deref()) {
+        Some((files, from)) => {
+            tracing::info!(from, "serving the widget's module");
             files
         }
-        _ => {
+        None => {
             tracing::warn!(
-                dir = %dir.display(),
-                "no module built here, so the shell will draw the fallback if there is one; \
+                dir = module_dist.dir,
+                "no module built, so the shell will draw the fallback if there is one; \
                  `trunk build` in the widget's module/ builds it"
             );
             ModuleFiles::none()
         }
     };
+    let ui = builds.and_then(|builds| match builds.ui.files(common.ui_dir.as_deref()) {
+        Some((files, from)) => {
+            tracing::info!(from, "serving the widget's own UI");
+            Some(files)
+        }
+        None => {
+            tracing::warn!(
+                dir = builds.ui.dir,
+                "no UI built, so / says so; `trunk build` in the widget's ui/ builds it"
+            );
+            None
+        }
+    });
+
+    if let Some(name) = &common.local_user {
+        tracing::warn!(
+            local_user = name,
+            "DEMO ONLY: /api/ answers every request as {name}, with no sign-in. \
+             Nobody else must be able to reach this widget."
+        );
+    }
 
     let listener = tokio::net::TcpListener::bind((common.bind.as_str(), common.port)).await?;
     tracing::info!(
         platform = id,
+        hlin = common.hlin_base,
         "listening on http://{}:{}",
         common.bind,
         common.port
     );
 
     let platform = Platform::new(id, widget, state, verifier, module);
-    axum::serve(listener, router(platform, api)).await?;
+    let layout = Site {
+        hlin_base: common.hlin_base,
+        local_user: common.local_user,
+        ui,
+    };
+    axum::serve(listener, site(platform, api, layout)).await?;
     Ok(())
 }
 

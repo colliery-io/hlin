@@ -1,0 +1,13 @@
+# Builds the widget's own UI into `dist/`, which the widget serves at the root
+# of its origin. An ordinary Trunk site: absolute `public_url`, Trunk's own
+# inline loader, hashed names so the widget can mark them `immutable`. Every
+# converted widget's is this file, unchanged.
+[build]
+minify = "never"
+public_url = "/"
+
+# The wasm-bindgen CLI must match the wasm-bindgen crate exactly.
+[tools]
+wasm_bindgen = "0.2.126"
+# The binaryen release Trunk fetches for `wasm-opt` on a release build.
+wasm_opt = "version_123"

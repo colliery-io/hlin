@@ -2,8 +2,13 @@
 //! are the ones every widget takes (`hlin_widget_support::Common`).
 
 use hlin_widget_poll::{Poll, api, widget};
+use hlin_widget_support::{Builds, dist};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    hlin_widget_support::run(widget(), Poll::seed(), api()).await
+    let builds = Builds {
+        ui: dist!("ui/dist"),
+        module: dist!("module/dist"),
+    };
+    hlin_widget_support::run_with(widget(), Poll::seed(), api(), builds).await
 }

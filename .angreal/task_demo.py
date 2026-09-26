@@ -467,9 +467,11 @@ def _wasm_opt_ready():
 
         `--with twenty` starts the widget platforms listed in `WIDGETS`
         (8201 upward), each its own process, after building their modules
-        in parallel (skipping any whose sources have not changed), and the
-        shell on `dev` sign-in with a configuration listing them all; then
-        publishes "Twenty", a scrolling surface with every widget on it.
+        and own UIs in parallel (skipping any whose sources have not
+        changed), and the shell on `dev` sign-in with a configuration listing
+        them all at their `/hlin` subtrees; then publishes "Twenty", a
+        scrolling surface with every widget on it. A converted widget's own
+        UI is at its port's `/`, as the demo-only `--local-user`.
 
         ## When to use
         - To see the product running
@@ -963,7 +965,9 @@ def _write_twenty_config(head):
 
     The committed file holds everything but the platforms, which are appended
     from `WIDGETS`, so the list of widgets is written down once and a new one
-    cannot be started without the shell being told about it.
+    cannot be started without the shell being told about it. Each platform's
+    `base_url` is its `/hlin` subtree, as it will be on a real host
+    (HLIN-I-0013): the widget's own UI has the root.
     """
     with open(head) as handle:
         text = handle.read()
@@ -971,7 +975,7 @@ def _write_twenty_config(head):
         text += (
             "\n[[platforms]]\n"
             f'id = "{widget["name"]}"\n'
-            f'base_url = "http://127.0.0.1:{widget["port"]}"\n'
+            f'base_url = "{_widget_origin(widget)}{HLIN_BASE}"\n'
             'auth = { strategy = "hlin-token" }\n'
         )
     os.makedirs(STATE, exist_ok=True)
@@ -980,27 +984,67 @@ def _write_twenty_config(head):
     return TWENTY_CONFIG
 
 
+#: Where each widget serves Hlin's surface: the manifest, the module, the API
+#: Hlin calls and the event stream. Its own UI is at the root.
+HLIN_BASE = "/hlin"
+
+#: Who a widget's own `/api/` answers as, so its own UI at the root works in
+#: the demo. `--local-user` is demo-only: the widgets listen on loopback, and
+#: nobody else can reach them.
+LOCAL_USER = "Local User"
+
+
+def _widget_origin(widget):
+    return f"http://127.0.0.1:{widget['port']}"
+
+
+def _widget_manifest(widget):
+    return f"{_widget_origin(widget)}{HLIN_BASE}/.well-known/hlin.json"
+
+
+def _widget_dir(widget):
+    return os.path.join(cwd, "crates", "widgets", widget["name"])
+
+
 def _widget_module(widget):
-    return os.path.join(cwd, "crates", "widgets", widget["name"], "module")
+    return os.path.join(_widget_dir(widget), "module")
 
 
-#: What a widget's module is built from, beyond its own `module/`: the crates
-#: every widget module is built on, and the lockfile that pins everything else.
-#: A change to any of them rebuilds every module.
+#: A widget's Trunk builds: its Hlin module, and, once it is converted to
+#: components mounted twice (HLIN-I-0013), its own UI. Each is a Trunk project
+#: in a folder of that name beside the widget's server, built into its `dist`,
+#: from the package `hlin-widget-{name}-{kind}`.
+BUILD_KINDS = ("module", "ui")
+
+
+def _builds(widget):
+    """Which of `BUILD_KINDS` this widget has."""
+    return [
+        kind
+        for kind in BUILD_KINDS
+        if os.path.isfile(os.path.join(_widget_dir(widget), kind, "Cargo.toml"))
+    ]
+
+
+#: What a widget's builds are made from, beyond their own folder and the
+#: widget's `components/`: the crates every widget build is built on, and the
+#: lockfile that pins everything else. A change to any of them rebuilds every
+#: build.
 MODULE_INPUTS = [
+    "crates/widgets/hlin-widget-ui",
     "crates/widgets/hlin-widget-module",
     "crates/hlin-module/src",
     "crates/hlin-bridge/src",
     "Cargo.lock",
 ]
 
-#: The file in a widget's `dist` that says which sources it was built from. A
+#: The file in a build's `dist` that says which sources it was built from. A
 #: dotfile, which the widget does not serve (`ModuleFiles::read`).
 STAMP = ".built-from"
 
 
-def _module_fingerprint(widget):
-    """A hash of everything a widget's module is built from.
+def _build_fingerprint(widget, kind):
+    """A hash of everything one of a widget's builds is made from.
 
     Content rather than modification times, so a checkout, a rebase or a
     `touch` that changes nothing does not cost a rebuild, and an edit always
@@ -1010,10 +1054,11 @@ def _module_fingerprint(widget):
 
     digest = hashlib.sha256()
     digest.update(b"release" if RELEASE else b"debug")
-    # So a module built without wasm-opt, offline, is built again once it
-    # can be had.
+    # So a build made without wasm-opt, offline, is made again once it can
+    # be had.
     digest.update(b"wasm-opt" if RELEASE and WASM_OPT else b"")
-    roots = [_widget_module(widget)] + [os.path.join(cwd, path) for path in MODULE_INPUTS]
+    own = [os.path.join(_widget_dir(widget), folder) for folder in (kind, "components")]
+    roots = own + [os.path.join(cwd, path) for path in MODULE_INPUTS]
     for root in roots:
         paths = [root] if os.path.isfile(root) else []
         for directory, subdirectories, files in os.walk(root):
@@ -1026,8 +1071,8 @@ def _module_fingerprint(widget):
     return digest.hexdigest()
 
 
-def _module_is_current(widget, fingerprint):
-    dist = os.path.join(_widget_module(widget), "dist")
+def _build_is_current(widget, kind, fingerprint):
+    dist = os.path.join(_widget_dir(widget), kind, "dist")
     try:
         with open(os.path.join(dist, STAMP)) as handle:
             stamped = handle.read().strip()
@@ -1051,27 +1096,37 @@ def _trunk():
 
 
 def _build_widget_modules():
-    """Build every widget's module whose sources changed since its last build.
+    """Build every widget's module and own UI whose sources changed since
+    their last build.
 
     The slow part of the demo, so done in two steps that each run in
-    parallel: one `cargo build` for every stale module at once, which compiles
+    parallel: one `cargo build` for every stale build at once, which compiles
     the dependencies they share once and uses every core; then one `trunk
-    build` per module, all at once, each finding the compiling done and only
+    build` per build, all at once, each finding the compiling done and only
     running wasm-bindgen and writing `dist`. Run the other way round, twenty
     Trunks would queue on cargo's lock and compile one after another.
     """
     started = time.time()
-    fingerprints = {widget["name"]: _module_fingerprint(widget) for widget in WIDGETS}
-    stale = [w for w in WIDGETS if not _module_is_current(w, fingerprints[w["name"]])]
-    current = len(WIDGETS) - len(stale)
+    everything = [(widget, kind) for widget in WIDGETS for kind in _builds(widget)]
+    fingerprints = {
+        (widget["name"], kind): _build_fingerprint(widget, kind) for widget, kind in everything
+    }
+    stale = [
+        (widget, kind)
+        for widget, kind in everything
+        if not _build_is_current(widget, kind, fingerprints[(widget["name"], kind)])
+    ]
+    current = len(everything) - len(stale)
     if current:
-        print(f"  {current} widget modules unchanged since their last build", flush=True)
+        print(f"  {current} widget builds unchanged since their last build", flush=True)
     if not stale:
         return 0
 
-    names = ", ".join(widget["name"] for widget in stale)
-    print(f"building {len(stale)} widget modules: {names}", flush=True)
-    packages = [flag for w in stale for flag in ("-p", f"hlin-widget-{w['name']}-module")]
+    names = ", ".join(f"{widget['name']} {kind}" for widget, kind in stale)
+    print(f"building {len(stale)} widget builds: {names}", flush=True)
+    packages = [
+        flag for widget, kind in stale for flag in ("-p", f"hlin-widget-{widget['name']}-{kind}")
+    ]
     compiled = subprocess.run(
         ["cargo", "build", "--target", "wasm32-unknown-unknown"]
         + (["--release"] if RELEASE else [])
@@ -1079,37 +1134,38 @@ def _build_widget_modules():
         cwd=cwd,
     )
     if compiled.returncode != 0:
-        print("The widget modules did not compile.\n  rustup target add wasm32-unknown-unknown")
+        print("The widget builds did not compile.\n  rustup target add wasm32-unknown-unknown")
         return 1
 
     os.makedirs(LOGS, exist_ok=True)
     running = []
-    for widget in stale:
-        log_path = os.path.join(LOGS, f"module-{widget['name']}.log")
+    for widget, kind in stale:
+        log_path = os.path.join(LOGS, f"{kind}-{widget['name']}.log")
         log = open(log_path, "w")
         process = subprocess.Popen(
             _trunk(),
-            cwd=_widget_module(widget),
+            cwd=os.path.join(_widget_dir(widget), kind),
             stdout=log,
             stderr=subprocess.STDOUT,
         )
-        running.append((widget, process, log, log_path))
+        running.append((widget, kind, process, log, log_path))
 
     failed = []
-    for widget, process, log, log_path in running:
+    for widget, kind, process, log, log_path in running:
         process.wait()
         log.close()
         if process.returncode != 0:
-            failed.append((widget["name"], log_path))
+            failed.append((f"{widget['name']}'s {kind}", log_path))
             continue
         # Written last, so a build that failed halfway is never taken as
         # current.
-        with open(os.path.join(_widget_module(widget), "dist", STAMP), "w") as handle:
-            handle.write(fingerprints[widget["name"]])
+        dist = os.path.join(_widget_dir(widget), kind, "dist")
+        with open(os.path.join(dist, STAMP), "w") as handle:
+            handle.write(fingerprints[(widget["name"], kind)])
 
     if failed:
         for name, log_path in failed:
-            print(f"{name}'s module did not build; see {log_path}", flush=True)
+            print(f"{name} did not build; see {log_path}", flush=True)
         print("  cargo install trunk")
         return 1
 
@@ -1130,8 +1186,7 @@ def _twenty_up(config):
         print(f"  {widget['name']} on {widget['port']} (pid {pid})", flush=True)
 
     for widget in WIDGETS:
-        url = f"http://127.0.0.1:{widget['port']}/.well-known/hlin.json"
-        if not _wait_for(url, seconds=30):
+        if not _wait_for(_widget_manifest(widget), seconds=30):
             print(f"{widget['name']} did not come up. See demo/state/logs/{widget['name']}.log.")
             return 1
 
@@ -1148,6 +1203,11 @@ def _twenty_up(config):
         return 1
 
     print(f"\nHlin is running at {SHELL}, with {len(WIDGETS)} widgets on `{TWENTY_TITLE}`.")
+    own = [widget for widget in WIDGETS if "ui" in _builds(widget)]
+    if own:
+        print(f"Each widget's own UI is at its own port, as {LOCAL_USER}:")
+        for widget in own:
+            print(f"  {widget['name']}: {_widget_origin(widget)}/")
     print("`angreal e2e twenty` proves it in a browser.")
     print("`angreal demo down` stops everything.")
     return 0
@@ -1156,7 +1216,7 @@ def _twenty_up(config):
 def _widget_argv(widget):
     """How one widget is started, by `up --with twenty` and by `restart`."""
     name = widget["name"]
-    return [
+    argv = [
         f"./target/debug/hlin-widget-{name}",
         "--name",
         name,
@@ -1164,9 +1224,19 @@ def _widget_argv(widget):
         str(widget["port"]),
         "--shell-keys",
         f"{SHELL}/.well-known/hlin-keys.json",
+        "--hlin-base",
+        HLIN_BASE,
         "--module-dir",
         os.path.join(_widget_module(widget), "dist"),
     ]
+    if "ui" in _builds(widget):
+        argv += [
+            "--ui-dir",
+            os.path.join(_widget_dir(widget), "ui", "dist"),
+            "--local-user",
+            LOCAL_USER,
+        ]
+    return argv
 
 
 @demo()
@@ -1205,7 +1275,7 @@ def demo_restart(name=None):
         print(f"stopped {name}", flush=True)
 
     pid = _start(name, _widget_argv(widget), widget["port"])
-    if not _wait_for(f"http://127.0.0.1:{widget['port']}/.well-known/hlin.json", seconds=30):
+    if not _wait_for(_widget_manifest(widget), seconds=30):
         print(f"{name} did not come up. See demo/state/logs/{name}.log.", flush=True)
         return 1
     print(f"  {name} on {widget['port']} (pid {pid})", flush=True)

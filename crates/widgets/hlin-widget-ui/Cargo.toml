@@ -1,0 +1,28 @@
+[package]
+name = "hlin-widget-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "A widget's components, written once against a client: the trait, the handle they use, and the words and stylesheet they share"
+publish = false
+
+[features]
+# The client a widget's own UI uses at the root of its own origin: `fetch` to
+# `/api/`, and its event stream. Only the core-UI crate turns it on, so a
+# components crate or a module never carries it.
+direct = ["dep:web-sys", "dep:js-sys", "dep:wasm-bindgen"]
+
+[dependencies]
+leptos = { workspace = true, features = ["csr"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Runs `mount`'s wait for a transport before anything is mounted. Leptos's
+# own `spawn_local` needs the executor that `mount_to_body` starts.
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+web-sys = { version = "0.3", optional = true, features = ["Window", "Document", "VisibilityState", "Headers", "RequestInit", "Response", "EventSource", "Event", "EventTarget", "Crypto", "ReadableStream", "ReadableStreamDefaultReader"] }
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }

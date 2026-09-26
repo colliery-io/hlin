@@ -9,6 +9,11 @@ repository.workspace = true
 description = "Widget 2 of twenty: a number anyone can bump"
 publish = false
 
+[features]
+# Both builds compiled into the binary (`hlin_widget_support::dist!`), for a
+# container that ships one file. Build `ui/` and `module/` with Trunk first.
+embed = ["hlin-widget-support/embed"]
+
 [[bin]]
 name = "hlin-widget-counter"
 path = "src/main.rs"

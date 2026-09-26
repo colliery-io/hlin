@@ -58,6 +58,7 @@ examples/*/dist/
 # Built platform modules, which each platform serves from here.
 crates/*/module/dist/
 crates/widgets/*/module/dist/
+crates/widgets/*/ui/dist/
 
 # Local Claude Code session state
 .claude/

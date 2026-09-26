@@ -3,7 +3,7 @@
 //!
 //! A widget's own routes are handlers on [`Platform<S>`], where `S` is its
 //! state. They take [`Viewer`] to read and [`Write`] to change anything, and
-//! answer through [`Platform::read`] and [`Platform::write`]. [`router`] adds
+//! answer through [`Platform::read`] and [`Platform::write`]. [`crate::site()`] adds
 //! the routes no widget should have to write: the manifest, health, the event
 //! stream, the fallback's data and the module's files.
 //!
@@ -49,9 +49,39 @@ use crate::widget::Widget;
 
 /// A verified viewer, for a read: `Viewer(claims)` as a handler argument.
 ///
-/// `hlin-identity`'s request extractor under a shorter name. On a read it
-/// accepts the shell's ordinary token; a handler cannot run without one.
-pub use hlin_identity::extract::HlinRequestIdentity as Viewer;
+/// Under Hlin's base, `hlin-identity`'s request extractor: the shell's
+/// ordinary token, verified, and a handler cannot run without one. Under the
+/// widget's own `/api/`, whoever the platform's own sign-in says, which in the
+/// demo is the `--local-user` ([`crate::Site::local_user`]). The handler is
+/// the same either way, which is what lets one set of handlers serve both.
+#[derive(Debug, Clone)]
+pub struct Viewer(pub Claims);
+
+impl<S> FromRequestParts<S> for Viewer
+where
+    IdentityState: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        if let Some(LocalUser(claims)) = parts.extensions.get::<LocalUser>() {
+            return Ok(Viewer(claims.clone()));
+        }
+        let HlinRequestIdentity(claims) =
+            HlinRequestIdentity::from_request_parts(parts, state).await?;
+        Ok(Viewer(claims))
+    }
+}
+
+/// Who a request to the widget's own `/api/` is, put on the request by the
+/// site's own-API layer and nowhere else, so nothing a caller sends can
+/// claim it. Hlin's routes never carry it.
+#[derive(Debug, Clone)]
+pub(crate) struct LocalUser(pub(crate) Claims);
 
 /// The header a write's idempotency key arrives in.
 pub const IDEMPOTENCY_KEY: &str = "idempotency-key";
@@ -206,8 +236,8 @@ impl<S: Send + 'static> Platform<S> {
     }
 }
 
-/// The router for a running widget: its own `api`, plus everything every
-/// widget serves.
+/// Hlin's surface, relative to its base (`/hlin` unless configured): the
+/// widget's own `api`, plus everything every widget serves the shell.
 ///
 /// | Method | Path | What |
 /// |---|---|---|
@@ -216,7 +246,12 @@ impl<S: Send + 'static> Platform<S> {
 /// | `GET` | `/api/events` | `changed` after every write, to a signed-in viewer |
 /// | `GET` | `/api/panels/{panel}` | The fallback's envelope, where there is a fallback |
 /// | `GET` | `/ui/{panel}/{file}` | The module's files, to anyone: the shell fetches them as itself |
-pub fn router<S: Send + 'static>(platform: Platform<S>, api: Router<Platform<S>>) -> Router {
+///
+/// Anything else under the base is 404 ([`crate::site()`]).
+pub(crate) fn hlin_routes<S: Send + 'static>(
+    platform: &Platform<S>,
+    api: Router<Platform<S>>,
+) -> Router<Platform<S>> {
     let widget = platform.widget();
     let mut router = api
         .route("/.well-known/hlin.json", get(manifest::<S>))
@@ -226,7 +261,13 @@ pub fn router<S: Send + 'static>(platform: Platform<S>, api: Router<Platform<S>>
     if widget.fallback.is_some() {
         router = router.route(&format!("/{}", widget.fallback_data()), get(fallback::<S>));
     }
-    router.with_state(platform)
+    router
+}
+
+/// What the widget's own UI calls, at the root of its origin: the same `api`,
+/// and the same event stream.
+pub(crate) fn own_routes<S: Send + 'static>(api: Router<Platform<S>>) -> Router<Platform<S>> {
+    api.route("/api/events", get(events::<S>))
 }
 
 /// The manifest, served to anyone: the shell fetches it as itself.
@@ -237,7 +278,8 @@ async fn manifest<S: Send + 'static>(State(platform): State<Platform<S>>) -> Jso
     )
 }
 
-async fn health() -> Json<Value> {
+/// Health, to anyone.
+pub(crate) async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
@@ -329,7 +371,10 @@ async fn events<S: Send + 'static>(
 ///
 /// A handler taking this cannot run for a request without a bound token or
 /// without an acceptable `Idempotency-Key`: both are refused before it, the
-/// first with a 401 whose body says why, the second with a 400.
+/// first with a 401 whose body says why, the second with a 400. On the
+/// widget's own `/api/` the person is the platform's own sign-in's, as for
+/// [`Viewer`], and the key is still required: the widget's own UI resends it
+/// on *Try again* just as the module does.
 #[derive(Debug, Clone)]
 pub struct Write {
     claims: Claims,
@@ -360,8 +405,16 @@ where
 
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
         let (mut parts, body) = request.into_parts();
-        let HlinRequestIdentity(claims) =
-            HlinRequestIdentity::from_request_parts(&mut parts, state).await?;
+        // The widget's own UI's person, where the site put one; otherwise a
+        // token bound to this request, as from the shell.
+        let claims = match parts.extensions.get::<LocalUser>() {
+            Some(LocalUser(claims)) => claims.clone(),
+            None => {
+                let HlinRequestIdentity(claims) =
+                    HlinRequestIdentity::from_request_parts(&mut parts, state).await?;
+                claims
+            }
+        };
 
         let Some(key) = parts
             .headers

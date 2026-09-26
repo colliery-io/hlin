@@ -4,7 +4,9 @@
 # scrolling surface. `angreal demo up --with twenty` does not read this file
 # as it is: it writes demo/state/hlin-twenty.toml, which is this followed by
 # one `[[platforms]]` per entry in `WIDGETS` in .angreal/task_demo.py, so the
-# list of widgets is written down once. Add a widget there, not here.
+# list of widgets is written down once. Add a widget there, not here. Each
+# `base_url` is the widget's `/hlin` subtree, as on a real host: the root of
+# its port is the widget's own UI (HLIN-I-0013).
 #
 # Everybody is the development user, as in the standard demo: the
 # collaborative demo already proves `oidc`, and this one is about how many
