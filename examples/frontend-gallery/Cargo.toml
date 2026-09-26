@@ -14,12 +14,12 @@ name = "frontend-gallery"
 path = "src/main.rs"
 
 [dependencies]
-hlin-ui = "0.0.1"
-hlin-view = "0.0.1"
+hlin-ui = "0.1.0"
+hlin-view = "0.1.0"
 # Both packs, compiled in. That is the point of this example and the reason it
 # is an example: a real front end ships one.
-hlin-pack-demo = "0.0.1"
-colliery-io-aurora = { version = "0.2", features = ["hlin"] }
+hlin-pack-demo = "0.1.0"
+colliery-io-aurora = { version = "0.3.1", features = ["hlin"] }
 leptos = { workspace = true, features = ["csr"] }
 web-sys = { version = "0.3", features = ["Window", "Location"] }
 console_error_panic_hook = "0.1"

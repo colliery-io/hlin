@@ -17,7 +17,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.93"
 license = "MIT"
@@ -80,18 +80,18 @@ async-trait = "0.1"
 # and refuses to publish a crate whose dependency names no version to resolve.
 # Four of these carried a path alone, which made every crate above them
 # unpublishable — invisible until the first `cargo publish --dry-run`.
-hlin-manifest = { path = "crates/hlin-manifest", version = "0.0.1" }
-hlin-view = { path = "crates/hlin-view", version = "0.0.1" }
-hlin-sample-platform = { path = "crates/hlin-sample-platform", version = "0.0.1" }
-hlin-identity = { path = "crates/hlin-identity", version = "0.0.1" }
-hlin-pack-demo = { path = "crates/hlin-pack-demo", version = "0.0.1" }
-hlin-stream = { path = "crates/hlin-stream", version = "0.0.1" }
-hlin-ui = { path = "crates/hlin-ui", version = "0.0.1" }
-hlin-bridge = { path = "crates/hlin-bridge", version = "0.0.1" }
-hlin-module = { path = "crates/hlin-module", version = "0.0.1" }
-hlin-widget-support = { path = "crates/widgets/hlin-widget-support", version = "0.0.1" }
-hlin-widget-module = { path = "crates/widgets/hlin-widget-module", version = "0.0.1" }
-hlin-widget-ui = { path = "crates/widgets/hlin-widget-ui", version = "0.0.1" }
+hlin-manifest = { path = "crates/hlin-manifest", version = "0.1.0" }
+hlin-view = { path = "crates/hlin-view", version = "0.1.0" }
+hlin-sample-platform = { path = "crates/hlin-sample-platform", version = "0.1.0" }
+hlin-identity = { path = "crates/hlin-identity", version = "0.1.0" }
+hlin-pack-demo = { path = "crates/hlin-pack-demo", version = "0.1.0" }
+hlin-stream = { path = "crates/hlin-stream", version = "0.1.0" }
+hlin-ui = { path = "crates/hlin-ui", version = "0.1.0" }
+hlin-bridge = { path = "crates/hlin-bridge", version = "0.1.0" }
+hlin-module = { path = "crates/hlin-module", version = "0.1.0" }
+hlin-widget-support = { path = "crates/widgets/hlin-widget-support", version = "0.1.0" }
+hlin-widget-module = { path = "crates/widgets/hlin-widget-module", version = "0.1.0" }
+hlin-widget-ui = { path = "crates/widgets/hlin-widget-ui", version = "0.1.0" }
 
 # The examples name Hlin's crates by version, from crates.io, because that is
 # what somebody outside this repository writes and an example that lies about

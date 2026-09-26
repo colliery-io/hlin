@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-09-26
+
+Hlin is now the place people work across many systems, not only a vantage over
+them. Platforms ship their own UI as modules; the shell runs each one in a
+sandboxed frame and owns the page, the person and the wire (HLIN-A-0014). The
+shell can still draw a panel from data itself, and does when a module cannot
+load.
+
+### Breaking
+
+- `hlin-manifest`: `Panel.kind`, `envelope` and `data` are optional, because a
+  panel may be drawn only by its platform's module. Code that builds a `Panel`
+  by hand must say which it is; `Panel::drawn_by_shell()` returns all three
+  when all are present.
+- The shell's default origin, with no `public_url`, is the one a request
+  arrived on rather than `http://localhost:{port}`. A shell reachable from
+  other machines should set `public_url`.
+
+### Modules
+
+- A manifest may declare `ui` on a panel or a navigation entry, an `assets`
+  prefix, and `routes` for reads and writes (HLIN-S-0001).
+- The shell serves a module's files from its own origin under `/m/`, each
+  under a CSP that lets it reach nothing but its own assets, compressed once
+  and kept, and never follows a platform's redirect.
+- Modules run in sandboxed frames with an opaque origin and talk to the page
+  over a versioned `postMessage` bridge (HLIN-S-0007): context, theme,
+  requests, parameters, navigation, notices, and changes both ways.
+- A module's requests reach its own platform through `/p/`, under the
+  prefixes it declared, as the viewer, with writes carrying a token bound to
+  the method and path (`htm`, `htu`) and an idempotency key, never retried
+  (HLIN-A-0013).
+- Streamed reads, with credit so nothing buffers without bound.
+- A frame budget of twelve per surface, with `suspend` and `state` so a module
+  scrolled away keeps what it held.
+- Platform pages open inside the shell at `/page/{platform}/…`.
+- A platform that stops answering dims its panels after three of the shell's
+  own refusals, and they recover by themselves when it returns.
+- New crates: `hlin-bridge` (the messages) and `hlin-module` (the SDK a
+  Leptos module is built with). The SDK warns in debug builds when a module
+  holds the main thread.
+
+### Identity
+
+- `oidc` sessions carry the person's email to platforms in the token.
+- A debug build may sign in against a local identity provider over plain
+  http; a release build still requires https.
+- The event stream signs every resubscribe afresh, so a platform restarted
+  after its token has expired is followed again.
+
+### The shell
+
+- Time controls appear only on a surface with a panel that wants them.
+- Limits for modules are configuration (`[modules.limits]`), per platform.
+
+### Samples and demos
+
+- `hlin-sample-checklist` and `hlin-sample-feed`: platforms people change,
+  each with its own rules, its own module, and its own words for a refusal.
+- `angreal demo up --with collab`: sign in through Dex as Alice, Bob or Carol
+  and see each other's changes without a reload.
+- `angreal demo up --with twenty`, and `--with twenty-compose`: twenty
+  platforms on one surface, each serving its own UI at `/` and Hlin under
+  `/hlin`, each module a re-export of its UI's components; the second as
+  twenty containers with a release shell and Dex.
+
+### Known
+
+- A module that holds its main thread can freeze the page outside full
+  Chromium, where frames share the page's process. Accepted for this release
+  and documented (HLIN-S-0007).
+
 ## [0.0.1] — 2026-09-08
 
 First alpha. Everything below is new, so this is a description of what the

@@ -5,8 +5,8 @@ type: application
 
 # The chart's own version, and the application's. They move independently: a
 # fix to a template is a chart release and not a Hlin release.
-version: 0.0.1
-appVersion: "0.0.1"
+version: 0.1.0
+appVersion: "0.1.0"
 
 home: https://github.com/colliery-io/hlin
 sources:

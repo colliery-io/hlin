@@ -262,12 +262,17 @@ jobs:
           # pushed before something it depends on cannot be withdrawn and
           # retried, only yanked and bumped.
           #
-          #   hlin-manifest, hlin-identity   nothing internal
-          #   hlin-view, hlin-stream         on manifest
-          #   hlin-ui, hlin-pack-demo        on view and stream
-          #   hlin-sample-platform, hlin     on everything
-          for crate in hlin-manifest hlin-identity hlin-view hlin-stream \
-                       hlin-ui hlin-pack-demo hlin-sample-platform hlin; do
+          #   hlin-manifest, hlin-identity         nothing internal
+          #   hlin-bridge, hlin-view, hlin-stream  on manifest (stream on view)
+          #   hlin-module                          on bridge
+          #   hlin-ui                              on bridge, view and stream
+          #   hlin-pack-demo                       on manifest and view
+          #   the three samples                    on identity and manifest
+          #   hlin                                 on everything
+          for crate in hlin-manifest hlin-identity hlin-bridge hlin-view \
+                       hlin-stream hlin-module hlin-ui hlin-pack-demo \
+                       hlin-sample-platform hlin-sample-checklist \
+                       hlin-sample-feed hlin; do
 
             # Already there? Then this is a re-run of a tag, and a re-run
             # should finish what a half-finished one started rather than
