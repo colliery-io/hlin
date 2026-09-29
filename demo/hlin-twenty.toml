@@ -15,6 +15,10 @@
 # browsers shows it as well as two would.
 
 port = 8080
+
+# Drawn by Aurora Dark: the widgets take their colours from whichever pack the
+# shell mounts, and this is the one they are shown in.
+frontend = "examples/frontend-aurora/dist"
 # No public_url: modules are confined to whichever origin the demo was opened
 # at, 127.0.0.1 or localhost alike. Right for a shell on one machine; anything
 # reachable from others sets it.

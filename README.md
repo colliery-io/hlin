@@ -517,7 +517,8 @@ this one; `angreal e2e signin` and `angreal e2e walkthrough` expect this one.
 ### The containerised twenty
 
 `angreal demo up --with twenty` runs twenty small widget platforms as
-processes on ports 8201 to 8220, which is quick to work on. `--with
+processes on ports 8201 to 8220, which is quick to work on. Both draw the
+surface with Aurora Dark, and every widget takes its colours from it. `--with
 twenty-compose` runs the same twenty the way they are meant to be deployed:
 
 ```bash

@@ -13,8 +13,8 @@ bind = "0.0.0.0"
 port = 8080
 issuer = "hlin"
 
-# The demo pack, as `demo up --with twenty` draws the surface.
-frontend = "/home/hlin/frontend-demo"
+# Aurora Dark, as `demo up --with twenty` draws the surface.
+frontend = "/home/hlin/frontend-aurora"
 
 key_path = "/home/hlin/state/shell.key"
 

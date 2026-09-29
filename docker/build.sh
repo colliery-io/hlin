@@ -38,12 +38,12 @@ fi
 # and compile one after another (the same order `demo up --with twenty` uses).
 projects="examples/frontend-gallery"
 packages="-p frontend-gallery"
-# The demo pack's own frontend only for the twenty widgets, which are drawn
-# with it: the released image serves the gallery and should not pay for a
-# second frontend it never uses.
+# Aurora's own frontend only for the twenty widgets, which are drawn with it:
+# the released image serves the gallery and should not pay for a second
+# frontend it never uses.
 if [ "${TWENTY:-0}" = "1" ]; then
-  projects="$projects examples/frontend-demo"
-  packages="$packages -p frontend-demo"
+  projects="$projects examples/frontend-aurora"
+  packages="$packages -p frontend-aurora"
 fi
 for widget in $widgets; do
   for kind in module ui; do
@@ -93,9 +93,9 @@ for widget in $widgets; do
 done
 cp -R examples/frontend-gallery/dist "$out/frontend-gallery"
 if [ "${TWENTY:-0}" = "1" ]; then
-  cp -R examples/frontend-demo/dist "$out/frontend-demo"
+  cp -R examples/frontend-aurora/dist "$out/frontend-aurora"
 else
   # Empty, so the runtime stage's COPY still has something to copy.
-  mkdir -p "$out/frontend-demo"
+  mkdir -p "$out/frontend-aurora"
 fi
 ls -l "$out/bin"
