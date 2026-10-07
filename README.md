@@ -180,6 +180,58 @@ modules.limits = { stream_idle_seconds = 300 }
 A streamed response is not bounded by `response_bytes`, and the upstream
 timeout covers it only until the platform sends its headers.
 
+### White-labelling
+
+The shipped image wears your name, logo and colours from configuration, with
+no rebuild:
+
+```toml
+[brand]
+name = "Acme Operations"                  # the bar, the browser tab, the messages
+logo = "/etc/hlin-brand/logo.svg"         # svg, png, jpg or webp, beside the name
+favicon = "/etc/hlin-brand/favicon.png"   # ico, png or svg
+stylesheet = "/etc/hlin-brand/brand.css"  # put on the page after the design pack's
+```
+
+Every setting is optional; with none, the page is Hlin. The shell serves the
+files from its own origin, to anybody, because a page has to look like itself
+before anybody signs in. It refuses to start on a file it cannot read, of the
+wrong type, or over 1 MiB, and reads each one again on every request, so a
+replaced file is served without a restart.
+
+The stylesheet is how colours change. It comes after the design pack's, so it
+can set the chrome's roles, which every pack fills:
+
+```css
+:root {
+  --hlin-accent: #b0135f;
+  --hlin-on-accent: #fff;
+}
+```
+
+or the pack's own tokens, which reach further: under Aurora, `--ice` is the
+accent in its components as well as in the chrome, and
+`light-dark(<light>, <dark>)` keeps both of its themes
+(`demo/brand/brand.css` does this). A module in its frame follows either
+way, because the shell sends it the colours the page resolves to.
+
+With the chart, put the files in a ConfigMap and name its keys:
+
+```sh
+kubectl create configmap acme-brand \
+  --from-file=logo.svg --from-file=favicon.png --from-file=brand.css
+helm install hlin oci://ghcr.io/colliery-io/charts/hlin \
+  --set config.brand.name="Acme Operations" \
+  --set config.brand.existingConfigMap=acme-brand \
+  --set config.brand.logo=logo.svg \
+  --set config.brand.favicon=favicon.png \
+  --set config.brand.stylesheet=brand.css
+```
+
+`angreal demo up --with brand` runs the demo white-labelled. What this does
+not brand: the identity provider's own sign-in pages, which are the
+provider's to style, and the names of the binary, the image and the crates.
+
 ### Bringing your own design pack
 
 Panels are drawn by whichever design pack the front end was built with, and the
@@ -601,9 +653,11 @@ against the wrong stack.
 The demo pack exists so this repository can demonstrate itself while depending
 on nothing published. It is deliberately plain and is not a design system.
 
-`examples/frontend-aurora` is the same front end drawn by Colliery's Aurora
-Dark, which is a real one — taken from crates.io like any other dependency,
-with its own `hlin` feature turned on:
+`examples/frontend-aurora` is the same front end drawn by Colliery's Aurora,
+which is a real one — taken from crates.io like any other dependency, with its
+own `hlin` feature turned on. It adds one thing of Aurora's own: its Light /
+Dark / System switch, in the bar (`App`'s `bar` slot), and every module on the
+surface follows the choice:
 
 ```bash
 angreal ui build --which frontend-aurora
@@ -617,7 +671,7 @@ default build does not mention Hlin — the feature that makes it a pack is
 additive and off unless asked for:
 
 ```toml
-colliery-io-aurora = { version = "0.2", features = ["hlin"] }
+colliery-io-aurora = { version = "0.5", features = ["hlin"] }
 ```
 
 `examples/frontend-gallery` holds both and reads the pack from the address, so

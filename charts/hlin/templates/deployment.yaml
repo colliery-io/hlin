@@ -123,6 +123,14 @@ spec:
               mountPath: /etc/hlin-trust
               readOnly: true
             {{- end }}
+            {{- if .Values.config.brand.existingConfigMap }}
+            # Beside /etc/hlin, for the same reason as the trust bundle. Whole
+            # rather than by subPath, so an updated ConfigMap reaches the
+            # shell, which reads the files again on every request.
+            - name: brand
+              mountPath: /etc/hlin-brand
+              readOnly: true
+            {{- end }}
             {{- if .Values.config.frontendImage }}
             # Over the top of the bundled one, which is what makes this a
             # replacement rather than a second front end nothing serves.
@@ -159,6 +167,11 @@ spec:
               - key: {{ .Values.config.caBundle.key }}
                 path: {{ .Values.config.caBundle.key }}
           {{- end }}
+        {{- end }}
+        {{- if .Values.config.brand.existingConfigMap }}
+        - name: brand
+          configMap:
+            name: {{ .Values.config.brand.existingConfigMap }}
         {{- end }}
         {{- if .Values.config.frontendImage }}
         - name: frontend

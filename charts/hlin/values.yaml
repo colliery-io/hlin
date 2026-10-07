@@ -95,6 +95,29 @@ config:
     existingSecret: ""
     key: ca.pem
 
+  # Whose name, logo and colours the shell wears (COLLIERY-I-0609). Hlin's
+  # own, when nothing here is set. No rebuild: the shipped image takes it.
+  #
+  # `name` goes in the bar, the browser tab and the messages that name the
+  # product. The files come from a ConfigMap you create, and each setting
+  # names a key in it: `logo` (svg, png, jpg, webp), `favicon` (ico, png,
+  # svg) and `stylesheet` (css, put on the page after the design pack's, so it
+  # can set `--hlin-*` or the pack's own tokens). A ConfigMap holds a binary
+  # file under `binaryData`. Mounted whole, so an update to the ConfigMap
+  # reaches the shell without a restart.
+  #
+  #   kubectl create configmap acme-brand \
+  #     --from-file=logo.svg --from-file=favicon.png --from-file=brand.css
+  #
+  # The shell refuses to start on a key it cannot read, on a file of the wrong
+  # type, or on one over 1 MiB.
+  brand:
+    name: ""
+    existingConfigMap: ""
+    logo: ""
+    favicon: ""
+    stylesheet: ""
+
   # How a person becomes a principal.
   #
   # `dev` is not offered here at all: the shell refuses it outside a debug

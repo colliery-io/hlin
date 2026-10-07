@@ -31,6 +31,29 @@ data:
     ca_bundle = "/etc/hlin-trust/{{ include "hlin.trustFile" . }}"
     {{- end }}
 
+    {{- with .Values.config.brand }}
+    {{- if or .name .existingConfigMap }}
+
+    # Whose name, logo and colours the shell wears.
+    {{- with .existingConfigMap }}
+    # The files are mounted from ConfigMap {{ . }}.
+    {{- end }}
+    [brand]
+    {{- with .name }}
+    name = {{ . | quote }}
+    {{- end }}
+    {{- with .logo }}
+    logo = "/etc/hlin-brand/{{ . }}"
+    {{- end }}
+    {{- with .favicon }}
+    favicon = "/etc/hlin-brand/{{ . }}"
+    {{- end }}
+    {{- with .stylesheet }}
+    stylesheet = "/etc/hlin-brand/{{ . }}"
+    {{- end }}
+    {{- end }}
+    {{- end }}
+
     {{- with .Values.config.timings }}
 
     [timings]

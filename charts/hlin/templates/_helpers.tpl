@@ -73,6 +73,14 @@ signing with different keys fail one request in two rather than all of them.
 {{- if gt $trust 1 }}
 {{- fail "config.caBundle: set at most one of pem, existingConfigMap, existingSecret. Only one can be mounted, so the others would be silently ignored — and a trust anchor that is silently ignored fails against every platform at once, looking like an outage." }}
 {{- end }}
+{{- with .Values.config.brand }}
+{{- if and (or .logo .favicon .stylesheet) (not .existingConfigMap) }}
+{{- fail "config.brand: logo, favicon and stylesheet name keys in config.brand.existingConfigMap, which is not set." }}
+{{- end }}
+{{- if and .existingConfigMap (not (or .logo .favicon .stylesheet)) }}
+{{- fail "config.brand.existingConfigMap is set, but none of logo, favicon or stylesheet names a key in it, so nothing from it would be used." }}
+{{- end }}
+{{- end }}
 {{- if eq .Values.config.auth.strategy "anonymous" }}
 {{- /* Nothing to demand. No provider, no proxy, no secret — and no
        acknowledgement, because there is nothing to accept: the shell refuses
