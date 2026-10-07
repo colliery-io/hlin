@@ -4,10 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-Hlin is on Aurora 0.5.0, in light and dark (COLLIERY-I-0608).
+Hlin is on Aurora 0.5.0, in light and dark (COLLIERY-I-0608), and an operator
+can white-label it with no rebuild (COLLIERY-I-0609).
 
 ### Added
 
+- `[brand]` in `hlin.toml`: a `name`, and a `logo`, `favicon` and
+  `stylesheet` from files. The shell serves them, unauthenticated, at
+  `/brand/logo`, `/favicon.ico` and `/brand/style.css` (an empty sheet when
+  none is set), checks them at startup and reads them again on every request.
+  `/api/config` carries `brand`.
+- `hlin-ui` shows the brand's name and logo in the bar and the tab, and in the
+  messages that name the product, and links the brand stylesheet after the
+  pack's. The front ends' `<title>` is empty until then.
+- The chart's `config.brand`, from a ConfigMap you create.
+- `angreal demo up --with brand`, and `e2e/tests/brand.spec.js`.
 - `App` takes an optional `bar`: the front end's own controls, at the end of
   the bar. `hlin-ui` draws it and knows nothing about it.
 - `frontend-aurora`, and `frontend-gallery` under `?pack=aurora`, offer
@@ -22,6 +33,9 @@ Hlin is on Aurora 0.5.0, in light and dark (COLLIERY-I-0608).
   (`rgb(...)`), not as the text the pack declared. Aurora 0.4+ declares
   `light-dark(...)`, which neither a frame nor the shell's light-or-dark
   judgement could read.
+
+- The bar wraps when its contents outgrow a line, and the catalogue sticks
+  below it at its measured height rather than at 49px.
 
 ### Fixed
 

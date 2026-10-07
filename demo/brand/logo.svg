@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Acme">
+  <!-- The branded demo's logo (COLLIERY-I-0609): a made-up company's mark. -->
+  <rect width="64" height="64" rx="14" fill="#b0135f"/>
+  <path d="M18 48 L32 14 L46 48 M23.5 36 H40.5" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

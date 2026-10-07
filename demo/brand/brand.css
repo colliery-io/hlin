@@ -1,0 +1,19 @@
+/* An operator's stylesheet, for the branded demo (COLLIERY-I-0609).
+ *
+ * Served by the shell at /brand/style.css and linked after the design pack's,
+ * so a rule here wins at equal specificity. This one moves Aurora's accent
+ * from ice blue to Acme's magenta, in both themes, and the shell's own chrome
+ * follows because Aurora fills `--hlin-accent` from `--ice`. A pack-agnostic
+ * brand would set the `--hlin-*` roles instead; those are what every pack
+ * fills.
+ *
+ * Modules and widgets in their frames follow too: the shell sends them the
+ * colours the page resolves to. */
+
+:root {
+  --ice: light-dark(#b0135f, #ff7ab8);
+  --ice-fg: light-dark(#93104f, #ff7ab8);
+  --ice-3: light-dark(#c8357a, #ff95c7);
+  --ice-5: light-dark(#9a1153, #f0609f);
+  --ice-7: light-dark(#7d0e44, #d94a88);
+}

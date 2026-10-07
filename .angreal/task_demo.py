@@ -36,6 +36,8 @@ LOGS = os.path.join(STATE, "logs")
 CONFIGS = {
     "demo": "demo/hlin.toml",
     "aurora": "demo/hlin-aurora.toml",
+    # The Aurora demo, white-labelled from demo/brand/ (COLLIERY-I-0609).
+    "brand": "demo/hlin-brand.toml",
     "gallery": "demo/hlin-gallery.toml",
     "live": "demo/hlin-live.toml",
     "collab": "demo/hlin-collab.toml",
@@ -503,7 +505,7 @@ def _wasm_opt_ready():
     long="with",
     takes_value=True,
     help=(
-        "which shell configuration to run: demo, aurora, gallery, live, collab, twenty, "
+        "which shell configuration to run: demo, aurora, brand, gallery, live, collab, twenty, "
         "or twenty-compose (the twenty in containers)"
     ),
 )

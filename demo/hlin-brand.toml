@@ -1,0 +1,60 @@
+# The demo shell, white-labelled (COLLIERY-I-0609).
+#
+# The Aurora demo with an operator's brand on it: a name, a logo, a favicon
+# and a stylesheet that moves the accent, all from `demo/brand/`, with no
+# rebuild. `angreal demo up --with brand`.
+
+port = 8080
+# No public_url: modules are confined to whichever origin the demo was opened
+# at, 127.0.0.1 or localhost alike. Right for a shell on one machine; anything
+# reachable from others sets it.
+issuer = "hlin"
+key_path = "demo/state/shell.key"
+frontend = "examples/frontend-aurora/dist"
+
+# Postgres is where contract memory lives, so a breaking change shipped across
+# a restart is still noticed. `angreal db up` provides one.
+database_url = "postgres://hlin:hlin@localhost:55432/hlin"
+
+# Whose name, logo and colours the shell wears. Paths are files the shell
+# serves from its own origin, read again on every request.
+[brand]
+name = "Acme Operations"
+logo = "demo/brand/logo.svg"
+favicon = "demo/brand/favicon.svg"
+stylesheet = "demo/brand/brand.css"
+
+[auth]
+strategy = "dev"
+sub = "u_dev"
+name = "Development User"
+groups = ["platform-engineering", "oncall"]
+
+[timings]
+poll_seconds = 10
+debounce_observations = 2
+upstream_timeout_seconds = 10
+
+# Verifies a signed token: what a platform does once it has adopted the
+# contract.
+[[platforms]]
+id = "orebank"
+base_url = "http://127.0.0.1:8081"
+auth = { strategy = "hlin-token" }
+
+# The same, for the second platform. `forward-session` would be the day-one
+# choice for a platform sharing the shell's session, but the demo runs each on
+# its own port, which is not same-origin, and the shell refuses that rather
+# than sending a cookie across an origin boundary.
+[[platforms]]
+id = "stampmill"
+base_url = "http://127.0.0.1:8082"
+auth = { strategy = "hlin-token" }
+
+# A third, so a surface can hold modules from three platforms at once, which
+# is what the load-time requirement is measured against (HLIN-S-0007,
+# NFR-1.1). The same binary again, under another name.
+[[platforms]]
+id = "smelter"
+base_url = "http://127.0.0.1:8085"
+auth = { strategy = "hlin-token" }
