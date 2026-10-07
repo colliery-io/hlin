@@ -619,9 +619,9 @@ pub const THEME_TOKENS: [&str; 11] = [
 /// Light or dark, as the page actually looks.
 ///
 /// Read from the page's own surface colour rather than from the operating
-/// system's preference, because the mounted pack decides: Aurora Dark is dark
-/// in a light-mode browser. The preference is the answer only when the colour
-/// cannot be read.
+/// system's preference, because the mounted pack decides: Aurora set to dark
+/// is dark in a light-mode browser. The preference is the answer only when the
+/// colour cannot be read.
 pub fn scheme_of(surface: &str, prefers_dark: bool) -> hlin_bridge::Scheme {
     match luminance(surface) {
         Some(light) if light < 0.5 => hlin_bridge::Scheme::Dark,

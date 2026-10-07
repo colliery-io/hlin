@@ -371,11 +371,26 @@ pub fn start(published: RwSignal<BTreeMap<String, ModuleView>>) {
     shown.forget();
 
     // A pack may draw differently for a dark system, and modules follow the
-    // page. Nothing else moves the tokens: a pack's stylesheet is fixed for
-    // the life of the page.
+    // page. A pack's stylesheet is fixed for the life of the page, so the
+    // other thing that moves the tokens is a change to `<html>` itself: a
+    // theme switch sets an attribute there (Aurora's `data-theme`, or a
+    // class, or an inline `color-scheme`), and which one is the pack's
+    // business, so any attribute counts.
     if let Ok(Some(dark)) = window.match_media("(prefers-color-scheme: dark)") {
         let changed = Closure::<dyn FnMut()>::new(retheme);
         let _ = dark.add_event_listener_with_callback("change", changed.as_ref().unchecked_ref());
+        changed.forget();
+    }
+    if let Some(root) = window
+        .document()
+        .and_then(|document| document.document_element())
+    {
+        let changed = Closure::<dyn FnMut()>::new(retheme);
+        if let Ok(observer) = web_sys::MutationObserver::new(changed.as_ref().unchecked_ref()) {
+            let options = web_sys::MutationObserverInit::new();
+            options.set_attributes(true);
+            let _ = observer.observe_with_options(&root, &options);
+        }
         changed.forget();
     }
 
@@ -459,6 +474,12 @@ fn tell_context(instance: &str) {
 /// The page's theme, as the mounted pack drew it: the chrome's colour roles
 /// the pack filled (or the shell's defaults, where it filled none), and light
 /// or dark as the page's own surface reads.
+///
+/// Each role is sent as the colour the browser resolves it to, not as the text
+/// the pack declared. A pack may write a role as an expression that only means
+/// something on its own page — Aurora writes `light-dark(<light>, <dark>)`,
+/// which picks by the page's `color-scheme` — and neither a module's frame nor
+/// the scheme judged below can read that.
 fn current_theme() -> Theme {
     let Some(window) = web_sys::window() else {
         return Theme::default();
@@ -468,8 +489,9 @@ fn current_theme() -> Theme {
         .ok()
         .flatten()
         .is_some_and(|query| query.matches());
-    let style = window
-        .document()
+    let document = window.document();
+    let style = document
+        .as_ref()
         .and_then(|document| document.document_element())
         .and_then(|root| window.get_computed_style(&root).ok().flatten());
     let Some(style) = style else {
@@ -482,19 +504,70 @@ fn current_theme() -> Theme {
             tokens: BTreeMap::new(),
         };
     };
+    let probe = document.as_ref().and_then(colour_probe);
     let tokens: BTreeMap<String, String> = bridge::THEME_TOKENS
         .iter()
         .filter_map(|name| {
             let value = style.get_property_value(name).ok()?;
             let value = value.trim();
-            (!value.is_empty()).then(|| (name.to_string(), value.to_string()))
+            if value.is_empty() {
+                return None;
+            }
+            let resolved = probe
+                .as_ref()
+                .and_then(|probe| resolve_colour(&window, probe, name))
+                .unwrap_or_else(|| value.to_string());
+            Some((name.to_string(), resolved))
         })
         .collect();
+    if let Some(probe) = probe {
+        probe.remove();
+    }
     let surface = tokens.get("--hlin-surface").cloned().unwrap_or_default();
     Theme {
         scheme: bridge::scheme_of(&surface, prefers_dark),
         tokens,
     }
+}
+
+/// An element nobody sees, for the browser to resolve a colour on.
+///
+/// A child of `<body>`, so it inherits the page's `color-scheme` exactly as a
+/// panel does, and removed again as soon as the theme is read.
+fn colour_probe(document: &web_sys::Document) -> Option<web_sys::HtmlElement> {
+    let probe = document
+        .create_element("span")
+        .ok()?
+        .dyn_into::<web_sys::HtmlElement>()
+        .ok()?;
+    let _ = probe.set_attribute("aria-hidden", "true");
+    let _ = probe.style().set_property("display", "none");
+    document.body()?.append_child(&probe).ok()?;
+    Some(probe)
+}
+
+/// The colour `role` resolves to on the page, as the browser computes it
+/// (`rgb(...)`), whatever the pack wrote to get there.
+///
+/// Only called for a role the page sets: an unset one would make the probe's
+/// `color` fall back to the inherited text colour, and read as a value.
+fn resolve_colour(
+    window: &web_sys::Window,
+    probe: &web_sys::HtmlElement,
+    role: &str,
+) -> Option<String> {
+    probe
+        .style()
+        .set_property("color", &format!("var({role})"))
+        .ok()?;
+    let colour = window
+        .get_computed_style(probe)
+        .ok()
+        .flatten()?
+        .get_property_value("color")
+        .ok()?;
+    let colour = colour.trim();
+    (!colour.is_empty()).then(|| colour.to_string())
 }
 
 /// The scheme or the tokens may have moved: tell every running module whose
