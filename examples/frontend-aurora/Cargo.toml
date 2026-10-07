@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Hlin's frontend, drawn by Colliery's Aurora Dark"
+description = "Hlin's frontend, drawn by Colliery's Aurora"
 publish = false
 
 [[bin]]
@@ -19,6 +19,6 @@ path = "src/main.rs"
 hlin-ui = "0.1.0"
 # The design system, with the feature that makes it a Hlin pack — from
 # crates.io, like everything else here.
-colliery-io-aurora = { version = "0.3.1", features = ["hlin"] }
+colliery-io-aurora = { version = "0.5.0", features = ["hlin"] }
 leptos = { workspace = true, features = ["csr"] }
 console_error_panic_hook = "0.1"

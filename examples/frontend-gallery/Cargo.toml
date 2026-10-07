@@ -19,7 +19,7 @@ hlin-view = "0.1.0"
 # Both packs, compiled in. That is the point of this example and the reason it
 # is an example: a real front end ships one.
 hlin-pack-demo = "0.1.0"
-colliery-io-aurora = { version = "0.3.1", features = ["hlin"] }
+colliery-io-aurora = { version = "0.5.0", features = ["hlin"] }
 leptos = { workspace = true, features = ["csr"] }
-web-sys = { version = "0.3", features = ["Window", "Location"] }
+web-sys = { version = "0.3", features = ["Window", "Location", "Document", "Element"] }
 console_error_panic_hook = "0.1"

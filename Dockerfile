@@ -146,7 +146,7 @@ WORKDIR /home/hlin
 
 COPY --from=build /out/bin/hlin /usr/local/bin/hlin
 COPY --from=build /out/frontend-gallery ./frontend
-# Aurora Dark alone, which the twenty-widget surface is drawn with, as
+# Aurora alone, which the twenty-widget surface is drawn with, as
 # `demo up --with twenty` draws it. Empty unless built with TWENTY=1, so the
 # released image carries only the gallery.
 COPY --from=build /out/frontend-aurora ./frontend-aurora

@@ -19,7 +19,7 @@ EXAMPLES = os.path.join(cwd, "examples")
 
 #: The front ends in this repository, one per design pack. `frontend-demo` is
 #: what the repository demonstrates itself with, depending on nothing published;
-#: `frontend-aurora` draws with Colliery's Aurora Dark; `frontend-gallery`
+#: `frontend-aurora` draws with Colliery's Aurora; `frontend-gallery`
 #: holds both and chooses at runtime, which is a demonstration rather than a
 #: thing to deploy.
 FRONTENDS = ["frontend-demo", "frontend-aurora", "frontend-gallery"]
@@ -62,7 +62,7 @@ ui = angreal.command_group(name="ui", about="commands for the frontend")
         - Before running the shell, if you want something to look at
         - After changing anything in crates/hlin-ui or a design pack
 
-        `--which frontend-aurora` builds the one drawn by Aurora Dark.
+        `--which frontend-aurora` builds the one drawn by Aurora.
         """,
         risk_level="safe",
     ),

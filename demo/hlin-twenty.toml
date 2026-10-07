@@ -16,7 +16,7 @@
 
 port = 8080
 
-# Drawn by Aurora Dark: the widgets take their colours from whichever pack the
+# Drawn by Aurora: the widgets take their colours from whichever pack the
 # shell mounts, and this is the one they are shown in.
 frontend = "examples/frontend-aurora/dist"
 # No public_url: modules are confined to whichever origin the demo was opened
