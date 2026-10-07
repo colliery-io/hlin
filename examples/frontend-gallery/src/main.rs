@@ -1,8 +1,9 @@
 //! Hlin's frontend, holding two design systems and choosing between them when
 //! the page loads.
 //!
-//! `?pack=aurora` draws with Colliery's Aurora Dark. `?pack=demo`, or nothing,
-//! draws with the demo pack. The same surface, the same data, the same
+//! `?pack=aurora` draws with Colliery's Aurora, and offers its Light / Dark /
+//! System switch in the bar. `?pack=demo`, or nothing, draws with the demo
+//! pack. The same surface, the same data, the same
 //! composition machinery, and every panel redrawn by a different design system.
 //!
 //! # This is a demonstration, not a deployment pattern
@@ -52,7 +53,25 @@ fn main() {
     let (name, pack) = available.remove(chosen);
     leptos::logging::log!("drawing with the `{name}` pack");
 
-    leptos::mount::mount_to_body(move || view! { <App pack=pack /> });
+    // The switch is Aurora's, so only Aurora's page offers it. The demo pack
+    // is drawn in one theme, and a switch that changed nothing would lie.
+    if name == "aurora" {
+        leptos::mount::mount_to_body(move || {
+            view! { <App pack=pack bar=|| view! { <aurora_leptos::ThemeToggle /> } /> }
+        });
+    } else {
+        // The theme `index.html` restored is Aurora's choice, and this page
+        // is not Aurora's: without this, a person who chose dark there gets
+        // dark form controls and scroll bars on the demo pack's light page.
+        if let Some(root) = web_sys::window()
+            .and_then(|window| window.document())
+            .and_then(|document| document.document_element())
+        {
+            let _ = root.remove_attribute("data-theme");
+            let _ = root.remove_attribute("style");
+        }
+        leptos::mount::mount_to_body(move || view! { <App pack=pack /> });
+    }
 }
 
 /// The pack named in the address, if one is.
@@ -65,4 +84,15 @@ fn requested() -> Option<String> {
         .filter_map(|pair| pair.split_once('='))
         .find(|(key, _)| *key == "pack")
         .map(|(_, value)| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    /// `index.html` carries a copy of Aurora's script, because Trunk has no
+    /// way to take it from the crate. A new Aurora that changes the script
+    /// fails here rather than flashing the wrong theme.
+    #[test]
+    fn the_page_restores_the_theme_as_this_aurora_does() {
+        assert!(include_str!("../index.html").contains(aurora_leptos::THEME_INIT_SCRIPT));
+    }
 }

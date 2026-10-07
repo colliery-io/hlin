@@ -72,8 +72,13 @@ enum GestureKind {
 /// system is drawing.
 #[component]
 pub fn App<P>(
-    /// What draws the panels. The only thing a consumer supplies.
+    /// What draws the panels. The only thing a consumer has to supply.
     pack: P,
+    /// The front end's own controls, at the end of the bar: whatever its
+    /// design system offers a person beyond the panels, such as a theme
+    /// switch. Optional, and nothing in this crate knows what it holds.
+    #[prop(optional, into)]
+    bar: Option<ViewFn>,
 ) -> impl IntoView
 where
     P: hlin_view::DesignPack + Send + Sync + 'static,
@@ -843,6 +848,10 @@ where
                     "Sign out"
                 </button>
             })}
+
+            // The front end's own, if it brought any: a theme switch, say.
+            // Drawn as given; the shell neither reads nor styles it.
+            {bar.map(|bar| view! { <div class="extra">{bar.run()}</div> })}
         </header>
 
         // The platforms' pages (HLIN-S-0007, *Pages*), and the way back to the

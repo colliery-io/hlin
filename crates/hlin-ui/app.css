@@ -60,6 +60,8 @@ body {
 .bar .link { font-size: 12px; color: var(--hlin-good); }
 .bar .link.down { color: var(--hlin-bad); }
 .bar .viewer { font-size: 12px; color: var(--hlin-dim); }
+/* The front end's own controls, drawn by its design system, not by this sheet. */
+.bar .extra { display: flex; align-items: center; gap: 8px; }
 
 .bar .mode {
   font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer;

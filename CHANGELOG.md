@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Hlin is on Aurora 0.5.0, in light and dark (COLLIERY-I-0608).
+
+### Added
+
+- `App` takes an optional `bar`: the front end's own controls, at the end of
+  the bar. `hlin-ui` draws it and knows nothing about it.
+- `frontend-aurora`, and `frontend-gallery` under `?pack=aurora`, offer
+  Aurora's Light / Dark / System switch in the bar, and restore the choice
+  before the first paint.
+
+### Changed
+
+- `colliery-io-aurora` 0.3.1 → 0.5.0 in the two front ends and the checklist
+  and feed modules.
+- A module is sent each `--hlin-*` role as the colour the page resolves it to
+  (`rgb(...)`), not as the text the pack declared. Aurora 0.4+ declares
+  `light-dark(...)`, which neither a frame nor the shell's light-or-dark
+  judgement could read.
+
+### Fixed
+
+- A module follows a theme switch on the page. The theme was re-sent only when
+  the operating system's preference changed; it is now also re-sent when
+  `<html>` changes an attribute.
+
 ## [0.1.0] — 2026-09-26
 
 Hlin is now the place people work across many systems, not only a vantage over

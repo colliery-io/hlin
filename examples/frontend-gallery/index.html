@@ -4,6 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Hlin</title>
+    <!-- Aurora's THEME_INIT_SCRIPT, verbatim: the theme a person chose last
+         time, put on <html> before the first paint, so a light choice does
+         not flash dark while the wasm loads. The demo pack ignores the
+         attribute. Inline, which the shell page's CSP allows (it sets only
+         frame-src); a fuller policy would need its hash. -->
+    <script>(function(){try{var t=localStorage.getItem("aurora-theme");if(t==="light"||t==="dark"||t==="hyper"){var d=document.documentElement;d.setAttribute("data-theme",t);if(t!=="hyper")d.style.colorScheme=t;}}catch(e){}})();</script>
     <!-- wasm-opt for size, on a release build only (Trunk skips it
          otherwise), at the version Trunk.toml pins. It validates against the
          MVP unless told which features rustc now emits by default, and

@@ -33,6 +33,18 @@ async function layoutOf(request, title, panels) {
   return id;
 }
 
+/** The colour `role` resolves to on the page, as the browser computes it. */
+const resolved = (page, role) =>
+  page.evaluate((role) => {
+    const probe = document.createElement('span');
+    probe.style.display = 'none';
+    probe.style.color = `var(${role})`;
+    document.body.append(probe);
+    const colour = getComputedStyle(probe).color;
+    probe.remove();
+    return colour;
+  }, role);
+
 const byKey = (page, key) => page.locator(`section.panel[data-panel="${PLATFORM}/${key}"]`);
 const inside = (panel) => panel.frameLocator('iframe');
 
@@ -81,12 +93,57 @@ test.describe('a module told where it is, asking for things', () => {
     await expect(context).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
 
     // The chrome's eleven colour roles, as the mounted pack filled them, and
-    // the scheme the page actually reads as.
+    // the scheme the page actually reads as. Each is sent as the colour the
+    // page resolves it to, whatever the pack wrote to get there.
     await expect(inside(context).locator('#theme')).toHaveText(/^(light|dark), 11 tokens$/);
-    const accent = await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--hlin-accent').trim(),
-    );
+    const accent = await resolved(page, '--hlin-accent');
+    expect(accent).toMatch(/^rgba?\(/);
     await expect(inside(context).locator('#theme')).toHaveAttribute('data-accent', accent);
+  });
+
+  test("a module follows Aurora's theme switch, and the choice outlives a reload", async ({
+    page,
+  }) => {
+    // Ignored by a front end that draws only with Aurora, and the way to ask
+    // for it in the gallery.
+    await page.goto(`/s/${layoutId}?pack=aurora`);
+    await page.locator('header.bar').waitFor({ state: 'visible' });
+    // Only where Aurora is drawing: `frontend-demo` has no switch to offer.
+    // Judged by Aurora's own token rather than by the switch, so a switch
+    // that went missing under Aurora still fails here.
+    const aurora = await page.evaluate(
+      () => getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() !== '',
+    );
+    test.skip(!aurora, 'this front end does not draw with Aurora');
+    const context = byKey(page, 'module-context');
+    await expect(context).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
+    const toggle = page.locator('header.bar .cl-theme-toggle');
+    const theme = inside(context).locator('#theme');
+
+    for (const [choice, scheme, order] of [
+      ['Light', 'light', 233],
+      ['Dark', 'dark', 234],
+    ]) {
+      await toggle.getByRole('button', { name: choice }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
+      // The chrome, drawn in the pack's roles, and the module in its frame,
+      // told the same colours without a reload.
+      const surface = await resolved(page, '--hlin-surface');
+      await expect(page.locator('body')).toHaveCSS('background-color', surface);
+      await expect(theme).toHaveText(new RegExp(`^${scheme}, 11 tokens$`));
+      await expect(theme).toHaveAttribute('data-accent', await resolved(page, '--hlin-accent'));
+      await shot(page, order, `aurora-${scheme}`);
+    }
+
+    await page.reload();
+    await page.locator('header.bar').waitFor({ state: 'visible' });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(toggle.getByRole('button', { name: 'Dark' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(context).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
+    await expect(theme).toHaveText(/^dark, 11 tokens$/);
   });
 
   test('set-param from a module is stored with the layout, and sticks after a reload', async ({
