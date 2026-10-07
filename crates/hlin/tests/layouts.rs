@@ -103,6 +103,7 @@ fn config() -> Config {
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
         ca_bundle: None,
+        brand: Default::default(),
         database_url: None,
         database_url_env: None,
         frontend: "unused".into(),

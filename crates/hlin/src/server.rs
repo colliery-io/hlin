@@ -73,6 +73,11 @@ pub fn router(state: AppState) -> Router {
             post(crate::modules::changes::relay),
         )
         .route("/api/config", get(client_config))
+        // The operator's brand. Unauthenticated: a page has to look like
+        // itself before anybody has signed in.
+        .route(crate::brand::STYLESHEET_PATH, get(crate::brand::stylesheet))
+        .route(crate::brand::LOGO_PATH, get(crate::brand::logo))
+        .route(crate::brand::FAVICON_PATH, get(crate::brand::favicon))
         // Composition. `home` is a literal and is registered before the
         // parameterised route it would otherwise be swallowed by.
         .route("/api/panels", get(crate::layouts::catalog))
@@ -194,6 +199,12 @@ async fn client_config(
         // behind a proxy signing out is the proxy's business.
         "sign_out": matches!(state.config.auth, crate::config::AuthConfig::Oidc(_))
             .then_some(crate::config::LOGOUT_PATH),
+        // Whose name the page wears, and whether there is a logo at
+        // `/brand/logo` to draw beside it ([`crate::brand`]).
+        "brand": {
+            "name": state.config.brand.name(),
+            "logo": state.config.brand.has_logo(),
+        },
     }))
 }
 

@@ -29,6 +29,7 @@
 
 pub mod auth;
 pub mod bounded;
+pub mod brand;
 pub mod clients;
 pub mod compressed;
 pub mod config;

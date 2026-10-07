@@ -118,6 +118,11 @@ pub struct Config {
     /// ([`crate::compressed`]).
     #[serde(default)]
     pub compression: crate::compressed::CompressionConfig,
+
+    /// Whose name, logo and colours the shell wears ([`crate::brand`]).
+    /// Hlin's own, unless an operator says otherwise.
+    #[serde(default)]
+    pub brand: crate::brand::BrandConfig,
 }
 
 fn default_bind() -> String {
@@ -831,6 +836,10 @@ pub enum ConfigError {
     #[error("{0}")]
     Trust(String),
 
+    /// `[brand]` cannot be used as configured.
+    #[error("{0}")]
+    Brand(String),
+
     /// A named environment variable is not in the environment.
     #[error("{setting} names `{variable}`, which is not in the environment")]
     MissingVariable {
@@ -924,6 +933,11 @@ impl Config {
         // start and then fail against every platform on the internal CA at
         // once — which looks exactly like those platforms being down.
         crate::clients::extra_anchors(self.ca_bundle.as_deref()).map_err(ConfigError::Trust)?;
+
+        // A brand file that is missing would otherwise show as a page with no
+        // logo, or in Hlin's colours, which nobody would connect to a typo in
+        // a path.
+        self.brand.check().map_err(ConfigError::Brand)?;
 
         let mut seen: Vec<&str> = Vec::new();
 
@@ -1275,6 +1289,7 @@ mod trust_tests {
             issuer: "hlin".to_string(),
             key_path: "/tmp/unused.key".into(),
             ca_bundle: None,
+            brand: Default::default(),
             database_url: None,
             database_url_env: None,
             frontend: "unused".into(),
@@ -1420,6 +1435,7 @@ mod trust_tests {
     fn a_bundle_that_cannot_be_read_refuses_to_start() {
         let refused = Config {
             ca_bundle: Some("/tmp/hlin-no-such-bundle.pem".into()),
+            brand: Default::default(),
             ..config()
         }
         .check()
