@@ -1116,7 +1116,7 @@ dependencies = [
 
 [[package]]
 name = "frontend-aurora"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "colliery-io-aurora",
  "console_error_panic_hook",
@@ -1126,7 +1126,7 @@ dependencies = [
 
 [[package]]
 name = "frontend-demo"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "hlin-pack-demo",
@@ -1136,7 +1136,7 @@ dependencies = [
 
 [[package]]
 name = "frontend-gallery"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "colliery-io-aurora",
  "console_error_panic_hook",
@@ -1467,7 +1467,7 @@ dependencies = [
 
 [[package]]
 name = "hlin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1505,7 +1505,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-bridge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-manifest",
  "js-sys",
@@ -1516,7 +1516,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-identity"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -1534,7 +1534,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-manifest"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "semver",
@@ -1548,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "hlin-bridge",
@@ -1564,7 +1564,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-pack-demo"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "hlin-manifest",
@@ -1575,7 +1575,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-sample-checklist"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1597,7 +1597,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-sample-checklist-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "colliery-io-aurora",
  "console_error_panic_hook",
@@ -1610,7 +1610,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-sample-feed"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1631,7 +1631,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-sample-feed-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "colliery-io-aurora",
@@ -1646,7 +1646,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-sample-platform"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1666,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-sample-platform-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "hlin-module",
@@ -1679,7 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-stream"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "hlin-manifest",
@@ -1690,7 +1690,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "console_error_panic_hook",
@@ -1712,7 +1712,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-view"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-manifest",
  "serde",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-bookmarks"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -1734,7 +1734,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-bookmarks-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -1744,7 +1744,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-bookmarks-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-bookmarks-components",
  "hlin-widget-module",
@@ -1752,7 +1752,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-bookmarks-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-bookmarks-components",
  "hlin-widget-ui",
@@ -1760,7 +1760,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-clock"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -1774,7 +1774,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-clock-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "js-sys",
@@ -1785,7 +1785,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-clock-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-clock-components",
  "hlin-widget-module",
@@ -1793,7 +1793,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-clock-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-clock-components",
  "hlin-widget-ui",
@@ -1801,7 +1801,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-converter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -1811,7 +1811,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-converter-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -1819,7 +1819,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-converter-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-converter-components",
  "hlin-widget-module",
@@ -1827,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-converter-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-converter-components",
  "hlin-widget-ui",
@@ -1835,7 +1835,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-counter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -1847,7 +1847,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-counter-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -1857,7 +1857,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-counter-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-counter-components",
  "hlin-widget-module",
@@ -1865,7 +1865,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-counter-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-counter-components",
  "hlin-widget-ui",
@@ -1873,7 +1873,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-deploys"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1888,7 +1888,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-deploys-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "js-sys",
@@ -1899,7 +1899,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-deploys-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-deploys-components",
  "hlin-widget-module",
@@ -1907,7 +1907,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-deploys-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-deploys-components",
  "hlin-widget-ui",
@@ -1915,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-dice"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -1928,7 +1928,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-dice-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -1938,7 +1938,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-dice-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-dice-components",
  "hlin-widget-module",
@@ -1946,7 +1946,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-dice-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-dice-components",
  "hlin-widget-ui",
@@ -1954,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-kanban"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -1966,7 +1966,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-kanban-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -1976,7 +1976,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-kanban-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-kanban-components",
  "hlin-widget-module",
@@ -1984,7 +1984,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-kanban-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-kanban-components",
  "hlin-widget-ui",
@@ -1992,7 +1992,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-meetings"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2005,7 +2005,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-meetings-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "js-sys",
@@ -2016,7 +2016,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-meetings-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-meetings-components",
  "hlin-widget-module",
@@ -2024,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-meetings-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-meetings-components",
  "hlin-widget-ui",
@@ -2032,7 +2032,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "hlin-module",
@@ -2045,7 +2045,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-notes"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2057,7 +2057,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-notes-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -2067,7 +2067,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-notes-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-notes-components",
@@ -2075,7 +2075,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-notes-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-notes-components",
  "hlin-widget-ui",
@@ -2083,7 +2083,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-oncall"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2096,7 +2096,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-oncall-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -2106,7 +2106,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-oncall-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-oncall-components",
@@ -2114,7 +2114,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-oncall-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-oncall-components",
  "hlin-widget-ui",
@@ -2122,7 +2122,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-picker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2136,7 +2136,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-picker-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -2146,7 +2146,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-picker-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-picker-components",
@@ -2154,7 +2154,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-picker-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-picker-components",
  "hlin-widget-ui",
@@ -2162,7 +2162,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-poll"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2174,7 +2174,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-poll-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -2184,7 +2184,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-poll-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-poll-components",
@@ -2192,7 +2192,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-poll-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-poll-components",
  "hlin-widget-ui",
@@ -2200,7 +2200,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-pomodoro"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2213,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-pomodoro-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "js-sys",
@@ -2224,7 +2224,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-pomodoro-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-pomodoro-components",
@@ -2232,7 +2232,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-pomodoro-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-pomodoro-components",
  "hlin-widget-ui",
@@ -2240,7 +2240,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-quote"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2252,7 +2252,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-quote-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -2262,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-quote-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-quote-components",
@@ -2270,7 +2270,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-quote-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-quote-components",
  "hlin-widget-ui",
@@ -2278,7 +2278,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-reactions"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2290,7 +2290,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-reactions-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -2300,7 +2300,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-reactions-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-reactions-components",
@@ -2308,7 +2308,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-reactions-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-reactions-components",
  "hlin-widget-ui",
@@ -2316,7 +2316,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-shoutbox"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2329,7 +2329,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-shoutbox-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "js-sys",
@@ -2340,7 +2340,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-shoutbox-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-shoutbox-components",
@@ -2348,7 +2348,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-shoutbox-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-shoutbox-components",
  "hlin-widget-ui",
@@ -2356,7 +2356,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-sparkline"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2369,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-sparkline-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -2379,7 +2379,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-sparkline-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-sparkline-components",
@@ -2387,7 +2387,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-sparkline-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-sparkline-components",
  "hlin-widget-ui",
@@ -2395,7 +2395,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-status"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2408,7 +2408,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-status-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "js-sys",
@@ -2419,7 +2419,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-status-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-status-components",
@@ -2427,7 +2427,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-status-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-status-components",
  "hlin-widget-ui",
@@ -2435,7 +2435,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-stopwatch"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2447,7 +2447,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-stopwatch-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "js-sys",
@@ -2458,7 +2458,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-stopwatch-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-stopwatch-components",
@@ -2466,7 +2466,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-stopwatch-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-stopwatch-components",
  "hlin-widget-ui",
@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-support"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2497,7 +2497,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
@@ -2511,7 +2511,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-weather"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -2524,7 +2524,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-weather-components"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "leptos",
@@ -2534,7 +2534,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-weather-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-module",
  "hlin-widget-weather-components",
@@ -2542,7 +2542,7 @@ dependencies = [
 
 [[package]]
 name = "hlin-widget-weather-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hlin-widget-ui",
  "hlin-widget-weather-components",
@@ -5517,7 +5517,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

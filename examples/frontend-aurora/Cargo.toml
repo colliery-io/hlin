@@ -16,7 +16,7 @@ path = "src/main.rs"
 [dependencies]
 # The composition machinery, which knows nothing about any design system.
 # Named from crates.io, the way anybody outside this repository would write it.
-hlin-ui = "0.1.0"
+hlin-ui = "0.1.1"
 # The design system, with the feature that makes it a Hlin pack — from
 # crates.io, like everything else here.
 colliery-io-aurora = { version = "0.5.0", features = ["hlin"] }
