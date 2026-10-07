@@ -46,11 +46,17 @@ body {
 /* -- The bar ------------------------------------------------------------ */
 
 .bar {
-  display: flex; align-items: center; gap: 16px;
+  /* Wraps rather than spilling off the page: a long brand name, a pack's own
+     controls and a signed-in name can outgrow one line on a laptop. */
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
   padding: 10px 16px;
   background: var(--hlin-raised); border-bottom: 1px solid var(--hlin-border);
   position: sticky; top: 0; z-index: 10;
 }
+/* The operator's name and logo, or Hlin's. A logo is drawn at the bar's text
+   height and keeps its own proportions. */
+.bar .brand { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.bar .brand-logo { height: 22px; width: auto; display: block; }
 .bar .tagline { color: var(--hlin-dim); font-size: 12px; }
 .bar .applied { margin-left: auto; font-size: 12px; color: var(--hlin-dim); }
 .bar .applied.pending { color: var(--hlin-warn); }
@@ -59,9 +65,11 @@ body {
 .bar .saving { font-size: 12px; color: var(--hlin-warn); }
 .bar .link { font-size: 12px; color: var(--hlin-good); }
 .bar .link.down { color: var(--hlin-bad); }
-.bar .viewer { font-size: 12px; color: var(--hlin-dim); }
+.bar .viewer { font-size: 12px; color: var(--hlin-dim); white-space: nowrap; }
 /* The front end's own controls, drawn by its design system, not by this sheet. */
-.bar .extra { display: flex; align-items: center; gap: 8px; }
+/* At the right: on the bar's line when there is room, at the right of a
+   second line when the bar wraps. */
+.bar .extra { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
 .bar .mode {
   font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer;
@@ -108,7 +116,9 @@ body {
   width: 260px; flex: none; align-self: stretch;
   padding: 12px;
   background: var(--hlin-raised); border-right: 1px solid var(--hlin-border);
-  position: sticky; top: 49px; max-height: calc(100vh - 49px); overflow-y: auto;
+  /* Below the bar, however tall it has wrapped to (measured in app.rs). */
+  position: sticky; top: var(--hlin-bar-height, 49px);
+  max-height: calc(100vh - var(--hlin-bar-height, 49px)); overflow-y: auto;
 }
 .catalog .search {
   width: 100%; font: inherit; font-size: 12px; padding: 5px 8px;

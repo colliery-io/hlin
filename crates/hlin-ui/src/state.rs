@@ -200,7 +200,7 @@ impl SurfaceState {
                 panel.state = PanelState::Unavailable(Cause::Unreachable);
                 // The unreachable party is the shell, not any platform, and the
                 // viewer should not be told to go and look at a platform.
-                panel.detail = Some("Hlin is not responding".to_string());
+                panel.detail = Some(format!("{} is not responding", crate::brand::name()));
             }
         }
     }

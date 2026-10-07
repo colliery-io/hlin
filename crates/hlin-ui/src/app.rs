@@ -111,6 +111,9 @@ where
     // one. Both empty until `/api/config` answers.
     let (viewer, set_viewer) = signal(Option::<String>::None);
     let (sign_out, set_sign_out) = signal(Option::<String>::None);
+    // Whose name and logo the bar shows. Nothing until the shell says, so a
+    // shell wearing another name never shows Hlin's first.
+    let (brand, set_brand) = signal(Option::<hlin_stream::layout::BrandSummary>::None);
     let (trouble, set_trouble) = signal(Option::<String>::None);
     let (chosen_range, set_chosen_range) = signal(3600i64);
     let (custom, set_custom) = signal(Option::<TimeRange>::None);
@@ -139,6 +142,33 @@ where
 
     let stage: NodeRef<html::Main> = NodeRef::new();
 
+    // The bar wraps when its contents outgrow a line, and the catalogue sticks
+    // below it, so its height is measured rather than assumed. Written to
+    // `<body>`, not `<html>`: an attribute change on `<html>` is how a theme
+    // switch is noticed, and the bar's height is not one.
+    let bar_ref: NodeRef<html::Header> = NodeRef::new();
+    Effect::new(move |_| {
+        let Some(header) = bar_ref.get() else { return };
+        let publish = Closure::<dyn FnMut()>::new(move || {
+            let Some(header) = bar_ref.get_untracked() else {
+                return;
+            };
+            let height = header.get_bounding_client_rect().height();
+            if let Some(body) = web_sys::window()
+                .and_then(|window| window.document())
+                .and_then(|document| document.body())
+            {
+                let _ = body
+                    .style()
+                    .set_property("--hlin-bar-height", &format!("{height}px"));
+            }
+        });
+        if let Ok(observer) = web_sys::ResizeObserver::new(publish.as_ref().unchecked_ref()) {
+            observer.observe(&header);
+        }
+        publish.forget();
+    });
+
     // What each module panel's bridge says about it, by instance. Written by
     // `frame`, which owns the frames; read here to draw the panels around them.
     let modules = RwSignal::new(BTreeMap::<String, ModuleView>::new());
@@ -158,6 +188,13 @@ where
                 crate::frame::set_viewer(Some(shown.clone()), config.read_only);
                 set_viewer.set(Some(shown));
                 set_sign_out.set(config.sign_out);
+                // Whose page this is. The title too, which the front end's
+                // `index.html` leaves empty so no other name shows first.
+                crate::brand::set_name(&config.brand.name);
+                if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+                    document.set_title(&config.brand.name);
+                }
+                set_brand.set(Some(config.brand));
             }
             // A link to a surface names the layout; a bare visit gets the
             // principal's own. Either way the address bar ends up naming what
@@ -769,8 +806,26 @@ where
         // Nothing else has to know a design system was chosen.
         <style>{styling}</style>
 
-        <header class="bar">
-            <strong>"Hlin"</strong>
+        // The operator's, after the pack's so it wins: it may set the
+        // chrome's roles, the pack's own tokens, or anything else. Always
+        // linked, because the shell answers an empty sheet where there is no
+        // brand. When it arrives the page's colours may have moved, so every
+        // module is told them again.
+        <link
+            rel="stylesheet"
+            href=crate::brand::STYLESHEET_PATH
+            on:load=move |_| crate::frame::retheme()
+        />
+
+        <header class="bar" node_ref=bar_ref>
+            {move || brand.get().map(|brand| view! {
+                <span class="brand">
+                    {brand.logo.then(|| view! {
+                        <img class="brand-logo" src=crate::brand::LOGO_PATH alt="" />
+                    })}
+                    <strong class="brand-name">{brand.name}</strong>
+                </span>
+            })}
             <span class="tagline">{move || draft.with(|draft| draft.title().to_string())}</span>
 
             <Show when=move || wants_time.get()>
@@ -1505,7 +1560,9 @@ fn PageView(
                     );
                     return view! {
                         {drawer.draw(&drawn, None)}
-                        <p class="detail module-note">"There is no page here that Hlin can open."</p>
+                        <p class="detail module-note">
+                            {format!("There is no page here that {} can open.", crate::brand::name())}
+                        </p>
                     }
                     .into_any();
                 }
@@ -1750,7 +1807,7 @@ fn PanelBody(
         return view! {
             {body}
             {abandoned.then(|| view! {
-                <p class="detail">"Hlin is not responding"</p>
+                <p class="detail">{format!("{} is not responding", crate::brand::name())}</p>
             })}
         }
         .into_any();
@@ -1829,7 +1886,7 @@ fn ModuleUnavailable(
     if fallen_back {
         return view! {
             <p class="detail module-note">
-                {format!("Drawn by Hlin: {why}. ")}
+                {format!("Drawn by {}: {why}. ", crate::brand::name())}
                 <button class="retry-module" on:click=retry>"Try the module again"</button>
             </p>
         }

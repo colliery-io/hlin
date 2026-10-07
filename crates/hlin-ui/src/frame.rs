@@ -572,7 +572,7 @@ fn resolve_colour(
 
 /// The scheme or the tokens may have moved: tell every running module whose
 /// theme differs.
-fn retheme() {
+pub(crate) fn retheme() {
     let theme = current_theme();
     let owed: Vec<String> = PAGE.with(|page| {
         let mut page = page.borrow_mut();

@@ -447,6 +447,33 @@ pub struct ClientConfig {
     /// end offers no way to try.
     #[serde(default)]
     pub sign_out: Option<String>,
+
+    /// Whose name the page wears, and whether it has a logo.
+    ///
+    /// Defaulted to Hlin's own, so a browser served by an older shell, which
+    /// sends none, looks as it always did.
+    #[serde(default)]
+    pub brand: BrandSummary,
+}
+
+/// The operator's brand, as far as the browser needs it. The colours come in a
+/// stylesheet at `/brand/style.css`, and the logo at `/brand/logo`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrandSummary {
+    /// The product's name, for the bar, the title and the messages.
+    pub name: String,
+    /// Whether `/brand/logo` has an image to draw.
+    #[serde(default)]
+    pub logo: bool,
+}
+
+impl Default for BrandSummary {
+    fn default() -> Self {
+        Self {
+            name: "Hlin".to_string(),
+            logo: false,
+        }
+    }
 }
 
 /// The viewer, named.
@@ -477,6 +504,23 @@ pub struct PrincipalSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shell_that_sends_no_brand_is_hlin() {
+        let older = r#"{ "protocol_version": 1, "stream_loss_grace_seconds": 10,
+                         "principal": { "sub": "u_dev" } }"#;
+        let config: ClientConfig = serde_json::from_str(older).expect("an older shell's config");
+        assert_eq!(config.brand, BrandSummary::default());
+        assert_eq!(config.brand.name, "Hlin");
+        assert!(!config.brand.logo);
+
+        let branded = r#"{ "protocol_version": 1, "stream_loss_grace_seconds": 10,
+                           "principal": { "sub": "u_dev" },
+                           "brand": { "name": "Acme Work", "logo": true } }"#;
+        let config: ClientConfig = serde_json::from_str(branded).expect("a branded config");
+        assert_eq!(config.brand.name, "Acme Work");
+        assert!(config.brand.logo);
+    }
 
     #[test]
     fn a_placement_is_pulled_back_inside_the_grid() {

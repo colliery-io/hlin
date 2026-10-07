@@ -38,6 +38,7 @@
 /// inside it.
 pub const APP_CSS: &str = include_str!("../app.css");
 
+pub mod brand;
 pub mod bridge;
 pub mod draft;
 pub mod grid;
