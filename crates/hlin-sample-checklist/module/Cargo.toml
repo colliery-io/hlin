@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 hlin-module = { workspace = true }
-colliery-io-aurora = "0.5.0"
+colliery-io-aurora = "0.6.1"
 leptos = { workspace = true, features = ["csr"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

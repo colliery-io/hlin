@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `colliery-io-aurora` 0.5.0 → 0.6.1 in the two front ends and the checklist
+  and feed modules. Aurora's graph view is styled in `HLIN_CSS` now.
+
 ## [0.1.1] — 2026-10-06
 
 Hlin is on Aurora 0.5.0, in light and dark (COLLIERY-I-0608), and an operator

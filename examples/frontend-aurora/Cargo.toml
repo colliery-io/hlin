@@ -19,6 +19,6 @@ path = "src/main.rs"
 hlin-ui = "0.1.1"
 # The design system, with the feature that makes it a Hlin pack — from
 # crates.io, like everything else here.
-colliery-io-aurora = { version = "0.5.0", features = ["hlin"] }
+colliery-io-aurora = { version = "0.6.1", features = ["hlin"] }
 leptos = { workspace = true, features = ["csr"] }
 console_error_panic_hook = "0.1"
