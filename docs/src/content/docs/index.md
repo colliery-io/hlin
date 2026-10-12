@@ -1,4 +1,7 @@
-# Hlin
+---
+title: Hlin
+description: One place to work across many systems, assembled by the people who use them.
+---
 
 One place to work across many systems, assembled by the people who use them.
 
@@ -24,4 +27,4 @@ hlin --help
 
 ## Development
 
-See the [Getting Started](getting-started/installation.md) guide.
+See the [Getting Started](how-to/installation/) guide.
