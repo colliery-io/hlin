@@ -1,43 +1,85 @@
-import angreal
+"""
+Docs tasks: `angreal docs build`, `angreal docs serve` and `angreal docs api`.
+
+The docs are an Astro Starlight site in docs/, with the Colliery theme
+starlight-aurora (HLIN-T-0107). They need Node 22 or later, and plissken for
+the API reference: `plissken render` writes it into
+docs/src/content/docs/reference/api/ (see plissken.toml).
+"""
+
+import shutil
 import subprocess
-import os
-import webbrowser
+import sys
+from pathlib import Path
 
-cwd = os.path.join(angreal.get_root(), '..')
-docs = angreal.command_group(name="docs", about="commands for documentation")
+import angreal  # type: ignore
 
+PROJECT_ROOT = Path(angreal.get_root()).parent
+DOCS_ROOT = PROJECT_ROOT / "docs"
 
-@docs()
-@angreal.command(name="build", about="generate API docs and build the site")
-def build_docs():
-    # Generate API docs with plissken
-    print("Generating API documentation with plissken...")
-    result = subprocess.run(["plissken", "render"], cwd=cwd)
-    if result.returncode != 0:
-        print("Warning: plissken render failed (is plissken installed?)")
-
-    # Build mkdocs site
-    print("Building documentation site...")
-    result = subprocess.run(["mkdocs", "build"], cwd=cwd)
-    raise SystemExit(result.returncode)
+docs = angreal.command_group(name="docs", about="documentation site commands")
 
 
-@docs()
-@angreal.command(name="serve", about="serve documentation locally with live reload")
-@angreal.argument(name="port", long="port", short="p", required=False, help="port to serve on (default: 8000)")
-def serve_docs(port="8000"):
-    # Generate API docs first
-    print("Generating API documentation with plissken...")
-    subprocess.run(["plissken", "render"], cwd=cwd)
+def _plissken():
+    plissken = shutil.which("plissken")
+    if not plissken:
+        print("plissken not found: cargo install plissken --version 0.1.0", file=sys.stderr)
+        return 1
+    return subprocess.run([plissken, "render"], cwd=str(PROJECT_ROOT)).returncode
 
-    # Serve with mkdocs
-    print(f"Serving docs at http://localhost:{port}")
-    result = subprocess.run(["mkdocs", "serve", "-a", f"localhost:{port}"], cwd=cwd)
-    raise SystemExit(result.returncode)
+
+def _npm(*args):
+    npm = shutil.which("npm")
+    if not npm:
+        print("npm not found: install Node 22 or later", file=sys.stderr)
+        return 1
+    if not (DOCS_ROOT / "node_modules").exists():
+        result = subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=str(DOCS_ROOT))
+        if result.returncode != 0:
+            return result.returncode
+    return subprocess.run([npm, *args], cwd=str(DOCS_ROOT)).returncode
 
 
 @docs()
-@angreal.command(name="api", about="regenerate API docs only (plissken render)")
-def api_docs():
-    result = subprocess.run(["plissken", "render"], cwd=cwd)
-    raise SystemExit(result.returncode)
+@angreal.command(
+    name="build",
+    about="generate the API docs and build the site into docs/dist",
+    tool=angreal.ToolDescription(
+        "Runs `plissken render` for the API reference, then builds the Starlight "
+        "docs site in docs/ into docs/dist. Installs the npm dependencies on the "
+        "first run. Fails when plissken is missing or a page does not build.",
+        risk_level="safe",
+    ),
+)
+def docs_build():
+    return _plissken() or _npm("run", "build")
+
+
+@docs()
+@angreal.command(
+    name="serve",
+    about="generate the API docs and serve the site with live reload",
+    tool=angreal.ToolDescription(
+        "Runs `plissken render`, then serves the docs site at "
+        "http://localhost:4321 and reloads on each change. In a terminal it runs "
+        "until Ctrl+C. From a script or an agent, Astro runs it in the "
+        "background: stop it with `npx astro dev stop` in docs/.",
+        risk_level="safe",
+    ),
+)
+def docs_serve():
+    return _plissken() or _npm("run", "dev")
+
+
+@docs()
+@angreal.command(
+    name="api",
+    about="regenerate the API docs only (plissken render)",
+    tool=angreal.ToolDescription(
+        "Runs `plissken render`, which writes the API reference pages and "
+        "_sidebar.mjs into docs/src/content/docs/reference/api/.",
+        risk_level="safe",
+    ),
+)
+def docs_api():
+    return _plissken()

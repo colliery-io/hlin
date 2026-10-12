@@ -39,9 +39,11 @@ e2e/results/
 __pycache__/
 *.pyc
 
-# Documentation output.
-site/
-docs/api/
+# Documentation: npm packages, build output and the generated API pages.
+docs/node_modules/
+docs/dist/
+docs/.astro/
+docs/src/content/docs/reference/api/
 
 # Nothing here is read at build time.
 .metis/
