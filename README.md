@@ -671,7 +671,7 @@ default build does not mention Hlin — the feature that makes it a pack is
 additive and off unless asked for:
 
 ```toml
-colliery-io-aurora = { version = "0.5", features = ["hlin"] }
+colliery-io-aurora = { version = "0.6", features = ["hlin"] }
 ```
 
 `examples/frontend-gallery` holds both and reads the pack from the address, so

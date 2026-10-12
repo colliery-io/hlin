@@ -15,7 +15,7 @@ export default {
 	'/api/rust/hlin-manifest/manifest': '/reference/api/rust/hlin-manifest/manifest/',
 	'/api/rust/hlin-manifest/params': '/reference/api/rust/hlin-manifest/params/',
 	'/api/rust/hlin-manifest/path': '/reference/api/rust/hlin-manifest/path/',
-	'/api/rust/hlin-manifest/tests': '/reference/api/rust/hlin-manifest/tests/',
+	'/api/rust/hlin-manifest/tests': '/reference/api/rust/hlin-manifest/',
 	'/api/rust/hlin-manifest/validate': '/reference/api/rust/hlin-manifest/validate/',
 	'/api/rust/hlin-view': '/reference/api/rust/hlin-view/',
 	'/api/rust/hlin-view/intent': '/reference/api/rust/hlin-view/intent/',

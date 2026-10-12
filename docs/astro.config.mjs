@@ -29,8 +29,6 @@ export default defineConfig({
 			description: 'One place to work across many systems, assembled by the people who use them.',
 			social: [{ icon: 'github', label: 'GitHub', href: REPO }],
 			plugins: [starlightAurora({ hyper: true })],
-			// A first-line path comment in a code block stays in the code.
-			expressiveCode: { frames: { extractFileNameFromCode: false } },
 			// Written out. Add a new page here.
 			sidebar: [
 				{ label: 'Home', link: '/' },
