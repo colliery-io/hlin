@@ -23,7 +23,7 @@ docs = angreal.command_group(name="docs", about="documentation site commands")
 def _plissken():
     plissken = shutil.which("plissken")
     if not plissken:
-        print("plissken not found: cargo install plissken --version 0.1.0", file=sys.stderr)
+        print("plissken not found: cargo install plissken --version 0.2.0", file=sys.stderr)
         return 1
     return subprocess.run([plissken, "render"], cwd=str(PROJECT_ROOT)).returncode
 

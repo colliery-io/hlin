@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 - `colliery-io-aurora` 0.5.0 → 0.6.1 in the two front ends and the checklist
   and feed modules. Aurora's graph view is styled in `HLIN_CSS` now.
+- The API reference is rendered by plissken 0.2.0: private items are left
+  out, so `hlin-manifest::tests` has no page (its old address goes to
+  `hlin-manifest`), and the reference has its own index page.
 
 ## [0.1.1] — 2026-10-06
 

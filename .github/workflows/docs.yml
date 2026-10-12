@@ -30,8 +30,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PLISSKEN_VERSION: 0.1.0
-  PLISSKEN_SHA256: 9e6d1b8c5d2c54b9265263d768a2c392b539ab0ba8bb3cade5dfec2c594f63bf
+  PLISSKEN_VERSION: 0.2.0
+  PLISSKEN_SHA256: 2166e15d69bd891959704a0f70c60724ccae4615584a70b4e524ed4c9460e253
 
 jobs:
   build:
