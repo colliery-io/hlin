@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - The API reference is rendered by plissken 0.2.0: private items are left
   out, so `hlin-manifest::tests` has no page (its old address goes to
   `hlin-manifest`), and the reference has its own index page.
+- The docs theme `starlight-aurora` 0.2.1 → 0.3.0.
 
 ## [0.1.1] — 2026-10-06
 
