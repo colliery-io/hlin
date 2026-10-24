@@ -116,6 +116,7 @@ fn config() -> Config {
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::default(),
         timings: Timings {
@@ -1025,6 +1026,7 @@ fn trusted_header_config() -> Config {
         header: "x-forwarded-user".to_string(),
         groups_header: Some("x-forwarded-groups".to_string()),
         name_header: None,
+        admin_groups: vec![],
         acknowledge_proxy_required: true,
     };
     config
@@ -1089,6 +1091,7 @@ fn trusted_header_must_acknowledge_what_it_trusts() {
         header: "x-forwarded-user".to_string(),
         groups_header: None,
         name_header: None,
+        admin_groups: vec![],
         acknowledge_proxy_required: false,
     };
 
@@ -1186,6 +1189,8 @@ fn oidc_config() -> Config {
         public_url: "https://hlin.example.com".to_string(),
         scopes: vec!["openid".to_string()],
         groups_claim: "groups".to_string(),
+        admin_claim: None,
+        admin_values: vec![],
         session_hours: 12,
         cookie: Default::default(),
     });
@@ -1202,6 +1207,7 @@ async fn signed_in(store: &Arc<dyn Store>, subject: &str) -> String {
             name: None,
             email: Some(format!("{subject}@example.com")),
             groups: vec![],
+            admin_claim: vec![],
             created_at: chrono::Utc::now(),
             expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
         })
@@ -1270,6 +1276,7 @@ async fn a_session_that_is_over_is_nobody() {
             name: None,
             email: None,
             groups: vec![],
+            admin_claim: vec![],
             created_at: chrono::Utc::now() - chrono::Duration::hours(13),
             expires_at: chrono::Utc::now() - chrono::Duration::hours(1),
         })

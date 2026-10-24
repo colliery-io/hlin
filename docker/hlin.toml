@@ -33,6 +33,15 @@ key_path = "/home/hlin/state/shell.key"
 # failing later against every platform at once.
 # ca_bundle = "/etc/hlin-trust/ca.pem"
 
+# Admins of Hlin's own data (HLIN-A-0016): they may set the org default
+# surface, make a surface public for anonymous viewers, and delete what another
+# person published. Nothing in any platform. Each is compared with a
+# principal's `sub`. A strategy can name more: `admin_groups` under
+# trusted-header, `admin_claim` and `admin_values` under oidc. Under
+# `anonymous` nobody is an admin; under `dev` only a principal listed here.
+[admin]
+principals = []
+
 [auth]
 # For an open deployment — public platforms, public data, anybody may look, and
 # no identity provider to point at — the strategy is `anonymous`:
@@ -42,9 +51,10 @@ key_path = "/home/hlin/state/shell.key"
 #
 # That is the whole of it. Every visitor gets their own identity from a cookie
 # the shell sets, so nobody moves anybody else's charts, and the shell refuses
-# every write. It therefore shows what has been published and nothing else:
-# compose against the same database from a shell configured with one of the
-# strategies below, and publish.
+# every write. It therefore shows only surfaces an admin made public: compose
+# against the same database from a shell configured with one of the strategies
+# below, and have an admin make the surface public. A published surface is for
+# people signed in, and is not shown.
 #
 # `dev` is refused in a release build, on purpose: it makes every request the
 # same person. This is the smallest strategy that works, and it means exactly
@@ -54,7 +64,15 @@ key_path = "/home/hlin/state/shell.key"
 strategy = "trusted-header"
 header = "x-forwarded-user"
 groups_header = "x-forwarded-groups"
+# Groups in `groups_header` that make a person an admin.
+# admin_groups = ["hlin-admins"]
 acknowledge_proxy_required = true
+
+# Under oidc the admin claim is read at sign-in; `admin_claim` defaults to
+# `groups_claim`:
+#
+#   admin_claim = "roles"
+#   admin_values = ["hlin-admin"]
 
 # One per platform the shell should offer panels from.
 #

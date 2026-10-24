@@ -226,6 +226,7 @@ async fn callback(State(app): State<AppState>, Query(returned): Query<Returned>)
         name: claims.name,
         email: claims.email,
         groups: claims.groups,
+        admin_claim: claims.admin_claim,
         created_at: Utc::now(),
         expires_at: Utc::now() + oidc.session_life(),
     };

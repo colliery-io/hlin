@@ -53,11 +53,13 @@ fn shell_config(brand: BrandConfig) -> Config {
         brand,
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::TrustedHeader {
             header: "x-user".to_string(),
             groups_header: None,
             name_header: None,
+            admin_groups: vec![],
             acknowledge_proxy_required: true,
         },
         timings: Timings::default(),

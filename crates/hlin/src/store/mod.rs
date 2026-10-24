@@ -127,6 +127,21 @@ pub trait Store: Send + Sync {
     /// (decision HLIN-A-0007).
     async fn published_layouts(&self) -> Result<Vec<Layout>>;
 
+    /// Every public layout, most recently changed first: what an anonymous
+    /// shell may show (HLIN-A-0016).
+    async fn public_layouts(&self) -> Result<Vec<Layout>>;
+
+    /// The org default surface, if an admin set one.
+    ///
+    /// One per shell. Deleting the layout clears it.
+    async fn org_default(&self) -> Result<Option<uuid::Uuid>>;
+
+    /// Set the org default, or clear it with `None`.
+    ///
+    /// A layout that does not exist is [`StoreError::NotFound`]. Whether it
+    /// may be the default is the caller's question.
+    async fn set_org_default(&self, id: Option<uuid::Uuid>) -> Result<()>;
+
     /// Create a layout.
     async fn create_layout(&self, layout: NewLayout) -> Result<Layout>;
 

@@ -81,11 +81,12 @@ pub struct PlatformSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Visibility {
-    /// Its owner, and anyone holding its link.
+    /// Its owner only.
     Personal,
-    /// Listed in the shell-wide gallery, visible to every authenticated
-    /// principal.
+    /// Visible to every signed-in principal. Anyone signed in may publish.
     Published,
+    /// Visible to anonymous viewers too. Only an admin sets it (HLIN-A-0016).
+    Public,
 }
 
 impl Visibility {
@@ -94,6 +95,7 @@ impl Visibility {
         match self {
             Self::Personal => "personal",
             Self::Published => "published",
+            Self::Public => "public",
         }
     }
 
@@ -102,6 +104,7 @@ impl Visibility {
         match value {
             "personal" => Some(Self::Personal),
             "published" => Some(Self::Published),
+            "public" => Some(Self::Public),
             _ => None,
         }
     }
@@ -145,6 +148,13 @@ impl Layout {
         self.visibility == Visibility::Published
     }
 
+    /// Whether this layout is open to more than its owner: published or
+    /// public. Only such a layout can be the org default, and an admin may
+    /// delete it.
+    pub fn is_shared(&self) -> bool {
+        matches!(self.visibility, Visibility::Published | Visibility::Public)
+    }
+
     /// Whether a principal may change this layout.
     ///
     /// Only its owner. Everyone else reads it and forks to edit, which is what
@@ -155,12 +165,14 @@ impl Layout {
 
     /// Whether a principal may open this layout.
     ///
-    /// A published layout is open to anyone; a personal one is open to its
-    /// owner and to anyone who was given its link, which the shell cannot
-    /// distinguish from anyone else who knows the identifier. Link sharing is
-    /// exactly that: knowing the link is the permission.
-    pub fn is_visible_to(&self, principal: &str) -> bool {
-        self.is_published() || self.owner == principal
+    /// Signed in, a published or public layout is open to anyone, and a
+    /// personal one to its owner. On a shell where nobody signs in
+    /// (`anonymous`, so `read_only`), only a public one is open (HLIN-A-0016).
+    pub fn is_visible_to(&self, principal: &str, read_only: bool) -> bool {
+        if read_only {
+            return self.visibility == Visibility::Public;
+        }
+        self.is_shared() || self.owner == principal
     }
 
     /// The panels on it, in order.
@@ -331,6 +343,10 @@ pub struct Session {
 
     /// The groups claim, as read at sign-in.
     pub groups: Vec<String>,
+
+    /// The values of the admin claim, as read at sign-in (HLIN-A-0016).
+    /// Kept apart from `groups`, which go to platforms.
+    pub admin_claim: Vec<String>,
 
     /// When they signed in.
     pub created_at: DateTime<Utc>,

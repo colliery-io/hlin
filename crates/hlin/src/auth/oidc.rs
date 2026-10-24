@@ -50,6 +50,34 @@ pub struct Claims {
 
     /// The groups claim, which platforms may use for their own decisions.
     pub groups: Vec<String>,
+
+    /// The values of the admin claim (`admin_claim`, else `groups_claim`),
+    /// for the shell's own admin check (HLIN-A-0016).
+    pub admin_claim: Vec<String>,
+}
+
+/// The values of one claim, as strings.
+///
+/// Providers disagree about whether groups are an array or one
+/// comma-separated string, and a shell that understands only one of those
+/// silently gives everybody no groups at all against the other. A claim that
+/// is `true` reads as the value `"true"`, so a boolean admin claim works.
+fn claim_values(claim: Option<&Value>) -> Vec<String> {
+    match claim {
+        Some(Value::Array(values)) => values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+        Some(Value::String(value)) => value
+            .split(',')
+            .map(str::trim)
+            .filter(|group| !group.is_empty())
+            .map(str::to_string)
+            .collect(),
+        Some(Value::Bool(true)) => vec!["true".to_string()],
+        _ => Vec::new(),
+    }
 }
 
 /// A provider, as its discovery document describes it.
@@ -295,29 +323,15 @@ impl Provider {
             .and_then(Value::as_str)
             .map(str::to_string);
 
-        // Providers disagree about whether groups are an array or one
-        // comma-separated string, and a shell that understands only one of
-        // those silently gives everybody no groups at all against the other.
-        let groups = match claims.get(&config.groups_claim) {
-            Some(Value::Array(values)) => values
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect(),
-            Some(Value::String(value)) => value
-                .split(',')
-                .map(str::trim)
-                .filter(|group| !group.is_empty())
-                .map(str::to_string)
-                .collect(),
-            _ => Vec::new(),
-        };
+        let groups = claim_values(claims.get(&config.groups_claim));
+        let admin_claim = claim_values(claims.get(config.admin_claim()));
 
         Ok(Claims {
             subject,
             name,
             email,
             groups,
+            admin_claim,
         })
     }
 
@@ -371,6 +385,22 @@ fn urlencode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_claim_is_read_as_a_list_a_comma_list_or_true() {
+        let read = |value: Value| claim_values(Some(&value));
+        assert_eq!(
+            read(serde_json::json!(["hlin-admin", "viewer", 3])),
+            vec!["hlin-admin".to_string(), "viewer".to_string()]
+        );
+        assert_eq!(
+            read(serde_json::json!("hlin-admin, viewer ,")),
+            vec!["hlin-admin".to_string(), "viewer".to_string()]
+        );
+        assert_eq!(read(serde_json::json!(true)), vec!["true".to_string()]);
+        assert!(read(serde_json::json!(false)).is_empty());
+        assert!(claim_values(None).is_empty());
+    }
 
     #[test]
     fn the_challenge_is_the_one_the_specification_gives() {

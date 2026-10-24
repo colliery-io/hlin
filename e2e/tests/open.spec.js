@@ -3,7 +3,8 @@
 // Run against a shell configured with `strategy = "anonymous"`, which is not
 // the demo's own — so every test here skips unless `/api/config` says the
 // shell it is talking to is read-only. That keeps one suite honest against two
-// very different deployments rather than needing a second runner:
+// very different deployments rather than needing a second runner. It needs a
+// surface an admin made public; a published one is not shown (HLIN-A-0016):
 //
 //   HLIN_URL=http://127.0.0.1:8090 npx playwright test tests/open.spec.js
 //
@@ -36,7 +37,7 @@ test.describe('an open shell', () => {
     expect(visitor.value.length).toBeGreaterThan(20);
   });
 
-  test('shows a published surface, with data on it', async ({ page }) => {
+  test('shows a public surface, with data on it', async ({ page }) => {
     await page.goto('/');
 
     const panel = page.locator('[data-panel]').first();

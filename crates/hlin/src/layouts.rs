@@ -11,6 +11,10 @@
 //!   a layout is edited as one thing. Dragging one panel moves several, and
 //!   there is no useful meaning to half of that having happened.
 //!
+//! The admin role (HLIN-A-0016) is checked here too: only an admin makes a
+//! layout `public`, sets or clears the org default, or deletes a published or
+//! public layout someone else owns.
+//!
 //! The catalogue the picker reads is here too, because it is the read side of
 //! the same question: a layout names panels, and this is the list of panels
 //! there are to name.
@@ -25,7 +29,7 @@ use hlin_stream::layout::{
 };
 use uuid::Uuid;
 
-use crate::identity::{Author, Caller};
+use crate::identity::{Author, Caller, IsAdmin};
 use crate::server::AppState;
 use crate::store::{Layout, LayoutItem, NewLayout, PanelInstance, Visibility};
 
@@ -251,11 +255,15 @@ pub async fn list(
 
 /// What to open when nobody has said which surface they want.
 ///
-/// A first visit should land on something a person can compose, not on a list
-/// with nothing in it. This returns the principal's most recently changed
-/// layout, creating an empty one the first time. Making the shell do it means
-/// the browser has no "if there are none" branch to get wrong, and two tabs
+/// Signed in: the principal's most recently changed layout; with none, the
+/// org default, if one is set and still published or public; with neither,
+/// an empty layout created for them. Making the shell decide means the
+/// browser has no "if there are none" branch to get wrong, and two tabs
 /// opening at once cannot each create a layout by racing.
+///
+/// Where nobody signs in (`anonymous`): the org default if it is public, else
+/// the most recently changed public layout, else 404 with the reason. Never
+/// a write (HLIN-A-0012, HLIN-A-0016).
 pub async fn home(
     State(state): State<AppState>,
     Caller(principal): Caller,
@@ -263,25 +271,24 @@ pub async fn home(
     // Where nobody signs in there is nothing to own, so "your most recent
     // surface" has no meaning and creating one would be a write — an unbounded
     // one, a row per visitor, on a shell whose whole premise is that it stores
-    // nothing they do. A visitor lands on what was published instead, which is
-    // what an open instance exists to show (HLIN-A-0012).
+    // nothing they do. A visitor lands on what an admin made public instead.
     if state.config.read_only() {
-        let published = state
-            .store
-            .published_layouts()
-            .await
-            .map_err(Refusal::store)?;
+        if let Some(layout) = org_default(&state, &principal.sub).await? {
+            return Ok(Json(document_for(&layout, &principal.sub)));
+        }
 
-        return match published.into_iter().next() {
+        let public = state.store.public_layouts().await.map_err(Refusal::store)?;
+
+        return match public.into_iter().next() {
             Some(layout) => Ok(Json(document_for(&layout, &principal.sub))),
-            // Not an error in the shell. An operator has stood this up and not
-            // yet published anything, and the message is the one thing that
-            // tells them so rather than leaving them looking for a bug.
+            // Not an error in the shell. An operator has stood this up and no
+            // admin has made a surface public yet, and the message is the one
+            // thing that tells them so rather than leaving them looking for a
+            // bug.
             None => Err(Refusal::not_found(
-                "published surface. This shell is open to anybody, so it shows \
-                 only what has been published; compose and publish one from a \
-                 shell configured with an authenticator, against this same \
-                 database",
+                "public surface. This shell is open to anybody, so it shows only \
+                 surfaces an admin made public; make one public from a shell \
+                 configured with an authenticator, against this same database",
             )),
         };
     }
@@ -293,6 +300,10 @@ pub async fn home(
         .map_err(Refusal::store)?;
 
     if let Some(layout) = existing.into_iter().next() {
+        return Ok(Json(document_for(&layout, &principal.sub)));
+    }
+
+    if let Some(layout) = org_default(&state, &principal.sub).await? {
         return Ok(Json(document_for(&layout, &principal.sub)));
     }
 
@@ -308,6 +319,98 @@ pub async fn home(
         "created a first layout"
     );
     Ok(Json(document_for(&created, &principal.sub)))
+}
+
+/// The org default, if one is set, is still published or public, and this
+/// principal may view it.
+///
+/// A default whose owner has since made it personal is not served: it is no
+/// longer something everyone may see.
+async fn org_default(state: &AppState, principal: &str) -> Result<Option<Layout>, Refusal> {
+    let Some(id) = state.store.org_default().await.map_err(Refusal::store)? else {
+        return Ok(None);
+    };
+    let layout = state.store.layout(id).await.map_err(Refusal::store)?;
+    Ok(layout.filter(|layout| {
+        layout.is_shared() && layout.is_visible_to(principal, state.config.read_only())
+    }))
+}
+
+// -- The org default -------------------------------------------------------
+
+/// The org default surface, for anyone who may view it.
+pub async fn read_default(
+    State(state): State<AppState>,
+    Caller(principal): Caller,
+) -> Answer<LayoutDocument> {
+    match org_default(&state, &principal.sub).await? {
+        Some(layout) => Ok(Json(document_for(&layout, &principal.sub))),
+        None => Err(Refusal::not_found("org default")),
+    }
+}
+
+/// What an admin sends to set the org default.
+#[derive(Debug, serde::Deserialize)]
+pub struct DefaultRequest {
+    /// The layout to make the default.
+    pub id: String,
+}
+
+/// Set the org default. Admin only; the layout must be published or public.
+pub async fn set_default(
+    State(state): State<AppState>,
+    Author(principal): Author,
+    IsAdmin(admin): IsAdmin,
+    Json(request): Json<DefaultRequest>,
+) -> Answer<LayoutDocument> {
+    if !admin {
+        return Err(Refusal::forbidden("only an admin may set the org default"));
+    }
+
+    let uuid = identifier(&request.id)?;
+    let layout = state
+        .store
+        .layout(uuid)
+        .await
+        .map_err(Refusal::store)?
+        .ok_or_else(|| Refusal::not_found("layout"))?;
+
+    if !layout.is_shared() {
+        return Err(Refusal::unusable(
+            "the org default must be published or public; this layout is personal".to_string(),
+        ));
+    }
+
+    state
+        .store
+        .set_org_default(Some(uuid))
+        .await
+        .map_err(Refusal::store)?;
+
+    tracing::info!(admin = principal.sub, layout = %uuid, "set the org default");
+    Ok(Json(document_for(&layout, &principal.sub)))
+}
+
+/// Clear the org default. Admin only.
+pub async fn clear_default(
+    State(state): State<AppState>,
+    Author(principal): Author,
+    IsAdmin(admin): IsAdmin,
+) -> Result<StatusCode, Refusal> {
+    if !admin {
+        return Err(Refusal::forbidden(
+            "only an admin may clear the org default",
+        ));
+    }
+
+    state
+        .store
+        .set_org_default(None)
+        .await
+        .map_err(Refusal::store)?;
+
+    tracing::info!(admin = principal.sub, "cleared the org default");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// What a browser sends to start a new surface.
@@ -362,6 +465,7 @@ pub async fn read(
 pub async fn replace(
     State(state): State<AppState>,
     Author(caller): Author,
+    IsAdmin(admin): IsAdmin,
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Answer<LayoutDocument> {
@@ -392,6 +496,15 @@ pub async fn replace(
     stored.title = title.to_string();
 
     if let Some(visibility) = Visibility::parse(&document.visibility) {
+        // Making a layout public shows it to anybody at all, so only an admin
+        // may (HLIN-A-0016). Keeping one public that already is, or taking it
+        // back to published or personal, is the owner's own business.
+        if visibility == Visibility::Public && stored.visibility != Visibility::Public && !admin {
+            return Err(Refusal::forbidden(
+                "only an admin may make a layout public. Publish it to share it with \
+                 everyone signed in",
+            ));
+        }
         stored.visibility = visibility;
     }
 
@@ -420,6 +533,7 @@ pub async fn replace(
 pub async fn remove(
     State(state): State<AppState>,
     Author(principal): Author,
+    IsAdmin(admin): IsAdmin,
     Path(id): Path<String>,
 ) -> Result<StatusCode, Refusal> {
     let principal = principal.sub.clone();
@@ -432,8 +546,19 @@ pub async fn remove(
         .map_err(Refusal::store)?
         .ok_or_else(|| Refusal::not_found("layout"))?;
 
-    if !stored.is_editable_by(&principal) {
+    // The owner, or an admin removing what someone else shared
+    // (HLIN-A-0016). A personal layout is its owner's alone.
+    let removable = stored.is_editable_by(&principal) || (admin && stored.is_shared());
+    if !removable {
         return Err(Refusal::forbidden("this layout belongs to someone else"));
+    }
+    if !stored.is_editable_by(&principal) {
+        tracing::info!(
+            admin = principal,
+            owner = stored.owner,
+            layout = %uuid,
+            "an admin deleted a shared layout"
+        );
     }
 
     state
@@ -480,9 +605,10 @@ async fn load_visible(state: &AppState, id: &str, principal: &str) -> Result<Lay
         .map_err(Refusal::store)?
         .ok_or_else(|| Refusal::not_found("layout"))?;
 
-    if !layout.is_visible_to(principal) {
-        // Here a 404 is right: a personal layout's existence is not this
-        // principal's business, and knowing the link is the permission.
+    if !layout.is_visible_to(principal, state.config.read_only()) {
+        // Here a 404 is right: a layout this principal may not see is not
+        // theirs to know about. On an anonymous shell that is every layout
+        // that is not public.
         return Err(Refusal::not_found("layout"));
     }
 

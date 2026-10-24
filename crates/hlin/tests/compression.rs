@@ -189,11 +189,13 @@ async fn shell_keeping(compression: CompressionConfig) -> Shell {
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::TrustedHeader {
             header: USER.to_string(),
             groups_header: None,
             name_header: None,
+            admin_groups: vec![],
             acknowledge_proxy_required: true,
         },
         timings: Timings::default(),

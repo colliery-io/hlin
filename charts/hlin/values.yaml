@@ -118,6 +118,15 @@ config:
     favicon: ""
     stylesheet: ""
 
+  # Admins of Hlin's own data (HLIN-A-0016). An admin may set the org default
+  # surface, make a surface public for anonymous viewers, and delete what
+  # another person published. Nothing in any platform. Each entry is compared
+  # with a principal's `sub`. A strategy can name more: `adminGroups` under
+  # trustedHeader, `adminClaim` and `adminValues` under oidc. Under `anonymous`
+  # nobody is an admin.
+  admin:
+    principals: []
+
   # How a person becomes a principal.
   #
   # `dev` is not offered here at all: the shell refuses it outside a debug
@@ -135,9 +144,11 @@ config:
     # `dev` — an unauthenticated caller creating, editing and deleting whatever
     # they like — which a release build refuses for that reason.
     #
-    # So an install with this strategy shows what has been published and
-    # nothing else. Compose against the same database from a shell configured
-    # with `trusted-header` or `oidc`, and publish.
+    # So an install with this strategy shows only surfaces an admin made
+    # public, and nothing else. Compose against the same database from a shell
+    # configured with `trusted-header` or `oidc`, and have an admin make the
+    # surface public. A published surface is for people signed in and is not
+    # shown here.
     anonymous:
       cookie:
         name: hlin_visitor
@@ -152,6 +163,8 @@ config:
       header: x-forwarded-user
       groupsHeader: x-forwarded-groups
       nameHeader: ""
+      # Groups in groupsHeader that make a person an admin.
+      adminGroups: []
 
       # Required, and it means what it says: the shell trusts whatever this
       # header claims, so anything able to reach a pod directly is whoever it
@@ -172,6 +185,11 @@ config:
       publicUrl: ""
       scopes: ["openid", "profile", "email", "groups"]
       groupsClaim: groups
+      # The claim that names admins, read at sign-in. Empty: groupsClaim.
+      adminClaim: ""
+      # Values of that claim that make a person an admin. A claim that is
+      # `true` matches "true".
+      adminValues: []
       sessionHours: 12
       cookie:
         name: hlin_session

@@ -117,6 +117,7 @@ fn config(modular_base: &str) -> Config {
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::default(),
         timings: Timings {
