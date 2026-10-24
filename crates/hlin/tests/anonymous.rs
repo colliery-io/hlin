@@ -70,6 +70,7 @@ fn anonymous() -> Config {
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::Anonymous {
             cookie: CookieConfig {
@@ -189,6 +190,7 @@ fn it_is_the_only_strategy_that_refuses_writes() {
         header: "x-forwarded-user".to_string(),
         groups_header: None,
         name_header: None,
+        admin_groups: vec![],
         acknowledge_proxy_required: true,
     };
     assert!(!with_a_proxy.read_only());
@@ -323,6 +325,7 @@ async fn the_same_writes_work_under_an_authenticator() {
         header: "x-forwarded-user".to_string(),
         groups_header: None,
         name_header: None,
+        admin_groups: vec![],
         acknowledge_proxy_required: true,
     };
     let (app, _) = shell_with(with_a_proxy).await;
@@ -357,28 +360,50 @@ async fn reading_and_looking_around_still_work() {
     }
 }
 
-/// A visitor lands on what was published. Creating one per visitor would be a
-/// write, and an unbounded one — a row for every browser that ever arrives.
+/// A visitor lands on what an admin made public. Creating one per visitor
+/// would be a write, and an unbounded one — a row for every browser that ever
+/// arrives. A published layout is for people signed in, and is not shown
+/// (HLIN-A-0016).
 #[tokio::test]
-async fn home_shows_what_was_published_and_never_creates() {
+async fn home_shows_what_is_public_and_never_creates() {
     let (app, store) = shell_with(anonymous()).await;
 
     let (_, _, minted) = call(&app, get("/api/config", None)).await;
     let cookie = as_cookie(&minted.expect("a name"));
 
-    // Nothing published yet: said plainly, rather than answered with a new
+    // Nothing public yet: said plainly, rather than answered with a new
     // empty surface nobody asked for.
     let (status, body, _) = call(&app, get("/api/layouts/home", Some(&cookie))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    let said = body["error"].as_str().unwrap_or_default().to_string()
-        + body["reason"].as_str().unwrap_or_default();
-    assert!(said.contains("published"), "{body}");
+    let said = body["error"].as_str().unwrap_or_default();
+    assert!(said.contains("public"), "{body}");
 
-    let before = store.published_layouts().await.expect("a store").len();
-
+    // Published is not enough.
     let published = store
         .create_layout(NewLayout {
             visibility: hlin::store::types::Visibility::Published,
+            ..NewLayout::personal("operator", "For colleagues".to_string())
+        })
+        .await
+        .expect("the store accepts a layout");
+    let (status, _, _) = call(&app, get("/api/layouts/home", Some(&cookie))).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "a published layout is not shown"
+    );
+    let (status, _, _) = call(
+        &app,
+        get(&format!("/api/layouts/{}", published.id), Some(&cookie)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "nor read by its link");
+
+    let before = store.public_layouts().await.expect("a store").len();
+
+    let public = store
+        .create_layout(NewLayout {
+            visibility: hlin::store::types::Visibility::Public,
             ..NewLayout::personal("operator", "The wall".to_string())
         })
         .await
@@ -386,11 +411,11 @@ async fn home_shows_what_was_published_and_never_creates() {
 
     let (status, body, _) = call(&app, get("/api/layouts/home", Some(&cookie))).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["id"], serde_json::json!(published.id.to_string()));
+    assert_eq!(body["id"], serde_json::json!(public.id.to_string()));
 
     // And nothing was created along the way.
-    let after = store.published_layouts().await.expect("a store").len();
-    assert_eq!(after, before + 1, "only the one an operator published");
+    let after = store.public_layouts().await.expect("a store").len();
+    assert_eq!(after, before + 1, "only the one an operator made public");
 }
 
 /// A regression, and a costly one for how quiet it was.

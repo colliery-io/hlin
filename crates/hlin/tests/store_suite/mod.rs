@@ -29,6 +29,8 @@ pub async fn run_all(store: &dyn Store) {
     a_missing_layout_is_not_an_error(store).await;
     layouts_are_listed_most_recently_changed_first(store).await;
     only_published_layouts_are_in_the_gallery(store).await;
+    only_public_layouts_are_listed_as_public(store).await;
+    the_org_default_is_set_cleared_and_gone_with_its_layout(store).await;
     updating_a_layout_replaces_its_panels(store).await;
     updating_a_layout_that_is_gone_is_an_error(store).await;
     forking_gives_the_forker_their_own_copy(store).await;
@@ -329,6 +331,99 @@ async fn only_published_layouts_are_in_the_gallery(store: &dyn Store) {
     store.delete_layout(shared.id).await.unwrap();
 }
 
+async fn only_public_layouts_are_listed_as_public(store: &dyn Store) {
+    let owner = unique("admin");
+
+    let published = store
+        .create_layout(NewLayout {
+            visibility: Visibility::Published,
+            ..NewLayout::personal(owner.clone(), "For colleagues")
+        })
+        .await
+        .unwrap();
+    let public = store
+        .create_layout(NewLayout {
+            visibility: Visibility::Public,
+            ..NewLayout::personal(owner.clone(), "For anybody")
+        })
+        .await
+        .unwrap();
+
+    let read_back = store.layout(public.id).await.unwrap().unwrap();
+    assert_eq!(read_back.visibility, Visibility::Public);
+
+    let listed: Vec<Uuid> = store
+        .public_layouts()
+        .await
+        .unwrap()
+        .iter()
+        .map(|layout| layout.id)
+        .collect();
+    assert!(listed.contains(&public.id));
+    assert!(!listed.contains(&published.id));
+
+    let gallery: Vec<Uuid> = store
+        .published_layouts()
+        .await
+        .unwrap()
+        .iter()
+        .map(|layout| layout.id)
+        .collect();
+    assert!(gallery.contains(&published.id));
+    assert!(
+        !gallery.contains(&public.id),
+        "the gallery is published only"
+    );
+
+    store.delete_layout(published.id).await.unwrap();
+    store.delete_layout(public.id).await.unwrap();
+}
+
+async fn the_org_default_is_set_cleared_and_gone_with_its_layout(store: &dyn Store) {
+    let owner = unique("admin");
+    let first = store
+        .create_layout(NewLayout {
+            visibility: Visibility::Published,
+            ..NewLayout::personal(owner.clone(), "First default")
+        })
+        .await
+        .unwrap();
+    let second = store
+        .create_layout(NewLayout {
+            visibility: Visibility::Public,
+            ..NewLayout::personal(owner.clone(), "Second default")
+        })
+        .await
+        .unwrap();
+
+    store.set_org_default(None).await.unwrap();
+    assert_eq!(store.org_default().await.unwrap(), None);
+
+    store.set_org_default(Some(first.id)).await.unwrap();
+    assert_eq!(store.org_default().await.unwrap(), Some(first.id));
+
+    // One default: setting another replaces it.
+    store.set_org_default(Some(second.id)).await.unwrap();
+    assert_eq!(store.org_default().await.unwrap(), Some(second.id));
+
+    let missing = store.set_org_default(Some(Uuid::new_v4())).await;
+    assert!(
+        matches!(missing, Err(hlin::store::StoreError::NotFound { .. })),
+        "a layout that does not exist cannot be the default: {missing:?}"
+    );
+    assert_eq!(store.org_default().await.unwrap(), Some(second.id));
+
+    store.set_org_default(None).await.unwrap();
+    assert_eq!(store.org_default().await.unwrap(), None);
+
+    // Deleting the layout clears the default.
+    store.set_org_default(Some(first.id)).await.unwrap();
+    store.delete_layout(first.id).await.unwrap();
+    assert_eq!(store.org_default().await.unwrap(), None);
+
+    store.delete_layout(second.id).await.unwrap();
+}
+
 async fn updating_a_layout_replaces_its_panels(store: &dyn Store) {
     let owner = unique("arranger");
     let created = store
@@ -468,6 +563,7 @@ fn session(id: &str, subject: &str, lasting: chrono::Duration) -> Session {
         name: Some(format!("{subject} of somewhere")),
         email: Some(format!("{subject}@example.com")),
         groups: vec!["platform-engineering".to_string()],
+        admin_claim: vec!["hlin-admins".to_string()],
         created_at: Utc::now(),
         expires_at: Utc::now() + lasting,
     }
@@ -500,6 +596,7 @@ async fn a_session_round_trips(store: &dyn Store) {
     assert_eq!(read.subject, "ada");
     assert_eq!(read.email.as_deref(), Some("ada@example.com"));
     assert_eq!(read.groups, vec!["platform-engineering".to_string()]);
+    assert_eq!(read.admin_claim, vec!["hlin-admins".to_string()]);
     assert!(
         store
             .session("nothing-was-stored-here")

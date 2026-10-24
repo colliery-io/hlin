@@ -97,7 +97,7 @@ pub struct LayoutDocument {
     /// What the viewer called it.
     pub title: String,
 
-    /// `personal` or `published`.
+    /// `personal`, `published` or `public`.
     pub visibility: String,
 
     /// The principal who owns it.
@@ -413,7 +413,7 @@ pub struct LayoutSummary {
     pub id: String,
     /// What the viewer called it.
     pub title: String,
-    /// `personal` or `published`.
+    /// `personal`, `published` or `public`.
     pub visibility: String,
     /// Who owns it.
     pub owner: String,
@@ -659,6 +659,13 @@ pub struct ClientConfig {
     /// way round: the alternative hides composition from every older shell.
     #[serde(default)]
     pub read_only: bool,
+
+    /// Whether the viewer is an admin of this shell's own data (HLIN-A-0016):
+    /// may set the org default, make a surface public, and delete what
+    /// another person published. Defaulted to false, so a browser served by an
+    /// older shell offers no admin controls.
+    #[serde(default)]
+    pub admin: bool,
 
     /// Where to `POST` to end this browser's session, where the shell keeps
     /// one. Absent under strategies with nothing to end, and then the front

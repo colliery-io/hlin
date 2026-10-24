@@ -268,6 +268,7 @@ fn config_with(platform: PlatformConfig) -> Config {
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::default(),
         timings: Timings::default(),

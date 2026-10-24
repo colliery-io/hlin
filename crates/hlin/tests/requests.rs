@@ -309,6 +309,7 @@ async fn shell_at(auth: AuthConfig, public_url: Option<&str>) -> Shell {
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth,
         // A short upstream timeout, so the slow platform is slow enough.
@@ -384,6 +385,7 @@ async fn shell() -> Shell {
         header: USER.to_string(),
         groups_header: None,
         name_header: None,
+        admin_groups: vec![],
         acknowledge_proxy_required: true,
     })
     .await
@@ -580,6 +582,7 @@ async fn unconfigured_shell() -> Shell {
             header: USER.to_string(),
             groups_header: None,
             name_header: None,
+            admin_groups: vec![],
             acknowledge_proxy_required: true,
         },
         None,
@@ -1564,11 +1567,13 @@ async fn a_stream_the_platform_breaks_off_ends_as_unreachable() {
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::TrustedHeader {
             header: USER.to_string(),
             groups_header: None,
             name_header: None,
+            admin_groups: vec![],
             acknowledge_proxy_required: true,
         },
         timings: Timings::default(),

@@ -272,6 +272,59 @@ impl Store for PostgresStore {
         rows.iter().map(layout_from_row).collect()
     }
 
+    async fn public_layouts(&self) -> Result<Vec<Layout>> {
+        let query = format!(
+            "SELECT {LAYOUT_COLUMNS} FROM layouts WHERE visibility = 'public' \
+             ORDER BY updated_at DESC"
+        );
+        let rows = sqlx::query(&query)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(unavailable)?;
+        rows.iter().map(layout_from_row).collect()
+    }
+
+    async fn org_default(&self) -> Result<Option<Uuid>> {
+        let row = sqlx::query("SELECT layout_id FROM org_default")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(unavailable)?;
+        row.map(|row| row.try_get("layout_id").map_err(unavailable))
+            .transpose()
+    }
+
+    async fn set_org_default(&self, id: Option<Uuid>) -> Result<()> {
+        let Some(id) = id else {
+            sqlx::query("DELETE FROM org_default")
+                .execute(&self.pool)
+                .await
+                .map_err(unavailable)?;
+            return Ok(());
+        };
+
+        // One statement, so a layout deleted at the same moment cannot leave a
+        // default naming nothing: the insert finds no row and writes none.
+        let done = sqlx::query(
+            "INSERT INTO org_default (singleton, layout_id, set_at)
+             SELECT TRUE, id, $2 FROM layouts WHERE id = $1
+             ON CONFLICT (singleton) DO UPDATE
+                 SET layout_id = EXCLUDED.layout_id, set_at = EXCLUDED.set_at",
+        )
+        .bind(id)
+        .bind(Utc::now())
+        .execute(&self.pool)
+        .await
+        .map_err(unavailable)?;
+
+        if done.rows_affected() == 0 {
+            return Err(StoreError::NotFound {
+                entity: "layout",
+                id: id.to_string(),
+            });
+        }
+        Ok(())
+    }
+
     async fn create_layout(&self, new: NewLayout) -> Result<Layout> {
         let id = Uuid::new_v4();
         let now = Utc::now();
@@ -412,14 +465,16 @@ impl Store for PostgresStore {
 
     async fn create_session(&self, session: Session) -> Result<()> {
         sqlx::query(
-            "INSERT INTO sessions (id, subject, name, email, groups, created_at, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            "INSERT INTO sessions (id, subject, name, email, groups, admin_claim, created_at, \
+                                   expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(&session.id)
         .bind(&session.subject)
         .bind(&session.name)
         .bind(&session.email)
         .bind(serde_json::to_value(&session.groups).unwrap_or_default())
+        .bind(serde_json::to_value(&session.admin_claim).unwrap_or_default())
         .bind(session.created_at)
         .bind(session.expires_at)
         .execute(&self.pool)
@@ -432,7 +487,7 @@ impl Store for PostgresStore {
         // Expiry is in the query as well as on the type: a sweeper that has not
         // run yet must never be the reason an expired session still works.
         let row = sqlx::query(
-            "SELECT id, subject, name, email, groups, created_at, expires_at
+            "SELECT id, subject, name, email, groups, admin_claim, created_at, expires_at
              FROM sessions WHERE id = $1 AND expires_at > now()",
         )
         .bind(id)
@@ -447,6 +502,9 @@ impl Store for PostgresStore {
         let groups: serde_json::Value = row.get("groups");
         let groups = serde_json::from_value(groups)
             .map_err(|error| StoreError::Corrupt(format!("session groups: {error}")))?;
+        let admin_claim: serde_json::Value = row.get("admin_claim");
+        let admin_claim = serde_json::from_value(admin_claim)
+            .map_err(|error| StoreError::Corrupt(format!("session admin claim: {error}")))?;
 
         Ok(Some(Session {
             id: row.get("id"),
@@ -454,6 +512,7 @@ impl Store for PostgresStore {
             name: row.get("name"),
             email: row.get("email"),
             groups,
+            admin_claim,
             created_at: row.get("created_at"),
             expires_at: row.get("expires_at"),
         }))

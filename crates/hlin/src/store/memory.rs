@@ -25,6 +25,7 @@ pub struct MemoryStore {
     layouts: Mutex<HashMap<Uuid, Layout>>,
     sessions: Mutex<HashMap<String, Session>>,
     pending: Mutex<HashMap<String, PendingLogin>>,
+    org_default: Mutex<Option<Uuid>>,
 }
 
 impl MemoryStore {
@@ -130,6 +131,35 @@ impl Store for MemoryStore {
             .cloned()
             .collect();
         Ok(most_recent_first(published))
+    }
+
+    async fn public_layouts(&self) -> Result<Vec<Layout>> {
+        let public = self
+            .layouts()
+            .values()
+            .filter(|layout| layout.visibility == Visibility::Public)
+            .cloned()
+            .collect();
+        Ok(most_recent_first(public))
+    }
+
+    async fn org_default(&self) -> Result<Option<Uuid>> {
+        let chosen = *self.org_default.lock().expect("store lock is not poisoned");
+        // As the foreign key does in Postgres: a deleted layout is no default.
+        Ok(chosen.filter(|id| self.layouts().contains_key(id)))
+    }
+
+    async fn set_org_default(&self, id: Option<Uuid>) -> Result<()> {
+        if let Some(id) = id
+            && !self.layouts().contains_key(&id)
+        {
+            return Err(StoreError::NotFound {
+                entity: "layout",
+                id: id.to_string(),
+            });
+        }
+        *self.org_default.lock().expect("store lock is not poisoned") = id;
+        Ok(())
     }
 
     async fn create_layout(&self, new: NewLayout) -> Result<Layout> {

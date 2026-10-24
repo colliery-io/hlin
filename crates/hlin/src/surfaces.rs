@@ -255,7 +255,7 @@ impl Surfaces {
             .map_err(|error| error.to_string())?
             .ok_or_else(|| format!("no layout `{surface_id}`"))?;
 
-        if !layout.is_visible_to(&principal.sub) {
+        if !layout.is_visible_to(&principal.sub, state.config.read_only()) {
             return Err(format!("layout `{surface_id}` is not visible"));
         }
 

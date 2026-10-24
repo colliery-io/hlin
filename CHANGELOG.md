@@ -21,8 +21,34 @@ All notable changes to this project will be documented in this file.
   with one id. Postgres keeps the items as one JSON column on `layouts`;
   migration 0005 drops `panel_instances`, and stored panels are not kept.
 
+- **An anonymous shell shows only public surfaces** (HLIN-T-0117,
+  HLIN-A-0016). It used to show every published surface. An existing
+  anonymous shell shows nothing until an admin makes a surface public: sign in
+  to a shell with `trusted-header` or `oidc` on the same database, as an
+  admin, and set the surface's visibility to `public`. Reading a surface that
+  is not public, by link or by stream, is refused.
+- `GET /api/layouts/home` for a person with no surface of their own opens the
+  org default, if one is set. With no default it still creates one.
+
 ### Added
 
+- The admin role (HLIN-T-0117, HLIN-A-0016). An admin may set the org
+  default, make a surface `public`, and delete a published or public surface
+  someone else owns. Admins are named in `[admin] principals`, by
+  `admin_groups` under `trusted-header` (read from `groups_header`), and by
+  `admin_claim` and `admin_values` under `oidc` (read at sign-in). Nobody is
+  an admin under `anonymous`; under `dev`, only a listed principal.
+  `/api/config` carries `admin`. The chart has `config.admin.principals`,
+  `trustedHeader.adminGroups`, `oidc.adminClaim` and `oidc.adminValues`.
+- Visibility `public`: open to anonymous viewers as well. Only an admin sets
+  it; `published` stays open to anyone signed in.
+- `GET/PUT/DELETE /api/layouts/default`: the one org default surface. Anyone
+  who may view it reads it; an admin sets it (`{ "id": … }`, a published or
+  public surface) and clears it. A default whose owner makes it personal again
+  is not served.
+- Migration 0006: `public` in the visibility check, the `org_default` table
+  (cleared when its layout is deleted), and `sessions.admin_claim`. Sessions
+  from before it have no admin claim until the next sign-in.
 - A surface draws its shell components in their cells (HLIN-T-0113,
   HLIN-A-0015). A `bar` item draws the surface's bar without the time picker
   or Edit. A `content` item opens its `initial` page: a surface, one level

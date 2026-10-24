@@ -78,8 +78,8 @@ pub fn router(state: AppState) -> Router {
         .route(crate::brand::STYLESHEET_PATH, get(crate::brand::stylesheet))
         .route(crate::brand::LOGO_PATH, get(crate::brand::logo))
         .route(crate::brand::FAVICON_PATH, get(crate::brand::favicon))
-        // Composition. `home` is a literal and is registered before the
-        // parameterised route it would otherwise be swallowed by.
+        // Composition. `home` and `default` are literals, registered before
+        // the parameterised route they would otherwise be swallowed by.
         .route("/api/panels", get(crate::layouts::catalog))
         .route(
             "/api/options/{platform_id}/{panel_key}/{control_id}",
@@ -91,6 +91,12 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/layouts/home", get(crate::layouts::home))
         .route("/api/shell", get(crate::shell::shell))
+        .route(
+            "/api/layouts/default",
+            get(crate::layouts::read_default)
+                .put(crate::layouts::set_default)
+                .delete(crate::layouts::clear_default),
+        )
         .route(
             "/api/layouts/{id}",
             get(crate::layouts::read)
@@ -184,6 +190,7 @@ async fn health() -> Json<serde_json::Value> {
 async fn client_config(
     State(state): State<AppState>,
     crate::identity::Caller(principal): crate::identity::Caller,
+    crate::identity::IsAdmin(admin): crate::identity::IsAdmin,
 ) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "protocol_version": crate::stream::PROTOCOL_VERSION,
@@ -195,6 +202,9 @@ async fn client_config(
         // arrange a surface, and refuse at Save — which is the worst possible
         // moment to say it.
         "read_only": state.config.read_only(),
+        // So the front end offers admin controls only to admins (HLIN-A-0016).
+        // The routes check it again; this only spares a refusal.
+        "admin": admin,
         // Where to end the session, where the shell keeps one. Absent under
         // every other strategy: `dev` and `anonymous` have nothing to end, and
         // behind a proxy signing out is the proxy's business.
