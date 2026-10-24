@@ -59,6 +59,7 @@ pub mod stream;
 /// this product's and ships with it.
 pub const CHROME_CSS: &str = include_str!("../app.css");
 
+pub use app::{App, Bar, Shell, SurfaceView};
 pub use draft::LayoutDraft;
 pub use pack::Drawer;
 pub use state::{PanelView, SurfaceState};
