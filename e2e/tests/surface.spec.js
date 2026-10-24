@@ -20,6 +20,7 @@ const {
   dragBy,
   drewSomething,
   settled,
+  asPanels,
 } = require("./helpers");
 
 test.describe.configure({ mode: 'serial' });
@@ -380,12 +381,12 @@ test.describe('the time controls follow the panels that want them', () => {
   test.beforeAll(async ({ request }) => {
     layoutId = await freshLayout(request, 'Time controls');
     const current = await (await request.get(`/api/layouts/${layoutId}`)).json();
-    current.panels = [
+    current.items = asPanels([
       // Declares `time_range`.
       { platform_id: 'orebank', panel_key: 'throughput', position: { x: 0, y: 0, w: 6, h: 6 } },
       // Declares nothing about time.
       { platform_id: 'orebank', panel_key: 'queue-depth', position: { x: 6, y: 0, w: 6, h: 6 } },
-    ];
+    ]);
     const written = await request.put(`/api/layouts/${layoutId}`, { data: current });
     expect(written.ok()).toBeTruthy();
   });

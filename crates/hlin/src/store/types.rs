@@ -1,6 +1,7 @@
 //! The shapes the store holds.
 
 use chrono::{DateTime, Utc};
+pub use hlin_stream::layout::{BarItem, ContentItem, PageSelectorItem};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -128,8 +129,8 @@ pub struct Layout {
     /// left it.
     pub time_range: Option<Value>,
 
-    /// The panels on it, in the order they were stored.
-    pub panels: Vec<PanelInstance>,
+    /// What is on it, panels and shell components, in the order stored.
+    pub items: Vec<LayoutItem>,
 
     /// When it was made.
     pub created_at: DateTime<Utc>,
@@ -161,6 +162,61 @@ impl Layout {
     pub fn is_visible_to(&self, principal: &str) -> bool {
         self.is_published() || self.owner == principal
     }
+
+    /// The panels on it, in order.
+    pub fn panels(&self) -> impl Iterator<Item = &PanelInstance> {
+        self.items.iter().filter_map(LayoutItem::as_panel)
+    }
+
+    /// Its items as a fork gets them: each panel with a new identity, so two
+    /// layouts never stream the same panel id. A shell component keeps its id,
+    /// because a selector names its content item by it.
+    pub fn forked_items(&self) -> Vec<LayoutItem> {
+        self.items
+            .iter()
+            .map(|item| match item {
+                LayoutItem::Panel(panel) => LayoutItem::Panel(PanelInstance {
+                    id: Uuid::new_v4(),
+                    ..panel.clone()
+                }),
+                other => other.clone(),
+            })
+            .collect()
+    }
+}
+
+/// One thing on a surface, as it is stored, tagged by its `type`.
+///
+/// A panel is stored with what only the shell knows about it (its `Uuid`, when
+/// it was added). A shell component is stored as it travels: it has nothing
+/// the browser does not see.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum LayoutItem {
+    /// A panel from a platform.
+    Panel(PanelInstance),
+    /// The shell's bar.
+    Bar(BarItem),
+    /// A list of pages.
+    PageSelector(PageSelectorItem),
+    /// Where a chosen page opens.
+    Content(ContentItem),
+}
+
+impl LayoutItem {
+    /// The panel, if this is one.
+    pub fn as_panel(&self) -> Option<&PanelInstance> {
+        match self {
+            Self::Panel(panel) => Some(panel),
+            _ => None,
+        }
+    }
+}
+
+impl From<PanelInstance> for LayoutItem {
+    fn from(panel: PanelInstance) -> Self {
+        Self::Panel(panel)
+    }
 }
 
 /// What is needed to create a layout.
@@ -176,8 +232,8 @@ pub struct NewLayout {
     pub forked_from: Option<Uuid>,
     /// The time range it opens at.
     pub time_range: Option<Value>,
-    /// The panels to put on it.
-    pub panels: Vec<PanelInstance>,
+    /// What to put on it.
+    pub items: Vec<LayoutItem>,
 }
 
 impl NewLayout {
@@ -189,7 +245,7 @@ impl NewLayout {
             visibility: Visibility::Personal,
             forked_from: None,
             time_range: None,
-            panels: Vec::new(),
+            items: Vec::new(),
         }
     }
 }

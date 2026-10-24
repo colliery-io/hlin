@@ -14,6 +14,12 @@ All notable changes to this project will be documented in this file.
 - The docs theme `starlight-aurora` 0.2.1 → 0.3.0.
 - The API reference is rendered by plissken 0.2.1 (was 0.2.0): intra-doc
   links resolve by the whole path (HLIN-T-0110).
+- A layout holds `items`, not `panels` (HLIN-T-0111, HLIN-A-0015). Each item
+  has a `type` (`panel`, `bar`, `page-selector`, `content`), an `id` and a
+  `position`. `/api/layouts` takes and returns this shape, and refuses an
+  item of an unknown type, a body that still sends `panels`, and two items
+  with one id. Postgres keeps the items as one JSON column on `layouts`;
+  migration 0005 drops `panel_instances`, and stored panels are not kept.
 
 ## [0.1.1] — 2026-10-06
 

@@ -11,7 +11,9 @@
 
 use std::collections::BTreeMap;
 
-use hlin_stream::layout::{CatalogPlatform, LayoutDocument, PanelInstanceDocument, Placement};
+use hlin_stream::layout::{
+    CatalogPlatform, LayoutDocument, LayoutItem, PanelInstanceDocument, Placement,
+};
 
 use crate::grid;
 
@@ -48,9 +50,9 @@ impl LayoutDraft {
         &self.document
     }
 
-    /// The panels on it.
-    pub fn panels(&self) -> &[PanelInstanceDocument] {
-        &self.document.panels
+    /// The panels on it, in order. Other items are left out.
+    pub fn panels(&self) -> Vec<PanelInstanceDocument> {
+        self.document.panels().cloned().collect()
     }
 
     /// What it is called.
@@ -90,16 +92,16 @@ impl LayoutDraft {
         grid::depth(&self.placements())
     }
 
-    /// Where a panel sits, by its instance id.
+    /// Where an item sits, by its id.
     pub fn placement_of(&self, instance: &str) -> Option<Placement> {
         self.index_of(instance)
-            .map(|index| self.document.panels[index].position)
+            .map(|index| self.document.items[index].position())
     }
 
     /// The panel with this instance id.
     pub fn panel(&self, instance: &str) -> Option<&PanelInstanceDocument> {
         self.index_of(instance)
-            .map(|index| &self.document.panels[index])
+            .and_then(|index| self.document.items[index].as_panel())
     }
 
     // -- Composition ------------------------------------------------------
@@ -114,13 +116,13 @@ impl LayoutDraft {
         let position = grid::first_free(&taken, w, h);
 
         self.document
-            .panels
-            .push(PanelInstanceDocument::new(platform_id, panel_key, position));
+            .items
+            .push(PanelInstanceDocument::new(platform_id, panel_key, position).into());
         self.arrange(None);
         self.dirty = true;
     }
 
-    /// Take a panel off the surface.
+    /// Take an item off the surface.
     ///
     /// What is left settles upwards, so removing a panel from the top does not
     /// leave a band of nothing where it was.
@@ -128,12 +130,12 @@ impl LayoutDraft {
         let Some(index) = self.index_of(instance) else {
             return;
         };
-        self.document.panels.remove(index);
+        self.document.items.remove(index);
         self.arrange(None);
         self.dirty = true;
     }
 
-    /// Move a panel to a column and row.
+    /// Move an item to a column and row.
     pub fn move_to(&mut self, instance: &str, x: u32, y: u32) {
         let Some(index) = self.index_of(instance) else {
             return;
@@ -144,7 +146,7 @@ impl LayoutDraft {
         self.dirty = true;
     }
 
-    /// Resize a panel.
+    /// Resize an item.
     pub fn resize(&mut self, instance: &str, w: u32, h: u32) {
         let Some(index) = self.index_of(instance) else {
             return;
@@ -161,11 +163,11 @@ impl LayoutDraft {
     /// back to whatever its platform calls it. That is what a person emptying
     /// the box means, and it keeps a blank heading off the surface.
     pub fn rename(&mut self, instance: &str, title: &str) {
-        let Some(index) = self.index_of(instance) else {
+        let Some(panel) = self.panel_mut(instance) else {
             return;
         };
         let trimmed = title.trim();
-        self.document.panels[index].title_override = if trimmed.is_empty() {
+        panel.title_override = if trimmed.is_empty() {
             None
         } else {
             Some(trimmed.to_string())
@@ -178,10 +180,10 @@ impl LayoutDraft {
     /// `None` means "however its platform draws it", so a platform changing its
     /// default reaches everyone who did not choose otherwise.
     pub fn set_kind(&mut self, instance: &str, kind: Option<&str>) {
-        let Some(index) = self.index_of(instance) else {
+        let Some(panel) = self.panel_mut(instance) else {
             return;
         };
-        self.document.panels[index].kind_override = kind.map(str::to_string);
+        panel.kind_override = kind.map(str::to_string);
         self.dirty = true;
     }
 
@@ -191,15 +193,13 @@ impl LayoutDraft {
     /// is what makes a `select` on one panel independent of the same `select`
     /// on another.
     pub fn set_selection(&mut self, instance: &str, param: &str, values: Vec<String>) {
-        let Some(index) = self.index_of(instance) else {
+        let Some(panel) = self.panel_mut(instance) else {
             return;
         };
         if values.is_empty() {
-            self.document.panels[index].selections.remove(param);
+            panel.selections.remove(param);
         } else {
-            self.document.panels[index]
-                .selections
-                .insert(param.to_string(), values);
+            panel.selections.insert(param.to_string(), values);
         }
         self.dirty = true;
     }
@@ -221,8 +221,7 @@ impl LayoutDraft {
     /// the layout has been written.
     pub fn selections(&self) -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
         self.document
-            .panels
-            .iter()
+            .panels()
             .filter_map(|panel| {
                 let id = panel.id.clone()?;
                 if panel.selections.is_empty() {
@@ -245,7 +244,7 @@ impl LayoutDraft {
     /// no longer declaring it — counts for nothing: it cannot be shown to want
     /// a range, and the controls appear the moment the catalogue says it does.
     pub fn wants_time(&self, catalog: &[CatalogPlatform]) -> bool {
-        self.document.panels.iter().any(|instance| {
+        self.document.panels().any(|instance| {
             catalog
                 .iter()
                 .filter(|platform| platform.id == instance.platform_id)
@@ -264,22 +263,29 @@ impl LayoutDraft {
 
     fn index_of(&self, instance: &str) -> Option<usize> {
         self.document
-            .panels
+            .items
             .iter()
-            .position(|panel| panel.id.as_deref() == Some(instance))
+            .position(|item| item.id() == Some(instance))
     }
 
+    fn panel_mut(&mut self, instance: &str) -> Option<&mut PanelInstanceDocument> {
+        let index = self.index_of(instance)?;
+        self.document.items[index].as_panel_mut()
+    }
+
+    // Every item takes part in the grid, whatever its type, so no two items
+    // ever share a cell.
     fn placements(&self) -> Vec<Placement> {
         self.document
-            .panels
+            .items
             .iter()
-            .map(|panel| panel.position)
+            .map(LayoutItem::position)
             .collect()
     }
 
     fn write_back(&mut self, placements: Vec<Placement>) {
-        for (panel, placement) in self.document.panels.iter_mut().zip(placements) {
-            panel.position = placement;
+        for (item, placement) in self.document.items.iter_mut().zip(placements) {
+            *item.position_mut() = placement;
         }
     }
 

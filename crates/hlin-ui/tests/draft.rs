@@ -4,7 +4,7 @@
 //! this is where the composition behaviour is pinned: what adding does, what
 //! removing leaves behind, and which changes are worth a write to the shell.
 
-use hlin_stream::layout::{LayoutDocument, PanelInstanceDocument, Placement};
+use hlin_stream::layout::{BarItem, LayoutDocument, LayoutItem, PanelInstanceDocument, Placement};
 use hlin_ui::LayoutDraft;
 
 fn stored(panels: Vec<PanelInstanceDocument>) -> LayoutDocument {
@@ -14,7 +14,7 @@ fn stored(panels: Vec<PanelInstanceDocument>) -> LayoutDocument {
         visibility: "personal".to_string(),
         owner: "ada".to_string(),
         editable: true,
-        panels,
+        items: panels.into_iter().map(LayoutItem::from).collect(),
     }
 }
 
@@ -53,6 +53,35 @@ fn an_arrangement_that_overlaps_itself_is_repaired_on_arrival() {
         !draft.dirty(),
         "and repairing it is not itself a change worth writing"
     );
+}
+
+#[test]
+fn a_shell_component_and_a_panel_never_share_a_cell() {
+    let mut document = stored(vec![identified("a", 0, 0, 6, 4)]);
+    document.items.insert(
+        0,
+        LayoutItem::Bar(BarItem {
+            id: Some("top".to_string()),
+            position: Placement {
+                x: 0,
+                y: 0,
+                w: 12,
+                h: 1,
+            },
+        }),
+    );
+    let mut draft = LayoutDraft::of(document);
+
+    let bar = draft.placement_of("top").expect("the bar is there");
+    let panel = draft.placement_of("a").expect("the panel is there");
+    assert!(!bar.overlaps(&panel), "{bar:?} and {panel:?} share cells");
+    assert_eq!(draft.panels().len(), 1, "the bar is not a panel");
+    assert!(draft.panel("top").is_none());
+
+    // Added panels and moved panels also keep clear of it.
+    draft.add("orebank", "throughput");
+    draft.move_to("a", 0, 0);
+    assert_eq!(draft.document().overlapping(), None);
 }
 
 #[test]
@@ -382,11 +411,14 @@ fn adding_a_time_driven_panel_wants_the_controls_and_removing_the_last_does_not(
     // the one the shell would, so it can be removed by name.
     let mut document = draft.document().clone();
     let added = document
-        .panels
+        .items
         .iter()
-        .position(|panel| panel.panel_key == "throughput")
+        .position(|item| {
+            item.as_panel()
+                .is_some_and(|panel| panel.panel_key == "throughput")
+        })
         .expect("the panel was added");
-    document.panels[added].id = Some("t".to_string());
+    document.items[added].set_id(Some("t".to_string()));
     let mut draft = LayoutDraft::of(document);
     assert!(draft.wants_time(&catalog()));
 

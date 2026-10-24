@@ -16,7 +16,7 @@
 // module's frame, so it runs whichever demo flavour is up.
 
 const { test, expect } = require('@playwright/test');
-const { shot, freshLayout, discardLayout, openSurface } = require('./helpers');
+const { shot, freshLayout, discardLayout, openSurface, asPanels, panelsOf } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -36,11 +36,11 @@ test.describe('a platform module in a sandboxed frame', () => {
 
     layoutId = await freshLayout(request, 'Modules');
     const current = await (await request.get(`/api/layouts/${layoutId}`)).json();
-    current.panels = [
+    current.items = asPanels([
       { platform_id: PLATFORM, panel_key: 'module-probe', position: { x: 0, y: 0, w: 6, h: 4 } },
       { platform_id: PLATFORM, panel_key: 'module-silent', position: { x: 6, y: 0, w: 6, h: 4 } },
       { platform_id: PLATFORM, panel_key: 'module-only', position: { x: 0, y: 4, w: 6, h: 3 } },
-    ];
+    ]);
     const written = await request.put(`/api/layouts/${layoutId}`, { data: current });
     expect(written.ok()).toBeTruthy();
   });
@@ -165,7 +165,7 @@ test.describe('a platform module in a sandboxed frame', () => {
 
     // Put it back where the other tests expect it.
     const current = await (await page.request.get(`/api/layouts/${layoutId}`)).json();
-    for (const panel of current.panels) {
+    for (const panel of panelsOf(current)) {
       if (panel.panel_key === 'module-probe') {
         panel.position = { x: 0, y: 0, w: 6, h: 4 };
       }

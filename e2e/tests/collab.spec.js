@@ -17,7 +17,7 @@
 // collab-modules.spec.js then changes things through the modules.
 
 const { test, expect } = require('@playwright/test');
-const { shot, shotOf, signIn } = require('./helpers');
+const { shot, shotOf, signIn, panelsOf } = require('./helpers');
 
 /** Seeded by hlin-sample-checklist on the `team` list, and by hlin-sample-feed. */
 const TEAM_ITEM = "Book a room for Thursday's review";
@@ -54,7 +54,7 @@ test.describe('the collaborative surface', () => {
 
     const home = await (await page.request.get('/api/layouts/home')).json();
     expect(home.visibility).toBe('published');
-    expect(home.panels.map((panel) => `${panel.platform_id}/${panel.panel_key}`).sort()).toEqual([
+    expect(panelsOf(home).map((panel) => `${panel.platform_id}/${panel.panel_key}`).sort()).toEqual([
       'checklist/items',
       'feed/posts',
     ]);

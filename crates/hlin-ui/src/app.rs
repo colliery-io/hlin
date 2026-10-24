@@ -1067,7 +1067,7 @@ where
                 // recreated is a module reloaded, and would never get as far as
                 // saying `ready`.
                 <For
-                    each=move || draft.with(|draft| panel_keys(draft.panels()))
+                    each=move || draft.with(|draft| panel_keys(&draft.panels()))
                     key=|key| key.clone()
                     children=move |key: String| {
                         let drawer = drawer.clone();
@@ -1075,7 +1075,7 @@ where
                         // This panel, as the draft has it now.
                         let instance = Memo::new({
                             let key = key.clone();
-                            move |_| draft.with(|draft| find_panel(draft.panels(), &key))
+                            move |_| draft.with(|draft| find_panel(&draft.panels(), &key))
                         });
                         // The same with its position set aside, which is what
                         // the heading and body are drawn from: a panel being

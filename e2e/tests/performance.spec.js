@@ -27,7 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const { freshLayout, discardLayout, openSurface } = require('./helpers');
+const { freshLayout, discardLayout, openSurface, asPanels } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -108,11 +108,11 @@ const round = (value) => Math.round(value);
 async function layoutOf(request, title, panels) {
   const id = await freshLayout(request, title);
   const current = await (await request.get(`/api/layouts/${id}`)).json();
-  current.panels = panels.map(([platform_id, panel_key], i) => ({
+  current.items = asPanels(panels.map(([platform_id, panel_key], i) => ({
     platform_id,
     panel_key,
     position: { x: (i % 3) * 4, y: Math.floor(i / 3) * 5, w: 4, h: 5 },
-  }));
+  })));
   const written = await request.put(`/api/layouts/${id}`, { data: current });
   expect(written.ok()).toBeTruthy();
   return id;

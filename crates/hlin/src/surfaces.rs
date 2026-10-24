@@ -264,7 +264,7 @@ impl Surfaces {
         let mut selections: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         let mut modules = BTreeSet::new();
 
-        for panel in &layout.panels {
+        for panel in layout.panels() {
             // What the viewer chose, stored with the panel. A selection that no
             // longer parses is dropped rather than refused: the panel is still
             // drawable without it, and refusing the whole surface over one

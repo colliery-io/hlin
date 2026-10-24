@@ -16,7 +16,7 @@
 // page's frame, so it runs whichever demo flavour is up.
 
 const { test, expect } = require('@playwright/test');
-const { shot, freshLayout, discardLayout, openSurface } = require('./helpers');
+const { shot, freshLayout, discardLayout, openSurface, asPanels } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -45,9 +45,9 @@ test.describe("a platform's page inside the shell", () => {
 
     layoutId = await freshLayout(request, 'Pages');
     const current = await (await request.get(`/api/layouts/${layoutId}`)).json();
-    current.panels = [
+    current.items = asPanels([
       { platform_id: PLATFORM, panel_key: 'module-probe', position: { x: 0, y: 0, w: 12, h: 8 } },
-    ];
+    ]);
     const written = await request.put(`/api/layouts/${layoutId}`, { data: current });
     expect(written.ok()).toBeTruthy();
   });

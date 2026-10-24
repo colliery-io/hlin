@@ -291,7 +291,7 @@ async fn every_write_is_refused() {
         (
             "PUT",
             format!("/api/layouts/{id}"),
-            r#"{"id":"x","title":"Mine","panels":[]}"#,
+            r#"{"id":"x","title":"Mine","items":[]}"#,
         ),
         ("DELETE", format!("/api/layouts/{id}"), ""),
         ("POST", format!("/api/layouts/{id}/fork"), ""),

@@ -9,7 +9,7 @@
 // is Hlin, and the stylesheet the app always links is empty.
 
 const { test, expect } = require('@playwright/test');
-const { freshLayout, discardLayout, shot } = require('./helpers');
+const { freshLayout, discardLayout, shot, asPanels } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -44,9 +44,9 @@ test.describe('a white-labelled shell', () => {
     test.skip((await brandOf(request)).name !== NAME, 'this demo is not the branded one');
     layoutId = await freshLayout(request, 'Branded');
     const current = await (await request.get(`/api/layouts/${layoutId}`)).json();
-    current.panels = [
+    current.items = asPanels([
       { platform_id: PLATFORM, panel_key: 'module-context', position: { x: 0, y: 0, w: 6, h: 14 } },
-    ];
+    ]);
     expect((await request.put(`/api/layouts/${layoutId}`, { data: current })).ok()).toBeTruthy();
   });
 

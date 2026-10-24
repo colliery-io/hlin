@@ -16,7 +16,7 @@
 // module's frame, so it runs whichever demo flavour is up.
 
 const { test, expect } = require('@playwright/test');
-const { freshLayout, discardLayout, openSurface, settled, shot } = require('./helpers');
+const { freshLayout, discardLayout, openSurface, settled, shot, asPanels } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -51,11 +51,11 @@ test.describe('a module streaming a response through the shell', () => {
     layoutId = await freshLayout(request, 'Module streams');
     const current = await (await request.get(`/api/layouts/${layoutId}`)).json();
     // Three probes side by side, all in view, for the page-wide cap.
-    current.panels = ['module-probe', 'module-only', 'module-context'].map((key, i) => ({
+    current.items = asPanels(['module-probe', 'module-only', 'module-context'].map((key, i) => ({
       platform_id: PLATFORM,
       panel_key: key,
       position: { x: i * 4, y: 0, w: 4, h: 10 },
-    }));
+    })));
     const written = await request.put(`/api/layouts/${layoutId}`, { data: current });
     expect(written.ok()).toBeTruthy();
   });

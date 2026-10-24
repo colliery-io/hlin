@@ -141,7 +141,7 @@ impl Store for MemoryStore {
             visibility: new.visibility,
             forked_from: new.forked_from,
             time_range: new.time_range,
-            panels: new.panels,
+            items: new.items,
             created_at: now,
             updated_at: now,
         };
@@ -190,14 +190,7 @@ impl Store for MemoryStore {
             visibility: Visibility::Personal,
             forked_from: Some(original.id),
             time_range: original.time_range.clone(),
-            panels: original
-                .panels
-                .iter()
-                .map(|panel| super::types::PanelInstance {
-                    id: Uuid::new_v4(),
-                    ..panel.clone()
-                })
-                .collect(),
+            items: original.forked_items(),
         })
         .await
     }
