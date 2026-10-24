@@ -35,7 +35,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { shot } = require('./helpers');
+const { shot, panelsOf } = require('./helpers');
 const { DEPLOYMENT, stopPlatform, startPlatform } = require('./twenty-deployment');
 
 /** How many times each number is taken. The median is what is reported. */
@@ -334,7 +334,7 @@ async function theSurface(request) {
   const layouts = await (await request.get('/api/layouts')).json();
   const twenty = layouts.find((layout) => layout.title === 'Twenty');
   const layout = await (await request.get(`/api/layouts/${twenty.id}`)).json();
-  return { url: `/s/${twenty.id}`, panels: layout.panels.map((panel) => panel.platform_id) };
+  return { url: `/s/${twenty.id}`, panels: panelsOf(layout).map((panel) => panel.platform_id) };
 }
 
 /** The panels whose box is on screen right now, by widget name. */

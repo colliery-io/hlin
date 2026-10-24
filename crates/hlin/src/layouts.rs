@@ -20,13 +20,14 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use hlin_stream::layout::{
-    CatalogPanel, CatalogPlatform, LayoutDocument, LayoutSummary, PanelInstanceDocument, Placement,
+    CatalogPanel, CatalogPlatform, LayoutDocument, LayoutItem as ItemDocument, LayoutSummary,
+    PanelInstanceDocument, Placement,
 };
 use uuid::Uuid;
 
 use crate::identity::{Author, Caller};
 use crate::server::AppState;
-use crate::store::{Layout, NewLayout, PanelInstance, Visibility};
+use crate::store::{Layout, LayoutItem, NewLayout, PanelInstance, Visibility};
 
 /// What a layout request could not do, and what the browser should be told.
 ///
@@ -353,16 +354,20 @@ pub async fn read(
 /// Replace a layout.
 ///
 /// The whole document, per the store's contract. What the browser sends is
-/// taken as the arrangement in full: panels it omitted are gone, and panels it
+/// taken as the arrangement in full: items it omitted are gone, and items it
 /// added arrive without identifiers, which are assigned here.
+///
+/// Read from plain JSON first, so an item of a type this shell does not know
+/// is refused with a reason that names it.
 pub async fn replace(
     State(state): State<AppState>,
     Author(caller): Author,
     Path(id): Path<String>,
-    Json(document): Json<LayoutDocument>,
+    Json(body): Json<serde_json::Value>,
 ) -> Answer<LayoutDocument> {
     let principal = caller.sub.clone();
     let uuid = identifier(&id)?;
+    let document = read_document(body)?;
 
     let mut stored = state
         .store
@@ -390,11 +395,7 @@ pub async fn replace(
         stored.visibility = visibility;
     }
 
-    stored.panels = document
-        .panels
-        .iter()
-        .map(|panel| instance_from(panel, &stored))
-        .collect::<Result<Vec<_>, _>>()?;
+    stored.items = items_from(&document, &stored)?;
 
     state
         .store
@@ -496,7 +497,7 @@ fn summarise(layout: &Layout) -> LayoutSummary {
         title: layout.title.clone(),
         visibility: layout.visibility.as_str().to_string(),
         owner: layout.owner.clone(),
-        panel_count: layout.panels.len(),
+        panel_count: layout.panels().count(),
     }
 }
 
@@ -508,7 +509,101 @@ pub fn document_for(layout: &Layout, principal: &str) -> LayoutDocument {
         visibility: layout.visibility.as_str().to_string(),
         owner: layout.owner.clone(),
         editable: layout.is_editable_by(principal),
-        panels: layout.panels.iter().map(instance_document).collect(),
+        items: layout.items.iter().map(item_document).collect(),
+    }
+}
+
+fn item_document(item: &LayoutItem) -> ItemDocument {
+    match item {
+        LayoutItem::Panel(panel) => ItemDocument::Panel(instance_document(panel)),
+        LayoutItem::Bar(bar) => ItemDocument::Bar(bar.clone()),
+        LayoutItem::PageSelector(selector) => ItemDocument::PageSelector(selector.clone()),
+        LayoutItem::Content(content) => ItemDocument::Content(content.clone()),
+    }
+}
+
+/// A layout as the browser wrote it, or the reason it cannot be read.
+fn read_document(body: serde_json::Value) -> Result<LayoutDocument, Refusal> {
+    if body.get("panels").is_some() && body.get("items").is_none() {
+        return Err(Refusal::unusable(
+            "`panels` is now `items`: send a list of items, each with a `type`".to_string(),
+        ));
+    }
+
+    if let Some(items) = body.get("items").and_then(|items| items.as_array()) {
+        for (index, item) in items.iter().enumerate() {
+            match item.get("type").and_then(|kind| kind.as_str()) {
+                Some(kind) if ItemDocument::TYPES.contains(&kind) => {}
+                Some(kind) => {
+                    return Err(Refusal::unusable(format!(
+                        "item {index}: `{kind}` is not an item type. Known types: {}",
+                        ItemDocument::TYPES.join(", ")
+                    )));
+                }
+                None => {
+                    return Err(Refusal::unusable(format!(
+                        "item {index} has no `type`. Known types: {}",
+                        ItemDocument::TYPES.join(", ")
+                    )));
+                }
+            }
+        }
+    }
+
+    serde_json::from_value(body)
+        .map_err(|error| Refusal::unusable(format!("the layout could not be read: {error}")))
+}
+
+/// The items to store, from what the browser sent.
+///
+/// A panel's identity is the shell's to assign (see `instance_from`). A shell
+/// component keeps the id it was given, because a selector names its content
+/// item by that id; one sent without an id gets one here. Two items may not
+/// share an id.
+fn items_from(document: &LayoutDocument, layout: &Layout) -> Result<Vec<LayoutItem>, Refusal> {
+    let mut items = Vec::with_capacity(document.items.len());
+    for item in &document.items {
+        let stored = match item {
+            ItemDocument::Panel(panel) => LayoutItem::Panel(instance_from(panel, layout)?),
+            other => {
+                let mut component = other.clone();
+                let id = component
+                    .id()
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| Uuid::new_v4().to_string());
+                component.set_id(Some(id));
+                let position = component.position().clamped();
+                *component.position_mut() = position;
+                match component {
+                    ItemDocument::Bar(bar) => LayoutItem::Bar(bar),
+                    ItemDocument::PageSelector(selector) => LayoutItem::PageSelector(selector),
+                    ItemDocument::Content(content) => LayoutItem::Content(content),
+                    ItemDocument::Panel(_) => unreachable!("panels are matched above"),
+                }
+            }
+        };
+        items.push(stored);
+    }
+
+    let mut seen = std::collections::BTreeSet::new();
+    for item in &items {
+        let id = item_id(item);
+        if !seen.insert(id.clone()) {
+            return Err(Refusal::unusable(format!("two items have the id `{id}`")));
+        }
+    }
+
+    Ok(items)
+}
+
+fn item_id(item: &LayoutItem) -> String {
+    match item {
+        LayoutItem::Panel(panel) => panel.id.to_string(),
+        LayoutItem::Bar(bar) => bar.id.clone().unwrap_or_default(),
+        LayoutItem::PageSelector(selector) => selector.id.clone().unwrap_or_default(),
+        LayoutItem::Content(content) => content.id.clone().unwrap_or_default(),
     }
 }
 
@@ -552,7 +647,7 @@ fn instance_from(
         .id
         .as_deref()
         .and_then(|id| Uuid::parse_str(id).ok())
-        .and_then(|id| layout.panels.iter().find(|panel| panel.id == id));
+        .and_then(|id| layout.panels().find(|panel| panel.id == id));
 
     let mut instance = match existing {
         Some(panel) => panel.clone(),
@@ -579,6 +674,7 @@ mod tests {
     use chrono::Utc;
 
     fn layout_with(panels: Vec<PanelInstance>) -> Layout {
+        let items = panels.into_iter().map(LayoutItem::from).collect();
         Layout {
             id: Uuid::new_v4(),
             owner: "ada".to_string(),
@@ -586,7 +682,7 @@ mod tests {
             visibility: Visibility::Personal,
             forked_from: None,
             time_range: None,
-            panels,
+            items,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -656,5 +752,73 @@ mod tests {
             !document_for(&layout, "grace").editable,
             "everyone else forks to edit"
         );
+    }
+
+    fn refusal_of(body: serde_json::Value) -> String {
+        read_document(body).expect_err("refused").reason
+    }
+
+    #[test]
+    fn an_unknown_item_type_is_refused_with_a_reason() {
+        let reason = refusal_of(serde_json::json!({
+            "title": "Mine", "visibility": "personal",
+            "items": [ { "type": "bar" }, { "type": "clock" } ]
+        }));
+        assert!(reason.contains("item 1"), "{reason}");
+        assert!(reason.contains("`clock`"), "{reason}");
+        assert!(
+            reason.contains("page-selector"),
+            "it names the known types: {reason}"
+        );
+
+        let reason = refusal_of(serde_json::json!({
+            "title": "Mine", "visibility": "personal", "items": [ { "id": "x" } ]
+        }));
+        assert!(reason.contains("no `type`"), "{reason}");
+    }
+
+    #[test]
+    fn the_old_panels_list_is_refused_rather_than_dropped() {
+        let reason = refusal_of(serde_json::json!({
+            "title": "Mine", "visibility": "personal", "panels": []
+        }));
+        assert!(reason.contains("`items`"), "{reason}");
+    }
+
+    #[test]
+    fn a_shell_component_keeps_its_id_and_one_without_gets_one() {
+        let layout = layout_with(vec![]);
+        let document = read_document(serde_json::json!({
+            "title": "Mine", "visibility": "personal",
+            "items": [
+                { "type": "content", "id": "main", "position": { "x": 2, "y": 0, "w": 10, "h": 6 } },
+                { "type": "page-selector", "target": "main",
+                  "position": { "x": 0, "y": 0, "w": 30, "h": 6 } }
+            ]
+        }))
+        .expect("a layout");
+
+        let items = items_from(&document, &layout).expect("items");
+        assert_eq!(item_id(&items[0]), "main");
+        let LayoutItem::PageSelector(selector) = &items[1] else {
+            panic!("a selector");
+        };
+        assert!(selector.id.as_deref().is_some_and(|id| !id.is_empty()));
+        assert_eq!(
+            selector.position.w, 12,
+            "a position is forced into the grid"
+        );
+    }
+
+    #[test]
+    fn two_items_may_not_share_an_id() {
+        let layout = layout_with(vec![]);
+        let document = read_document(serde_json::json!({
+            "title": "Mine", "visibility": "personal",
+            "items": [ { "type": "bar", "id": "top" }, { "type": "content", "id": "top" } ]
+        }))
+        .expect("a layout");
+        let reason = items_from(&document, &layout).expect_err("refused").reason;
+        assert!(reason.contains("`top`"), "{reason}");
     }
 }

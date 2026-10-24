@@ -30,8 +30,8 @@ pub mod types;
 pub use memory::MemoryStore;
 pub use postgres::PostgresStore;
 pub use types::{
-    Layout, NewLayout, PanelInstance, PendingLogin, PlatformSnapshot, Session, Violation,
-    Visibility,
+    Layout, LayoutItem, NewLayout, PanelInstance, PendingLogin, PlatformSnapshot, Session,
+    Violation, Visibility,
 };
 
 /// Why a store operation could not be completed.
@@ -115,7 +115,7 @@ pub trait Store: Send + Sync {
 
     // -- Layouts ----------------------------------------------------------
 
-    /// One layout and its panels.
+    /// One layout and its items.
     async fn layout(&self, id: uuid::Uuid) -> Result<Option<Layout>>;
 
     /// Every layout a principal owns, most recently changed first.
@@ -130,14 +130,14 @@ pub trait Store: Send + Sync {
     /// Create a layout.
     async fn create_layout(&self, layout: NewLayout) -> Result<Layout>;
 
-    /// Replace a layout's panels and settings.
+    /// Replace a layout's items and settings.
     ///
     /// Whole-layout replacement rather than per-panel edits, because a layout
     /// is edited as one thing: dragging a panel changes several positions at
     /// once, and there is no useful notion of half of that having happened.
     async fn update_layout(&self, layout: &Layout) -> Result<()>;
 
-    /// Delete a layout and its panels.
+    /// Delete a layout and its items.
     ///
     /// Forks of it survive, with their provenance pointer cleared.
     async fn delete_layout(&self, id: uuid::Uuid) -> Result<bool>;

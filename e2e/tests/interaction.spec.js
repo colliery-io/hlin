@@ -9,7 +9,7 @@
 // it; asserting that the drawn series changed is the only version that cannot.
 
 const { test, expect } = require('@playwright/test');
-const { shot, freshLayout, discardLayout, drewSomething, settled } = require('./helpers');
+const { shot, freshLayout, discardLayout, drewSomething, settled, asPanels } = require('./helpers');
 
 /** The panel that asks a pack to draw its own filter. */
 const FACETED = 'throughput-faceted';
@@ -32,14 +32,14 @@ test.describe('a component that talks back', () => {
       data: {
         title: 'Filtered in place',
         visibility: 'personal',
-        panels: [
+        items: asPanels([
           {
             platform_id: platform,
             panel_key: FACETED,
             selections: {},
             position: { x: 0, y: 0, w: 8, h: 5 },
           },
-        ],
+        ]),
       },
     });
   });
@@ -158,14 +158,14 @@ test.describe('a component that moves the whole surface', () => {
       data: {
         title: 'Brushed',
         visibility: 'personal',
-        panels: [
+        items: asPanels([
           {
             platform_id: platform,
             panel_key: found.key,
             selections: {},
             position: { x: 0, y: 0, w: 8, h: 5 },
           },
-        ],
+        ]),
       },
     });
   });

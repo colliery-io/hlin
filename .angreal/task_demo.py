@@ -974,8 +974,9 @@ def _publish_collab_surface():
         {
             "title": COLLAB_TITLE,
             "visibility": "published",
-            "panels": [
+            "items": [
                 {
+                    "type": "panel",
                     "platform_id": platform,
                     "panel_key": key,
                     "selections": selections,
@@ -1322,6 +1323,7 @@ def _twenty_panels():
     """Every widget's panel, placed in reading order, three across."""
     return [
         {
+            "type": "panel",
             "platform_id": widget["name"],
             "panel_key": widget["name"],
             "selections": {},
@@ -1389,7 +1391,7 @@ def _publish_twenty(opener=None, shell=SHELL, logs="demo/state/logs"):
         opener,
         "PUT",
         f"/api/layouts/{layout}",
-        {"title": TWENTY_TITLE, "visibility": "published", "panels": _twenty_panels()},
+        {"title": TWENTY_TITLE, "visibility": "published", "items": _twenty_panels()},
         shell=shell,
     )
     if status != 200:
@@ -1700,8 +1702,9 @@ def demo_compose():
         {
             "title": "Everything, composed",
             "visibility": "personal",
-            "panels": [
+            "items": [
                 {
+                    "type": "panel",
                     "platform_id": platform,
                     "panel_key": key,
                     "selections": {},

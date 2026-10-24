@@ -13,7 +13,7 @@
 // module's frame, so it runs whichever demo flavour is up.
 
 const { test, expect } = require('@playwright/test');
-const { freshLayout, discardLayout, openSurface, settled, shot } = require('./helpers');
+const { freshLayout, discardLayout, openSurface, settled, shot, asPanels, panelsOf } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -23,11 +23,11 @@ const PLATFORM = 'orebank';
 async function layoutOf(request, title, panels) {
   const id = await freshLayout(request, title);
   const current = await (await request.get(`/api/layouts/${id}`)).json();
-  current.panels = panels.map(([key, position]) => ({
+  current.items = asPanels(panels.map(([key, position]) => ({
     platform_id: PLATFORM,
     panel_key: key,
     position,
-  }));
+  })));
   const written = await request.put(`/api/layouts/${id}`, { data: current });
   expect(written.ok()).toBeTruthy();
   return id;
@@ -160,7 +160,7 @@ test.describe('a module told where it is, asking for things', () => {
 
     // Where the chrome's own control would have put it.
     const stored = await (await page.request.get(`/api/layouts/${layoutId}`)).json();
-    const panel = stored.panels.find((p) => p.panel_key === 'module-context');
+    const panel = panelsOf(stored).find((p) => p.panel_key === 'module-context');
     expect(panel.selections).toEqual({ cluster: [`${PLATFORM}-lab`] });
 
     await page.reload();
@@ -177,7 +177,7 @@ test.describe('a module told where it is, asking for things', () => {
     await page.waitForTimeout(500);
     await settled(page);
     const after = await (await page.request.get(`/api/layouts/${layoutId}`)).json();
-    expect(after.panels.find((p) => p.panel_key === 'module-only').selections ?? {}).toEqual({});
+    expect(panelsOf(after).find((p) => p.panel_key === 'module-only').selections ?? {}).toEqual({});
   });
 
   test('set-range from a module moves the whole surface, picker included', async ({ page }) => {

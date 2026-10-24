@@ -6,10 +6,14 @@
 //!
 //! Two deliberate differences from the stored shape. Identifiers travel as
 //! strings, so the browser needs no `uuid` dependency to read a layout it will
-//! only ever hand back. And `id` is optional on a panel instance: a panel the
-//! viewer has just added has no identity yet, and the shell assigns one when
-//! the layout is written. That keeps identifier generation on the side that
-//! owns the store, which is where an identifier means something.
+//! only ever hand back. And `id` is optional on an item: an item the viewer has
+//! just added has no identity yet, and the shell assigns one when the layout is
+//! written. That keeps identifier generation on the side that owns the store,
+//! which is where an identifier means something.
+//!
+//! A layout holds items of several types (decision HLIN-A-0015): panels, and
+//! the shell components a shell is built from. Each item carries its `type`,
+//! an `id` and a `position` on the grid.
 
 use std::collections::BTreeMap;
 
@@ -22,7 +26,7 @@ use serde::{Deserialize, Serialize};
 /// without fractions.
 pub const COLUMNS: u32 = 12;
 
-/// Where a panel sits on the grid.
+/// Where an item sits on the grid.
 ///
 /// Column and row units, not pixels. The browser multiplies by whatever a cell
 /// currently measures, so the same layout is the same arrangement on any
@@ -108,9 +112,9 @@ pub struct LayoutDocument {
     #[serde(default)]
     pub editable: bool,
 
-    /// The panels on it.
+    /// What is on it: panels and shell components, in order.
     #[serde(default)]
-    pub panels: Vec<PanelInstanceDocument>,
+    pub items: Vec<LayoutItem>,
 }
 
 impl LayoutDocument {
@@ -122,7 +126,7 @@ impl LayoutDocument {
             visibility: "personal".to_string(),
             owner: String::new(),
             editable: true,
-            panels: Vec::new(),
+            items: Vec::new(),
         }
     }
 
@@ -130,6 +134,220 @@ impl LayoutDocument {
     pub fn surface_id(&self) -> Option<&str> {
         self.id.as_deref()
     }
+
+    /// The panels on it, in order.
+    pub fn panels(&self) -> impl Iterator<Item = &PanelInstanceDocument> {
+        self.items.iter().filter_map(LayoutItem::as_panel)
+    }
+
+    /// The first two items that cover a cell in common, by index, if any do.
+    ///
+    /// The no-overlap rule holds across every item type: a bar and a panel may
+    /// not share a cell any more than two panels may.
+    pub fn overlapping(&self) -> Option<(usize, usize)> {
+        let placements: Vec<Placement> = self
+            .items
+            .iter()
+            .map(|item| item.position().clamped())
+            .collect();
+        for (i, one) in placements.iter().enumerate() {
+            for (j, other) in placements.iter().enumerate().skip(i + 1) {
+                if one.overlaps(other) {
+                    return Some((i, j));
+                }
+            }
+        }
+        None
+    }
+}
+
+/// One thing on a surface, tagged by its `type`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum LayoutItem {
+    /// A panel from a platform.
+    Panel(PanelInstanceDocument),
+    /// The shell's bar.
+    Bar(BarItem),
+    /// A list of pages, drawn as tabs or a rail.
+    PageSelector(PageSelectorItem),
+    /// Where a chosen page opens.
+    Content(ContentItem),
+}
+
+impl LayoutItem {
+    /// Every item type, as it is written in `type`.
+    pub const TYPES: [&'static str; 4] = ["panel", "bar", "page-selector", "content"];
+
+    /// Its type, as it is written in `type`.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::Panel(_) => "panel",
+            Self::Bar(_) => "bar",
+            Self::PageSelector(_) => "page-selector",
+            Self::Content(_) => "content",
+        }
+    }
+
+    /// Its identifier within the surface, where it has one yet.
+    pub fn id(&self) -> Option<&str> {
+        match self {
+            Self::Panel(item) => item.id.as_deref(),
+            Self::Bar(item) => item.id.as_deref(),
+            Self::PageSelector(item) => item.id.as_deref(),
+            Self::Content(item) => item.id.as_deref(),
+        }
+    }
+
+    /// Set its identifier.
+    pub fn set_id(&mut self, id: Option<String>) {
+        match self {
+            Self::Panel(item) => item.id = id,
+            Self::Bar(item) => item.id = id,
+            Self::PageSelector(item) => item.id = id,
+            Self::Content(item) => item.id = id,
+        }
+    }
+
+    /// Where it sits.
+    pub fn position(&self) -> Placement {
+        match self {
+            Self::Panel(item) => item.position,
+            Self::Bar(item) => item.position,
+            Self::PageSelector(item) => item.position,
+            Self::Content(item) => item.position,
+        }
+    }
+
+    /// Where it sits, to change.
+    pub fn position_mut(&mut self) -> &mut Placement {
+        match self {
+            Self::Panel(item) => &mut item.position,
+            Self::Bar(item) => &mut item.position,
+            Self::PageSelector(item) => &mut item.position,
+            Self::Content(item) => &mut item.position,
+        }
+    }
+
+    /// The panel, if this is one.
+    pub fn as_panel(&self) -> Option<&PanelInstanceDocument> {
+        match self {
+            Self::Panel(panel) => Some(panel),
+            _ => None,
+        }
+    }
+
+    /// The panel, if this is one, to change.
+    pub fn as_panel_mut(&mut self) -> Option<&mut PanelInstanceDocument> {
+        match self {
+            Self::Panel(panel) => Some(panel),
+            _ => None,
+        }
+    }
+}
+
+impl From<PanelInstanceDocument> for LayoutItem {
+    fn from(panel: PanelInstanceDocument) -> Self {
+        Self::Panel(panel)
+    }
+}
+
+/// The shell's bar. It has no settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BarItem {
+    /// Its identifier within the surface.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Where it sits.
+    #[serde(default)]
+    pub position: Placement,
+}
+
+/// A list of pages in groups, which opens the chosen page in a content item.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageSelectorItem {
+    /// Its identifier within the surface.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Where it sits.
+    #[serde(default)]
+    pub position: Placement,
+    /// How it is drawn.
+    #[serde(default)]
+    pub style: SelectorStyle,
+    /// The id of the content item it opens pages in.
+    pub target: String,
+    /// Its pages, in groups.
+    #[serde(default)]
+    pub groups: Vec<PageGroup>,
+}
+
+/// How a page selector is drawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SelectorStyle {
+    /// Tabs in a bar.
+    #[default]
+    Tabs,
+    /// A side rail.
+    Rail,
+}
+
+/// One group of pages in a selector.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageGroup {
+    /// What the group is called.
+    pub label: String,
+    /// Its pages, in order.
+    #[serde(default)]
+    pub pages: Vec<PageEntry>,
+}
+
+/// One page in a selector, with the label a person reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageEntry {
+    /// What it opens.
+    #[serde(flatten)]
+    pub page: Page,
+    /// What to call it, where it differs from the page's own name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// A page: a surface, a platform module page, or a view a front end
+/// registers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Page {
+    /// A surface, by its id: `{ "surface": "…" }`.
+    Surface(String),
+    /// A platform module page: `{ "page": { "platform": "…", "path": "…" } }`.
+    Page(PlatformPage),
+    /// A view a front end registers, by its id: `{ "view": "…" }`.
+    View(String),
+}
+
+/// A platform module page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlatformPage {
+    /// The platform's id.
+    pub platform: String,
+    /// The page's path, relative to the platform's base.
+    pub path: String,
+}
+
+/// Where a chosen page opens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentItem {
+    /// Its identifier within the surface, which a selector names as `target`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Where it sits.
+    #[serde(default)]
+    pub position: Placement,
+    /// The page it shows before one is chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial: Option<Page>,
 }
 
 /// One panel on one surface, as it travels.
@@ -601,5 +819,158 @@ mod tests {
             "identity is the store's to assign, not the browser's"
         );
         assert_eq!(panel.reference(), "orders/queue-depth");
+    }
+
+    fn round_trip(json: serde_json::Value) -> LayoutItem {
+        let item: LayoutItem = serde_json::from_value(json.clone()).expect("an item");
+        assert_eq!(
+            serde_json::to_value(&item).expect("it writes"),
+            json,
+            "it writes back as it was read"
+        );
+        item
+    }
+
+    #[test]
+    fn a_panel_item_round_trips() {
+        let item = round_trip(serde_json::json!({
+            "type": "panel",
+            "id": "p1",
+            "platform_id": "orders",
+            "panel_key": "queue-depth",
+            "kind_override": "gauge",
+            "selections": { "region": ["eu"] },
+            "position": { "x": 0, "y": 0, "w": 4, "h": 3 }
+        }));
+        let panel = item.as_panel().expect("a panel");
+        assert_eq!(panel.reference(), "orders/queue-depth");
+        assert_eq!(item.type_name(), "panel");
+    }
+
+    #[test]
+    fn a_bar_item_round_trips() {
+        let item = round_trip(serde_json::json!({
+            "type": "bar",
+            "id": "top",
+            "position": { "x": 0, "y": 0, "w": 12, "h": 1 }
+        }));
+        assert_eq!(item.id(), Some("top"));
+        assert_eq!(item.type_name(), "bar");
+    }
+
+    #[test]
+    fn a_page_selector_item_round_trips() {
+        let item = round_trip(serde_json::json!({
+            "type": "page-selector",
+            "id": "nav",
+            "position": { "x": 0, "y": 1, "w": 2, "h": 8 },
+            "style": "rail",
+            "target": "main",
+            "groups": [
+                { "label": "Mine", "pages": [
+                    { "surface": "0f5e0c4a-0000-0000-0000-000000000001", "label": "Home" },
+                    { "page": { "platform": "orders", "path": "/queues" } },
+                    { "view": "settings", "label": "Settings" }
+                ] }
+            ]
+        }));
+        let LayoutItem::PageSelector(selector) = item else {
+            panic!("a page selector");
+        };
+        assert_eq!(selector.style, SelectorStyle::Rail);
+        let pages = &selector.groups[0].pages;
+        assert_eq!(pages[0].label.as_deref(), Some("Home"));
+        assert!(matches!(pages[0].page, Page::Surface(_)));
+        assert_eq!(
+            pages[1].page,
+            Page::Page(PlatformPage {
+                platform: "orders".to_string(),
+                path: "/queues".to_string()
+            })
+        );
+        assert_eq!(pages[2].page, Page::View("settings".to_string()));
+    }
+
+    #[test]
+    fn a_selector_with_no_style_is_tabs() {
+        let item: LayoutItem = serde_json::from_value(serde_json::json!({
+            "type": "page-selector", "target": "main"
+        }))
+        .expect("a selector");
+        let LayoutItem::PageSelector(selector) = item else {
+            panic!("a page selector");
+        };
+        assert_eq!(selector.style, SelectorStyle::Tabs);
+        assert!(selector.groups.is_empty());
+    }
+
+    #[test]
+    fn a_content_item_round_trips() {
+        let item = round_trip(serde_json::json!({
+            "type": "content",
+            "id": "main",
+            "position": { "x": 2, "y": 1, "w": 10, "h": 8 },
+            "initial": { "view": "welcome" }
+        }));
+        let LayoutItem::Content(content) = item else {
+            panic!("a content item");
+        };
+        assert_eq!(content.initial, Some(Page::View("welcome".to_string())));
+
+        round_trip(serde_json::json!({
+            "type": "content",
+            "id": "empty",
+            "position": { "x": 0, "y": 0, "w": 4, "h": 4 }
+        }));
+    }
+
+    #[test]
+    fn an_unknown_item_type_is_not_read() {
+        let error = serde_json::from_value::<LayoutItem>(serde_json::json!({
+            "type": "clock", "id": "c"
+        }))
+        .expect_err("no such type");
+        assert!(error.to_string().contains("clock"), "{error}");
+    }
+
+    #[test]
+    fn items_of_any_type_may_not_overlap() {
+        let mut layout = LayoutDocument::empty("Mine");
+        layout.items.push(LayoutItem::Bar(BarItem {
+            id: Some("top".to_string()),
+            position: Placement {
+                x: 0,
+                y: 0,
+                w: 12,
+                h: 1,
+            },
+        }));
+        layout.items.push(
+            PanelInstanceDocument::new(
+                "orders",
+                "queue-depth",
+                Placement {
+                    x: 0,
+                    y: 1,
+                    w: 4,
+                    h: 4,
+                },
+            )
+            .into(),
+        );
+        assert_eq!(layout.overlapping(), None);
+        assert_eq!(layout.panels().count(), 1);
+
+        layout.items.push(LayoutItem::Content(ContentItem {
+            id: Some("main".to_string()),
+            position: Placement {
+                x: 3,
+                y: 0,
+                w: 4,
+                h: 2,
+            },
+            initial: None,
+        }));
+        assert_eq!(layout.overlapping(), Some((0, 2)));
     }
 }

@@ -11,7 +11,8 @@
 
 use chrono::Utc;
 use hlin::store::{
-    Layout, NewLayout, PanelInstance, PendingLogin, PlatformSnapshot, Session, Store, Visibility,
+    Layout, LayoutItem, NewLayout, PanelInstance, PendingLogin, PlatformSnapshot, Session, Store,
+    Visibility,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -24,6 +25,7 @@ pub async fn run_all(store: &dyn Store) {
     a_forgotten_platform_is_gone(store).await;
 
     a_layout_round_trips_with_its_panels(store).await;
+    a_layout_round_trips_with_every_item_type(store).await;
     a_missing_layout_is_not_an_error(store).await;
     layouts_are_listed_most_recently_changed_first(store).await;
     only_published_layouts_are_in_the_gallery(store).await;
@@ -51,6 +53,10 @@ fn snapshot(platform: &str, hash: &str, version: &str) -> PlatformSnapshot {
         consecutive_observations: 1,
         last_violation: None,
     }
+}
+
+fn panels(layout: &Layout) -> Vec<PanelInstance> {
+    layout.panels().cloned().collect()
 }
 
 fn panel(key: &str) -> PanelInstance {
@@ -154,6 +160,74 @@ async fn a_forgotten_platform_is_gone(store: &dyn Store) {
 
 // -- Layouts --------------------------------------------------------------
 
+async fn a_layout_round_trips_with_every_item_type(store: &dyn Store) {
+    use hlin_stream::layout::{
+        BarItem, ContentItem, Page, PageEntry, PageGroup, PageSelectorItem, Placement,
+        PlatformPage, SelectorStyle,
+    };
+
+    let at = |x, y, w, h| Placement { x, y, w, h };
+    let items: Vec<LayoutItem> = vec![
+        LayoutItem::Bar(BarItem {
+            id: Some("top".to_string()),
+            position: at(0, 0, 12, 1),
+        }),
+        LayoutItem::PageSelector(PageSelectorItem {
+            id: Some("nav".to_string()),
+            position: at(0, 1, 2, 8),
+            style: SelectorStyle::Rail,
+            target: "main".to_string(),
+            groups: vec![PageGroup {
+                label: "Mine".to_string(),
+                pages: vec![
+                    PageEntry {
+                        page: Page::Page(PlatformPage {
+                            platform: "orebank".to_string(),
+                            path: "/queues".to_string(),
+                        }),
+                        label: Some("Queues".to_string()),
+                    },
+                    PageEntry {
+                        page: Page::View("settings".to_string()),
+                        label: None,
+                    },
+                ],
+            }],
+        }),
+        LayoutItem::Content(ContentItem {
+            id: Some("main".to_string()),
+            position: at(2, 1, 10, 8),
+            initial: Some(Page::Surface(Uuid::new_v4().to_string())),
+        }),
+        panel("throughput").into(),
+    ];
+
+    let created = store
+        .create_layout(NewLayout {
+            items: items.clone(),
+            ..NewLayout::personal(unique("composer"), "Shell")
+        })
+        .await
+        .unwrap();
+
+    let read_back = store.layout(created.id).await.unwrap().unwrap();
+    assert_eq!(read_back.items, items, "every item comes back as written");
+
+    let fork = store
+        .fork_layout(created.id, &unique("forker"))
+        .await
+        .unwrap();
+    assert_eq!(
+        fork.items[..3],
+        items[..3],
+        "shell components keep their ids, which selectors name"
+    );
+    assert_ne!(panels(&fork)[0].id, panels(&read_back)[0].id);
+
+    store.delete_layout(fork.id).await.unwrap();
+    store.delete_layout(created.id).await.unwrap();
+}
+
 async fn a_layout_round_trips_with_its_panels(store: &dyn Store) {
     let owner = unique("owner");
     let created = store
@@ -163,7 +237,7 @@ async fn a_layout_round_trips_with_its_panels(store: &dyn Store) {
             visibility: Visibility::Personal,
             forked_from: None,
             time_range: Some(json!({ "from": "now-1h", "to": "now" })),
-            panels: vec![panel("throughput"), panel("queue-depth")],
+            items: vec![panel("throughput").into(), panel("queue-depth").into()],
         })
         .await
         .unwrap();
@@ -172,8 +246,8 @@ async fn a_layout_round_trips_with_its_panels(store: &dyn Store) {
     assert_eq!(read_back.owner, owner);
     assert_eq!(read_back.title, "Ingest health");
     assert_eq!(read_back.visibility, Visibility::Personal);
-    assert_eq!(read_back.panels.len(), 2);
-    assert_eq!(read_back.panels[0].reference(), "orebank/throughput");
+    assert_eq!(read_back.panels().count(), 2);
+    assert_eq!(panels(&read_back)[0].reference(), "orebank/throughput");
     assert_eq!(read_back.time_range, created.time_range);
 
     store.delete_layout(created.id).await.unwrap();
@@ -259,33 +333,31 @@ async fn updating_a_layout_replaces_its_panels(store: &dyn Store) {
     let owner = unique("arranger");
     let created = store
         .create_layout(NewLayout {
-            panels: vec![panel("throughput"), panel("queue-depth")],
+            items: vec![panel("throughput").into(), panel("queue-depth").into()],
             ..NewLayout::personal(owner, "Rearranged")
         })
         .await
         .unwrap();
 
     let mut edited = store.layout(created.id).await.unwrap().unwrap();
-    edited.panels.remove(0);
-    edited.panels.push(panel("errors"));
-    edited.panels[0].title_override = Some("Depth".to_string());
-    edited.panels[0].kind_override = Some("sparkline".to_string());
+    edited.items.remove(0);
+    edited.items.push(panel("errors").into());
+    let LayoutItem::Panel(depth) = &mut edited.items[0] else {
+        panic!("a panel");
+    };
+    depth.title_override = Some("Depth".to_string());
+    depth.kind_override = Some("sparkline".to_string());
     store.update_layout(&edited).await.unwrap();
 
     let read_back = store.layout(created.id).await.unwrap().unwrap();
-    assert_eq!(read_back.panels.len(), 2);
-    let references: Vec<String> = read_back
-        .panels
-        .iter()
-        .map(PanelInstance::reference)
-        .collect();
+    assert_eq!(read_back.panels().count(), 2);
+    let references: Vec<String> = read_back.panels().map(PanelInstance::reference).collect();
     assert!(references.contains(&"orebank/queue-depth".to_string()));
     assert!(references.contains(&"orebank/errors".to_string()));
     assert!(!references.contains(&"orebank/throughput".to_string()));
 
     let depth = read_back
-        .panels
-        .iter()
+        .panels()
         .find(|p| p.panel_key == "queue-depth")
         .unwrap();
     assert_eq!(depth.title_override.as_deref(), Some("Depth"));
@@ -302,7 +374,7 @@ async fn updating_a_layout_that_is_gone_is_an_error(store: &dyn Store) {
         visibility: Visibility::Personal,
         forked_from: None,
         time_range: None,
-        panels: Vec::new(),
+        items: Vec::new(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
@@ -319,7 +391,7 @@ async fn forking_gives_the_forker_their_own_copy(store: &dyn Store) {
     let original = store
         .create_layout(NewLayout {
             visibility: Visibility::Published,
-            panels: vec![panel("throughput")],
+            items: vec![panel("throughput").into()],
             ..NewLayout::personal(author.clone(), "Worth copying")
         })
         .await
@@ -331,9 +403,10 @@ async fn forking_gives_the_forker_their_own_copy(store: &dyn Store) {
     assert_ne!(fork.id, original.id);
     assert_eq!(fork.forked_from, Some(original.id), "provenance is kept");
     assert_eq!(fork.title, original.title);
-    assert_eq!(fork.panels.len(), 1);
+    assert_eq!(fork.panels().count(), 1);
     assert_ne!(
-        fork.panels[0].id, original.panels[0].id,
+        panels(&fork)[0].id,
+        panels(&original)[0].id,
         "panel instances are the fork's own"
     );
     assert_eq!(
@@ -345,7 +418,7 @@ async fn forking_gives_the_forker_their_own_copy(store: &dyn Store) {
     // The original is untouched, so the author keeps one source of truth.
     let original_again = store.layout(original.id).await.unwrap().unwrap();
     assert_eq!(original_again.owner, author);
-    assert_eq!(original_again.panels.len(), 1);
+    assert_eq!(original_again.panels().count(), 1);
 
     store.delete_layout(fork.id).await.unwrap();
     store.delete_layout(original.id).await.unwrap();
@@ -361,7 +434,7 @@ async fn deleting_a_layout_takes_its_panels_but_spares_its_forks(store: &dyn Sto
 
     let original = store
         .create_layout(NewLayout {
-            panels: vec![panel("throughput")],
+            items: vec![panel("throughput").into()],
             ..NewLayout::personal(author, "Doomed")
         })
         .await
@@ -376,7 +449,7 @@ async fn deleting_a_layout_takes_its_panels_but_spares_its_forks(store: &dyn Sto
         .await
         .unwrap()
         .expect("a fork outlives what it came from");
-    assert_eq!(survivor.panels.len(), 1);
+    assert_eq!(survivor.panels().count(), 1);
     assert_eq!(
         survivor.forked_from, None,
         "provenance is cleared once there is nothing left to point at"

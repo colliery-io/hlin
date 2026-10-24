@@ -44,6 +44,16 @@ async function freshLayout(request, title) {
   return layout.id;
 }
 
+/** Panels as layout items: each gets `type: 'panel'`. */
+function asPanels(panels) {
+  return panels.map((panel) => ({ type: 'panel', ...panel }));
+}
+
+/** The panels on a layout, leaving out its other items. */
+function panelsOf(layout) {
+  return (layout.items ?? []).filter((item) => item.type === 'panel');
+}
+
 /** Remove a layout the test made, whatever happened to it. */
 async function discardLayout(request, id) {
   if (id) {
@@ -186,6 +196,8 @@ module.exports = {
   shotOf,
   freshLayout,
   discardLayout,
+  asPanels,
+  panelsOf,
   openSurface,
   panel,
   placementOf,

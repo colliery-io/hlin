@@ -12,7 +12,7 @@
 // would be asserting something about the configuration rather than the code.
 
 const { test, expect } = require('@playwright/test');
-const { shot, freshLayout, discardLayout } = require('./helpers');
+const { shot, freshLayout, discardLayout, asPanels } = require('./helpers');
 
 /** How long to watch. Long enough for a slow refresh to be distinguishable. */
 const WATCH_MS = 6_000;
@@ -65,12 +65,12 @@ test.describe('a live surface', () => {
       data: {
         title: 'Live, watched',
         visibility: 'personal',
-        panels: live.slice(0, 4).map((panel, index) => ({
+        items: asPanels(live.slice(0, 4).map((panel, index) => ({
           platform_id: panel.platform,
           panel_key: panel.key,
           selections: {},
           position: { x: (index % 2) * 6, y: Math.floor(index / 2) * 4, w: 6, h: 4 },
-        })),
+        }))),
       },
     });
 
