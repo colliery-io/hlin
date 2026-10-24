@@ -73,6 +73,9 @@ signing with different keys fail one request in two rather than all of them.
 {{- if gt $trust 1 }}
 {{- fail "config.caBundle: set at most one of pem, existingConfigMap, existingSecret. Only one can be mounted, so the others would be silently ignored — and a trust anchor that is silently ignored fails against every platform at once, looking like an outage." }}
 {{- end }}
+{{- if and .Values.config.defaultSurface.json .Values.config.defaultSurface.existingConfigMap }}
+{{- fail "config.defaultSurface: set json or existingConfigMap, not both. Only one can be mounted, so the other would be silently ignored." }}
+{{- end }}
 {{- with .Values.config.brand }}
 {{- if and (or .logo .favicon .stylesheet) (not .existingConfigMap) }}
 {{- fail "config.brand: logo, favicon and stylesheet name keys in config.brand.existingConfigMap, which is not set." }}
@@ -121,6 +124,18 @@ The filename under /etc/hlin-trust. An inline PEM is written under a name the
 chart chooses; a borrowed one keeps its own key, so the mount and the setting
 agree without the operator having to make them agree.
 */}}
+{{- define "hlin.shellMounted" -}}
+{{- if or .Values.config.defaultSurface.json .Values.config.defaultSurface.existingConfigMap }}yes{{ end }}
+{{- end }}
+
+{{/*
+The filename under /etc/hlin-shell: the chart's own name for inline JSON, the
+ConfigMap's key otherwise.
+*/}}
+{{- define "hlin.shellFile" -}}
+{{- if .Values.config.defaultSurface.json }}shell.json{{ else }}{{ .Values.config.defaultSurface.key }}{{ end }}
+{{- end }}
+
 {{- define "hlin.trustFile" -}}
 {{- if .Values.config.caBundle.pem }}ca.pem{{ else }}{{ .Values.config.caBundle.key }}{{ end }}
 {{- end }}

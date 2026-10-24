@@ -55,6 +55,16 @@ pub struct Config {
     #[serde(default)]
     pub ca_bundle: Option<PathBuf>,
 
+    /// The shell people see at `/`, as a JSON file: a surface of shell
+    /// components (decision HLIN-A-0015). Absent, Hlin draws its own: a bar,
+    /// a rail of each person's surfaces and the platforms' pages, and a
+    /// content component that opens their home surface.
+    ///
+    /// Read and checked at startup, like `ca_bundle`: a shell that cannot be
+    /// drawn would otherwise be found by the first person to open the page.
+    #[serde(default)]
+    pub default_surface: Option<PathBuf>,
+
     /// Postgres. Absent means run without persistence, which is only sensible
     /// in development and is warned about at startup.
     ///
@@ -840,6 +850,10 @@ pub enum ConfigError {
     #[error("{0}")]
     Brand(String),
 
+    /// `default_surface` cannot be used as configured.
+    #[error("{0}")]
+    Shell(String),
+
     /// A named environment variable is not in the environment.
     #[error("{setting} names `{variable}`, which is not in the environment")]
     MissingVariable {
@@ -938,6 +952,10 @@ impl Config {
         // logo, or in Hlin's colours, which nobody would connect to a typo in
         // a path.
         self.brand.check().map_err(ConfigError::Brand)?;
+
+        if let Some(shell) = &self.default_surface {
+            crate::shell::read_operator_shell(shell).map_err(ConfigError::Shell)?;
+        }
 
         let mut seen: Vec<&str> = Vec::new();
 
@@ -1289,6 +1307,7 @@ mod trust_tests {
             issuer: "hlin".to_string(),
             key_path: "/tmp/unused.key".into(),
             ca_bundle: None,
+            default_surface: None,
             brand: Default::default(),
             database_url: None,
             database_url_env: None,
@@ -1435,6 +1454,7 @@ mod trust_tests {
     fn a_bundle_that_cannot_be_read_refuses_to_start() {
         let refused = Config {
             ca_bundle: Some("/tmp/hlin-no-such-bundle.pem".into()),
+            default_surface: None,
             brand: Default::default(),
             ..config()
         }
@@ -1443,6 +1463,20 @@ mod trust_tests {
 
         let said = refused.to_string();
         assert!(said.contains("hlin-no-such-bundle.pem"), "{said}");
+    }
+
+    #[test]
+    fn a_shell_that_cannot_be_read_refuses_to_start() {
+        let refused = Config {
+            default_surface: Some("/tmp/hlin-no-such-shell.json".into()),
+            brand: Default::default(),
+            ..config()
+        }
+        .check()
+        .expect_err("this must not start");
+
+        let said = refused.to_string();
+        assert!(said.contains("hlin-no-such-shell.json"), "{said}");
     }
 }
 

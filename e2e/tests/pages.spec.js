@@ -23,7 +23,16 @@ test.describe.configure({ mode: 'serial' });
 const PLATFORM = 'orebank';
 const ADDRESS = `/page/${PLATFORM}/module-page`;
 
-const link = (page, path) => page.locator(`nav.pages a.page-link[data-page="${PLATFORM}/${path}"]`);
+// The shell's rail at `/` lists each platform's pages (HLIN-T-0115).
+const link = (page, path) =>
+  page.locator(`nav.page-selector a.selector-page[data-address="/page/${PLATFORM}/${path}"]`);
+const main = (page) => page.locator('section.item[data-item="main"]');
+
+/** The shell at `/`, drawn. */
+async function openShell(page) {
+  await page.goto('/');
+  await page.locator('nav.page-selector').waitFor({ state: 'visible' });
+}
 const opened = (page, path) => page.locator(`section.page[data-page="${PLATFORM}/${path}"]`);
 const probe = (page) => page.locator(`section.panel[data-panel="${PLATFORM}/module-probe"]`);
 const inside = (locator) => locator.frameLocator('iframe');
@@ -57,29 +66,24 @@ test.describe("a platform's page inside the shell", () => {
   });
 
   test('only an entry with a module is in the navigation', async ({ page }) => {
-    await openSurface(page, layoutId);
+    await openShell(page);
     await expect(link(page, 'module-page')).toHaveText('Module page');
-    await expect(link(page, 'module-page')).toHaveAttribute('href', ADDRESS);
+    await expect(link(page, 'module-page')).toHaveAttribute('href', `/?main=${ADDRESS}`);
     await expect(link(page, 'silent-page')).toBeVisible();
     await expect(link(page, 'overview')).toHaveCount(0);
-    await expect(page.locator('nav.pages a.surface-link')).toHaveAttribute('aria-current', 'page');
   });
 
-  test('opens from the navigation at full width, in a sandboxed frame told it is a page', async ({
+  test("opens from the shell's rail in its content component, in a sandboxed frame told it is a page", async ({
     page,
   }) => {
-    await openSurface(page, layoutId);
-    await expect(probe(page)).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
+    await openShell(page);
     await link(page, 'module-page').click();
 
-    await expect(page).toHaveURL(new RegExp(`${ADDRESS}$`));
-    const shown = opened(page, 'module-page');
+    await expect(page).toHaveURL(new RegExp(`/\\?main=${ADDRESS}$`));
+    const shown = main(page).locator(`section.page[data-page="${PLATFORM}/module-page"]`);
     await expect(shown).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
     await expect(shown).toHaveAttribute('data-state', 'ready');
     await expect(link(page, 'module-page')).toHaveAttribute('aria-current', 'page');
-    // The surface is out of the way, not gone.
-    await expect(page.locator('.stage')).toBeHidden();
-    await expect(probe(page)).toHaveCount(1);
 
     // The same frame a panel gets, and nothing more permissive.
     const frame = shown.locator('iframe');
@@ -89,11 +93,6 @@ test.describe("a platform's page inside the shell", () => {
     await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
     await expect(frame).toHaveAttribute('src', new RegExp(`^/m/${PLATFORM}/ui/page/index\\.html#i=`));
     await expect(frame).toHaveAttribute('title', /Module page — Orebank/);
-
-    // At full width: the page's frame spans the window, less the chrome's
-    // margins, where a panel would have had its column.
-    const width = (await frame.boundingBox()).width;
-    expect(width).toBeGreaterThan(page.viewportSize().width * 0.9);
 
     // `init.page` set, the entry's path where a panel's key would be, and the
     // same bridge as any module: it asks its platform through the shell.
@@ -108,28 +107,31 @@ test.describe("a platform's page inside the shell", () => {
     );
     await shot(page, 70, 'page-open');
 
-    // Back to the surface by the navigation, and to the page again by the
-    // browser's own history.
-    await page.locator('nav.pages a.surface-link').click();
-    await expect(page).toHaveURL(new RegExp(`/s/${layoutId}$`));
-    await expect(shown).toHaveCount(0);
-    await expect(probe(page)).toBeVisible();
+    // Back to what `main` showed first by the browser's own history, and to
+    // the page again.
     await page.goBack();
-    await expect(page).toHaveURL(new RegExp(`${ADDRESS}$`));
-    await expect(opened(page, 'module-page')).toHaveAttribute('data-module', 'ready', {
-      timeout: 20_000,
-    });
+    await expect(page).toHaveURL(/\/$/);
+    await expect(shown).toHaveCount(0);
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`/\\?main=${ADDRESS}$`));
+    await expect(shown).toHaveAttribute('data-module', 'ready', { timeout: 20_000 });
   });
 
-  test('its address can be sent to somebody, and reloaded', async ({ page }) => {
+  test('its own address opens it at full width, can be sent to somebody, and reloaded', async ({ page }) => {
     await page.goto(ADDRESS);
-    await page.locator('header.bar').waitFor({ state: 'visible' });
+    await page.locator('header.bar:visible').waitFor();
     await expect(opened(page, 'module-page')).toHaveAttribute('data-module', 'ready', {
       timeout: 20_000,
     });
+    // At full width: the page's frame spans the window, less the chrome's
+    // margins, where a content component would have had its columns. The
+    // shell is out of the way, not gone.
+    const width = (await opened(page, 'module-page').locator('iframe').boundingBox()).width;
+    expect(width).toBeGreaterThan(page.viewportSize().width * 0.9);
+    await expect(page.locator('.stage').first()).toBeHidden();
 
     await page.reload();
-    await page.locator('header.bar').waitFor({ state: 'visible' });
+    await page.locator('header.bar:visible').waitFor();
     await expect(page).toHaveURL(new RegExp(`${ADDRESS}$`));
     await expect(opened(page, 'module-page')).toHaveAttribute('data-module', 'ready', {
       timeout: 20_000,
@@ -138,6 +140,12 @@ test.describe("a platform's page inside the shell", () => {
       'data-page',
       'true',
     );
+
+    // Its way back is to the shell.
+    await opened(page, 'module-page').locator('a.page-back').click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(opened(page, 'module-page')).toHaveCount(0);
+    await expect(page.locator('nav.page-selector')).toBeVisible();
   });
 
   test("a module's navigate opens a page, and a page's can go back to a panel", async ({
@@ -160,9 +168,7 @@ test.describe("a platform's page inside the shell", () => {
   test('a page whose module fails says it is unavailable, with nothing in its place', async ({
     page,
   }) => {
-    await openSurface(page, layoutId);
-    await link(page, 'silent-page').click();
-    await expect(page).toHaveURL(new RegExp(`/page/${PLATFORM}/silent-page$`));
+    await page.goto(`/page/${PLATFORM}/silent-page`);
 
     const shown = opened(page, 'silent-page');
     // Past the `ready` timeout: given up on, and torn down. A page has no data

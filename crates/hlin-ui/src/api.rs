@@ -21,6 +21,11 @@ pub async fn home() -> Result<LayoutDocument, String> {
     read("/api/layouts/home").await
 }
 
+/// The shell to draw at `/`: the operator's, or Hlin's own for this person.
+pub async fn shell() -> Result<LayoutDocument, String> {
+    read("/api/shell").await
+}
+
 /// One layout by id.
 pub async fn layout(id: &str) -> Result<LayoutDocument, String> {
     read(&format!("/api/layouts/{id}")).await

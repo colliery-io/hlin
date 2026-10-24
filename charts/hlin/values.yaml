@@ -95,6 +95,20 @@ config:
     existingSecret: ""
     key: ca.pem
 
+  # The shell people see at `/` (HLIN-A-0015): a JSON file of shell
+  # components, a bar, page selectors and content components. Nothing set,
+  # Hlin draws its own: a bar, a rail of each person's surfaces and the
+  # platforms' pages, and their home surface beside it.
+  #
+  # Give the JSON inline as `json`, or name a ConfigMap that holds it. Set at
+  # most one; the chart refuses two. `key` names the entry in the ConfigMap,
+  # and is ignored for `json`. The shell refuses to start on a file it cannot
+  # read or that is not a shell.
+  defaultSurface:
+    json: ""
+    existingConfigMap: ""
+    key: shell.json
+
   # Whose name, logo and colours the shell wears (COLLIERY-I-0609). Hlin's
   # own, when nothing here is set. No rebuild: the shipped image takes it.
   #

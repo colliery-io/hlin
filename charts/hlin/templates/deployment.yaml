@@ -29,6 +29,10 @@ spec:
         # to have worked and has not.
         checksum/ca: {{ include (print $.Template.BasePath "/ca-bundle.yaml") . | sha256sum }}
         {{- end }}
+        {{- if .Values.config.defaultSurface.json }}
+        # The shell is read at startup, so a changed one needs a restart.
+        checksum/shell: {{ include (print $.Template.BasePath "/default-surface.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -123,6 +127,11 @@ spec:
               mountPath: /etc/hlin-trust
               readOnly: true
             {{- end }}
+            {{- if include "hlin.shellMounted" . }}
+            - name: shell
+              mountPath: /etc/hlin-shell
+              readOnly: true
+            {{- end }}
             {{- if .Values.config.brand.existingConfigMap }}
             # Beside /etc/hlin, for the same reason as the trust bundle. Whole
             # rather than by subPath, so an updated ConfigMap reaches the
@@ -167,6 +176,18 @@ spec:
               - key: {{ .Values.config.caBundle.key }}
                 path: {{ .Values.config.caBundle.key }}
           {{- end }}
+        {{- end }}
+        {{- if include "hlin.shellMounted" . }}
+        - name: shell
+          configMap:
+            {{- if .Values.config.defaultSurface.json }}
+            name: {{ include "hlin.fullname" . }}-shell
+            {{- else }}
+            name: {{ .Values.config.defaultSurface.existingConfigMap }}
+            items:
+              - key: {{ .Values.config.defaultSurface.key }}
+                path: {{ .Values.config.defaultSurface.key }}
+            {{- end }}
         {{- end }}
         {{- if .Values.config.brand.existingConfigMap }}
         - name: brand

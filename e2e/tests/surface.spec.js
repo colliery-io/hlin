@@ -439,11 +439,12 @@ test.describe('the time controls follow the panels that want them', () => {
     await expect(page.locator('.bar .picker')).toBeVisible();
 
     // A navigation entry declares nothing about time, so its page shows none.
-    await page.locator('nav.pages a[data-page="orebank/module-page"]').click();
-    await expect(page.locator('.stage')).toBeHidden();
+    await page.goto('/page/orebank/module-page');
+    await page.locator('section.page').waitFor({ state: 'visible' });
+    await expect(page.locator('.stage').first()).toBeHidden();
     await expect(page.locator('.bar .picker')).toHaveCount(0);
 
-    await page.locator('nav.pages a.surface-link').click();
+    await page.goBack();
     await expect(page.locator('.bar .picker')).toBeVisible();
   });
 });

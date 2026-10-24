@@ -90,6 +90,7 @@ pub fn router(state: AppState) -> Router {
             get(crate::layouts::list).post(crate::layouts::create),
         )
         .route("/api/layouts/home", get(crate::layouts::home))
+        .route("/api/shell", get(crate::shell::shell))
         .route(
             "/api/layouts/{id}",
             get(crate::layouts::read)

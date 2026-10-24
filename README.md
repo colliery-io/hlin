@@ -95,6 +95,35 @@ public_url = "https://hlin.example.com"
 To try it without a provider of your own, `angreal demo up --with collab` runs
 the shell on `oidc` against [Dex](https://dexidp.io) in a container (below).
 
+### The shell at `/`
+
+A person opening the shell sees a bar, a rail of their surfaces and each
+platform's pages, and their home surface beside it. To give everyone a shell of
+your own instead, write it as a JSON file of shell components and name it:
+
+```toml
+default_surface = "/etc/hlin-shell/shell.json"
+```
+
+```json
+{
+  "title": "Operations",
+  "items": [
+    { "type": "bar", "id": "bar", "position": { "x": 0, "y": 0, "w": 12, "h": 1 } },
+    { "type": "page-selector", "id": "tabs", "style": "tabs", "target": "main",
+      "position": { "x": 0, "y": 1, "w": 12, "h": 1 },
+      "groups": [ { "label": "Pages", "pages": [ { "page": { "platform": "orebank", "path": "runs" } } ] } ] },
+    { "type": "content", "id": "main", "position": { "x": 0, "y": 2, "w": 12, "h": 10 },
+      "initial": { "page": { "platform": "orebank", "path": "runs" } } }
+  ]
+}
+```
+
+The shell holds shell components only: put panels on a surface and open it in
+a content component. Every item needs an `id`. A file that cannot be read, or
+is not a shell, stops the shell at startup. In the chart, `config.defaultSurface`
+takes the JSON inline, or the name of a ConfigMap that holds it.
+
 ### An internal certificate authority
 
 The shell reaches everything over TLS — every platform it fronts, every event

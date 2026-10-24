@@ -50,6 +50,7 @@ fn shell_config(brand: BrandConfig) -> Config {
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
         ca_bundle: None,
+        default_surface: None,
         brand,
         database_url: None,
         database_url_env: None,

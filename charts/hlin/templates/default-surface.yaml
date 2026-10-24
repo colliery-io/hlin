@@ -1,0 +1,12 @@
+{{- if .Values.config.defaultSurface.json }}
+# The shell people see at `/`, given inline.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hlin.fullname" . }}-shell
+  labels:
+    {{- include "hlin.labels" . | nindent 4 }}
+data:
+  shell.json: |
+    {{- .Values.config.defaultSurface.json | nindent 4 }}
+{{- end }}

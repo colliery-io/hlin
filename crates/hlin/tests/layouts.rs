@@ -113,6 +113,7 @@ fn config() -> Config {
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
         ca_bundle: None,
+        default_surface: None,
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
@@ -1464,4 +1465,90 @@ fn oidc_refuses_a_configuration_that_would_fail_quietly() {
         refused(|oidc| oidc.client_secret_env = "HLIN_TEST_NOT_SET".to_string())
             .contains("HLIN_TEST_NOT_SET")
     );
+}
+
+// -- The shell at `/` (HLIN-T-0115) -----------------------------------------
+
+#[tokio::test]
+async fn the_built_in_shell_lists_a_persons_surfaces_and_the_platforms_pages() {
+    use hlin_stream::layout::{LayoutItem, Page, SelectorStyle};
+
+    let (app, _, _) = shell().await;
+
+    let (status, body) = call(&app, get("/api/shell")).await;
+    assert_eq!(status, StatusCode::OK);
+    let shell: LayoutDocument = serde_json::from_value(body).expect("a surface");
+    assert_eq!(shell.id, None, "not stored");
+    assert!(!shell.editable, "not edited");
+    assert_eq!(shell.visibility, hlin::shell::SHELL_VISIBILITY);
+
+    // The same home `/api/layouts/home` gives, which a first visit created.
+    let (_, home) = call(&app, get("/api/layouts/home")).await;
+    let home: LayoutDocument = serde_json::from_value(home).expect("a layout");
+    let home = home.id.expect("stored");
+
+    let [
+        LayoutItem::Bar(_),
+        LayoutItem::PageSelector(selector),
+        LayoutItem::Content(main),
+    ] = shell.items.as_slice()
+    else {
+        panic!(
+            "a bar, a selector and a content component: {:?}",
+            shell.items
+        );
+    };
+    assert_eq!(selector.style, SelectorStyle::Rail);
+    assert_eq!(selector.target, hlin::shell::MAIN);
+    assert_eq!(main.id.as_deref(), Some(hlin::shell::MAIN));
+    assert_eq!(main.initial, Some(Page::Surface(home.clone())));
+
+    let groups: Vec<(&str, Vec<&Page>)> = selector
+        .groups
+        .iter()
+        .map(|group| {
+            (
+                group.label.as_str(),
+                group.pages.iter().map(|page| &page.page).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(groups[0].0, "Surfaces");
+    assert_eq!(groups[0].1, vec![&Page::Surface(home)]);
+    // Only the pages a module draws: smelter's `lists`, not its plain link or
+    // the entry it was refused. Orebank has none, so no group.
+    assert_eq!(groups.len(), 2, "{groups:?}");
+    let pages = &selector.groups[1].pages;
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0].label.as_deref(), Some("Lists"));
+    assert!(
+        matches!(&pages[0].page, Page::Page(page) if page.platform == OTHER && page.path == "lists")
+    );
+}
+
+#[tokio::test]
+async fn an_operators_shell_is_served_as_written() {
+    let path = std::env::temp_dir().join(format!("hlin-shell-test-{}.json", std::process::id()));
+    std::fs::write(
+        &path,
+        r#"{ "title": "Ops", "items": [
+            { "type": "content", "id": "main", "position": { "x": 0, "y": 0, "w": 12, "h": 8 },
+              "initial": { "view": "about" } }
+        ] }"#,
+    )
+    .expect("write");
+
+    let (app, _, _) = shell_with(Config {
+        default_surface: Some(path.clone()),
+        ..config()
+    })
+    .await;
+
+    let (status, body) = call(&app, get("/api/shell")).await;
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(status, StatusCode::OK);
+    let shell: LayoutDocument = serde_json::from_value(body).expect("a surface");
+    assert_eq!(shell.title, "Ops");
+    assert_eq!(shell.items.len(), 1);
+    assert!(!shell.editable);
 }

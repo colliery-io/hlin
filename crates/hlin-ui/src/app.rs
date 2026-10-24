@@ -125,8 +125,16 @@ pub struct Shell {
     set_choices: WriteSignal<BTreeMap<(String, String), Vec<Choice>>>,
     mode: ReadSignal<Mode>,
     set_mode: WriteSignal<Mode>,
-    connected: ReadSignal<bool>,
-    set_connected: WriteSignal<bool>,
+    /// Whether every surface stream on screen is open, and whether there is
+    /// one at all.
+    connected: Memo<Option<bool>>,
+    /// Each surface's stream: open or not, by surface.
+    links: RwSignal<BTreeMap<u64, bool>>,
+    /// The surface Edit composes: the outermost, or, where the outermost is
+    /// the shell, the surface open in its first content component.
+    composed: RwSignal<Option<SurfaceScope>>,
+    /// The front end's own controls, for the end of the shell's bar.
+    chrome: StoredValue<Option<ViewFn>>,
     grace: ReadSignal<i64>,
     read_only: ReadSignal<bool>,
     viewer: ReadSignal<Option<String>>,
@@ -164,7 +172,6 @@ pub struct Shell {
     reapply: Callback<()>,
     apply_preset: Callback<i64>,
     apply_range: Callback<TimeRange>,
-    open_page: Callback<PageTarget>,
     close_page: Callback<()>,
 }
 
@@ -224,7 +231,12 @@ fn shell() -> Shell {
 /// a content component has its own, and the components inside it read that one.
 #[derive(Clone, Copy)]
 struct SurfaceScope {
+    key: u64,
     depth: usize,
+    /// Whether this is the shell from `/api/shell`.
+    shell: bool,
+    /// Whether Edit composes this surface.
+    composed: bool,
     /// The ids of every surface around this one, and its own once known.
     ancestry: StoredValue<Vec<String>>,
     state: ReadSignal<SurfaceState>,
@@ -246,7 +258,10 @@ fn scope() -> SurfaceScope {
 /// Which surface a [`SurfaceHost`] shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Source {
-    /// The one the address names, or the person's own.
+    /// The shell at `/`, from `/api/shell`: a surface of shell components
+    /// that is not stored and not edited.
+    Shell,
+    /// The one the address names, `/s/{id}`.
     Top,
     /// A surface opened in a content component.
     Surface(String),
@@ -288,7 +303,11 @@ where
     // What each control will accept, by panel reference and control id.
     let (choices, set_choices) = signal(BTreeMap::<(String, String), Vec<Choice>>::new());
     let (mode, set_mode) = signal(Mode::Watching);
-    let (connected, set_connected) = signal(false);
+    let links = RwSignal::new(BTreeMap::<u64, bool>::new());
+    let connected = Memo::new(move |_| {
+        links.with(|links| (!links.is_empty()).then(|| links.values().all(|open| *open)))
+    });
+    let composed = RwSignal::new(Option::<SurfaceScope>::None);
     let (grace, set_grace) = signal(GRACE);
 
     // Whether this shell refuses every write. False until `/api/config`
@@ -506,7 +525,9 @@ where
         mode,
         set_mode,
         connected,
-        set_connected,
+        links,
+        composed,
+        chrome: StoredValue::new(None),
         grace,
         read_only,
         viewer,
@@ -534,7 +555,6 @@ where
         reapply: Callback::new(move |()| reapply()),
         apply_preset: Callback::new(apply_preset),
         apply_range: Callback::new(apply_range),
-        open_page: Callback::new(open_page),
         close_page: Callback::new(move |()| close_page()),
     };
     provide_context(shell);
@@ -590,6 +610,15 @@ where
     let styling = drawer.stylesheet();
     let page_drawer = drawer.clone();
 
+    // A link to a surface opens that surface; anything else opens the shell
+    // (D13), with a full-width page over it where the address names one.
+    let outermost = if requested_layout().is_some() {
+        Source::Top
+    } else {
+        Source::Shell
+    };
+    let composes_outermost = outermost == Source::Top;
+
     view! {
         // This crate's own chrome: the grid, the panel frames, the toolbar.
         // Injected rather than left for the consumer to link, because the file
@@ -614,7 +643,14 @@ where
             on:load=move |_| crate::frame::retheme()
         />
 
-        <SurfaceHost source=Source::Top depth=0 ancestry=Vec::new() drawer=drawer chrome=bar />
+        <SurfaceHost
+            source=outermost
+            depth=0
+            ancestry=Vec::new()
+            drawer=drawer
+            chrome=bar
+            composed=composes_outermost
+        />
 
         {move || open.get().map(|target| view! {
             <PageView
@@ -623,6 +659,7 @@ where
                 catalog=catalog
                 catalog_known=catalog_known
                 modules=modules
+                full_width=true
             />
         })}
     }
@@ -647,10 +684,14 @@ fn SurfaceHost(
     /// The key of the content component this surface is open in.
     #[prop(default = None)]
     around: Option<String>,
+    /// Whether Edit composes this surface.
+    #[prop(default = false)]
+    composed: bool,
 ) -> AnyView {
     let shell = shell();
     let key = shell.next_key();
-    let top = source == Source::Top;
+    let top = depth == 0;
+    let is_shell = source == Source::Shell;
 
     let (state, set_state) = signal(SurfaceState::new());
     let (draft, set_draft) = signal(LayoutDraft::empty());
@@ -699,12 +740,14 @@ fn SurfaceHost(
             let source = source.clone();
             leptos::task::spawn_local(async move {
                 let asked = match &source {
+                    Source::Shell => None,
                     Source::Top => requested_layout(),
                     Source::Surface(id) => Some(id.clone()),
                 };
-                let fetched = match &asked {
-                    Some(id) => crate::api::layout(id).await,
-                    None => crate::api::home().await,
+                let fetched = match (&source, &asked) {
+                    (Source::Shell, _) => crate::api::shell().await,
+                    (_, Some(id)) => crate::api::layout(id).await,
+                    (_, None) => crate::api::home().await,
                 };
                 match fetched {
                     Ok(document) => {
@@ -726,7 +769,7 @@ fn SurfaceHost(
                         set_draft.set(LayoutDraft::of(document));
                         set_revision.update(|revision| *revision += 1);
                     }
-                    Err(reason) if source == Source::Top => shell.set_trouble.set(Some(reason)),
+                    Err(reason) if depth == 0 => shell.set_trouble.set(Some(reason)),
                     Err(reason) => set_missing.set(Some(reason)),
                 }
             });
@@ -847,9 +890,9 @@ fn SurfaceHost(
             }
         });
 
-        // A module's `changed` is relayed through the outermost surface's
+        // A module's `changed` is relayed through the composed surface's
         // stream; the shell passes it to every surface it serves.
-        if depth == 0 {
+        if composed {
             crate::frame::set_surface(Some(surface_id.clone()));
         }
 
@@ -865,15 +908,15 @@ fn SurfaceHost(
             });
         };
         let lost = move || {
-            if depth == 0 {
-                shell.set_connected.set(false);
-            }
+            shell.links.update(|links| {
+                links.insert(key, false);
+            });
             set_state.update(|state| state.on_stream_lost(Utc::now()));
         };
         let opened = move || {
-            if depth == 0 {
-                shell.set_connected.set(true);
-            }
+            shell.links.update(|links| {
+                links.insert(key, true);
+            });
             set_state.update(|state| state.on_stream_restored());
         };
 
@@ -1069,11 +1112,24 @@ fn SurfaceHost(
             let _ = shell.wanting.try_update(|wanting| {
                 wanting.remove(&key);
             });
+            let _ = shell.links.try_update(|links| {
+                links.remove(&key);
+            });
+            if shell
+                .composed
+                .try_with_untracked(|scope| scope.is_some_and(|scope| scope.key == key))
+                == Some(true)
+            {
+                let _ = shell.composed.try_set(None);
+            }
         }
     });
 
-    provide_context(SurfaceScope {
+    let scope = SurfaceScope {
+        key,
         depth,
+        shell: is_shell,
+        composed,
         ancestry,
         state,
         draft,
@@ -1082,7 +1138,11 @@ fn SurfaceHost(
         save: Callback::new(move |()| save()),
         act,
         around: StoredValue::new(around),
-    });
+    };
+    provide_context(scope);
+    if composed {
+        shell.composed.set(Some(scope));
+    }
 
     if !top {
         return view! {
@@ -1097,13 +1157,15 @@ fn SurfaceHost(
         .into_any();
     }
 
+    // The shell from `/api/shell` holds its own bar; a surface opened by its
+    // address gets the shell's bar above it.
+    shell.chrome.set_value(chrome);
     view! {
-        {match chrome {
-            Some(extra) => view! { <Bar extra=extra /> }.into_any(),
-            None => view! { <Bar /> }.into_any(),
-        }}
+        {(!is_shell).then(|| view! { <Bar /> })}
 
-        <PageLinks />
+        // The shell's own bar is one of its items, hidden with it while a
+        // full-width page is open; the page gets one of its own above it.
+        {move || (is_shell && shell.open.with(Option::is_some)).then(|| view! { <Bar /> })}
 
         {move || shell.trouble.get().map(|reason| view! {
             <p class="trouble">{reason}</p>
@@ -1112,88 +1174,6 @@ fn SurfaceHost(
         <SurfaceView drawer=drawer />
     }
     .into_any()
-}
-
-/// The platforms' pages (HLIN-S-0007, *Pages*), and the way back to the
-/// surface, whenever there is a page to open or one is open. Only a navigation
-/// entry with a module is a page; the others were never drawn by the shell and
-/// are not now.
-#[component]
-fn PageLinks() -> impl IntoView {
-    let Shell {
-        catalog,
-        open,
-        open_page,
-        close_page,
-        ..
-    } = shell();
-    let SurfaceScope { draft, .. } = scope();
-
-    move || {
-        let offered = catalog.with(|catalog| route::pages(catalog));
-        if offered.is_empty() && open.with(Option::is_none) {
-            return None;
-        }
-        let surface = draft
-            .with(|draft| draft.surface_id().map(|id| format!("/s/{id}")))
-            .unwrap_or_else(|| "/".to_string());
-        let mut previous: Option<String> = None;
-        let links = offered
-            .into_iter()
-            .map(|entry| {
-                // Each platform's name once, before its first page.
-                let heading = (previous.as_deref() != Some(entry.platform.as_str())).then(|| {
-                    previous = Some(entry.platform.clone());
-                    view! { <span class="pages-platform">{entry.platform_name.clone()}</span> }
-                });
-                let target = entry.target();
-                let href = route::page_address(&target);
-                let current = {
-                    let target = target.clone();
-                    move || {
-                        open.with(|open| open.as_ref() == Some(&target))
-                            .then_some("page")
-                    }
-                };
-                view! {
-                    {heading}
-                    <a
-                        class="page-link"
-                        href=href
-                        data-page=format!("{}/{}", entry.platform, entry.path)
-                        title=format!("{} — {}", entry.label, entry.platform_name)
-                        aria-current=current
-                        on:click=move |event: leptos::ev::MouseEvent| {
-                            if plain_click(&event) {
-                                event.prevent_default();
-                                open_page.run(target.clone());
-                            }
-                        }
-                    >
-                        {entry.label.clone()}
-                    </a>
-                }
-            })
-            .collect_view();
-        Some(view! {
-            <nav class="pages" aria-label="Pages">
-                <a
-                    class="page-link surface-link"
-                    href=surface
-                    aria-current=move || open.with(Option::is_none).then_some("page")
-                    on:click=move |event: leptos::ev::MouseEvent| {
-                        if plain_click(&event) {
-                            event.prevent_default();
-                            close_page.run(());
-                        }
-                    }
-                >
-                    "Surface"
-                </a>
-                {links}
-            </nav>
-        })
-    }
 }
 
 /// A content component: one page, in its cells (decision HLIN-A-0015, D9).
@@ -1208,6 +1188,10 @@ fn Content(
     /// The page it shows first.
     initial: Option<Page>,
     drawer: Drawer,
+    /// Whether Edit composes the surface it opens: the shell's first content
+    /// component does.
+    #[prop(default = false)]
+    composes: bool,
 ) -> AnyView {
     let shell = shell();
     let scope = scope();
@@ -1245,6 +1229,7 @@ fn Content(
                 ancestry=scope.ancestry.get_value()
                 drawer=drawer.clone()
                 around=Some(key.clone())
+                composed=composes
             />
         }
         .into_any(),
@@ -1436,18 +1421,28 @@ pub fn Bar(
         apply_range,
         ..
     } = shell();
-    let SurfaceScope {
-        draft,
-        state: surface,
-        writing,
-        depth,
-        ..
-    } = scope();
+    let own = scope();
+    let composed = shell().composed;
+    // The shell's bar carries the front end's own controls at its end.
+    let extra = extra.or_else(|| (!placed).then(|| shell().chrome.get_value()).flatten());
+    // What the bar speaks for: a placed bar, its own surface; the shell's bar,
+    // the surface Edit composes, where there is one.
+    let about = move || {
+        if placed {
+            own
+        } else {
+            composed.get().unwrap_or(own)
+        }
+    };
+    let draft = Signal::derive(move || about().draft.get());
+    let surface = Signal::derive(move || about().state.get());
+    let writing = Signal::derive(move || about().writing.get());
     let apply_preset = move |seconds: i64| apply_preset.run(seconds);
     let apply_range = move |range: TimeRange| apply_range.run(range);
-    // Edit composes the outermost surface only.
-    let composing = move || depth == 0 && mode.get() == Mode::Composing;
+    let composing = move || mode.get() == Mode::Composing;
     let editable = move || draft.with(|draft| draft.editable());
+    // Edit is the shell's bar's, and only while there is a surface to compose.
+    let offers_edit = move || !placed && composed.with(Option::is_some);
     let wants_time = move || !placed && wants_time.get();
 
     // The bar wraps when its contents outgrow a line, and the catalogue sticks
@@ -1519,16 +1514,20 @@ pub fn Bar(
                 <span class="saving">"saving…"</span>
             </Show>
 
-            <span class="link" class:down=move || !connected.get()>
-                {move || if connected.get() { "live" } else { "reconnecting" }}
-            </span>
+            // Only while there is a stream to speak of: a shell showing a view
+            // has none.
+            {move || connected.get().map(|connected| view! {
+                <span class="link" class:down=!connected>
+                    {if connected { "live" } else { "reconnecting" }}
+                </span>
+            })}
 
             // Absent rather than disabled where the shell writes nothing.
             // A disabled control says "not for you, not now"; there is no
             // later here, and no explanation that would make one appear.
             // Composing is the surface's, and there is none on screen while a
             // page is open.
-            <Show when=move || !placed && depth == 0 && !read_only.get() && open.with(Option::is_none)>
+            <Show when=move || offers_edit() && !read_only.get() && open.with(Option::is_none)>
                 <button
                     class="mode"
                     class:active=composing
@@ -1612,7 +1611,12 @@ pub fn SurfaceView(
     let save = move || save.run(());
     let reapply = move || reapply.run(());
     let act = move |who: String, intent: hlin_view::Intent| act.run((who, intent));
-    let composing = move || depth == 0 && mode.get() == Mode::Composing;
+    let SurfaceScope {
+        composed,
+        shell: is_shell,
+        ..
+    } = scope();
+    let composing = move || composed && mode.get() == Mode::Composing;
     // Hidden rather than dropped while a page is open, so its panels, and what
     // their modules hold, are there to go back to. A surface inside another
     // is hidden with it.
@@ -1640,7 +1644,7 @@ pub fn SurfaceView(
     };
 
     let begin = move |event: PointerEvent, instance: String, kind: GestureKind| {
-        if depth != 0 || mode.get_untracked() != Mode::Composing {
+        if !composed || mode.get_untracked() != Mode::Composing {
             return;
         }
         event.prevent_default();
@@ -2178,9 +2182,11 @@ pub fn SurfaceView(
                                 style:grid-row=move || { let at = placed(); format!("{} / span {}", at.y + 1, at.h) }
                             >
                                 {move || match what.get() {
-                                    Some(LayoutItem::Bar(_)) => view! { <Bar placed=true /> }.into_any(),
+                                    // On the shell, its bar is the shell's bar.
+                                    Some(LayoutItem::Bar(_)) => view! { <Bar placed=!is_shell /> }.into_any(),
                                     Some(LayoutItem::Content(content)) => view! {
                                         <Content
+                                            composes=is_shell && content.id == first_content(&draft.get_untracked())
                                             id=content.id.clone().unwrap_or_default()
                                             initial=content.initial.clone()
                                             drawer=drawer.clone()
@@ -2224,6 +2230,10 @@ fn PageView(
     catalog: ReadSignal<Vec<CatalogPlatform>>,
     catalog_known: ReadSignal<bool>,
     modules: RwSignal<BTreeMap<String, ModuleView>>,
+    /// Open over the whole shell, from its own address, rather than in a
+    /// content component: it carries the way back.
+    #[prop(default = false)]
+    full_width: bool,
 ) -> impl IntoView {
     // This opening's own instance: a page opened again is a new frame, and a
     // new instance, like a panel put on a surface twice.
@@ -2326,6 +2336,23 @@ fn PageView(
             data-module-cause=cause
         >
             <header class="page-head">
+                {full_width.then(|| {
+                    let close_page = shell().close_page;
+                    view! {
+                        <a
+                            class="page-back"
+                            href="/"
+                            on:click=move |event: leptos::ev::MouseEvent| {
+                                if plain_click(&event) {
+                                    event.prevent_default();
+                                    close_page.run(());
+                                }
+                            }
+                        >
+                            "← Back"
+                        </a>
+                    }
+                })}
                 <h2>{label}</h2>
                 <span class="page-platform">{platform}</span>
             </header>
@@ -2840,6 +2867,15 @@ fn panel_key(index: usize, panel: &hlin_stream::layout::PanelInstanceDocument) -
         .id
         .clone()
         .unwrap_or_else(|| format!("unsaved:{index}"))
+}
+
+/// The id of a surface's first content component, where Edit composes the
+/// surface it opens when the surface is the shell.
+fn first_content(draft: &LayoutDraft) -> Option<String> {
+    draft.document().items.iter().find_map(|item| match item {
+        LayoutItem::Content(content) => content.id.clone(),
+        _ => None,
+    })
 }
 
 /// The key each shell component on the surface is drawn under: its id, or,

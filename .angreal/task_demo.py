@@ -39,6 +39,9 @@ CONFIGS = {
     # The Aurora demo, white-labelled from demo/brand/ (COLLIERY-I-0609).
     "brand": "demo/hlin-brand.toml",
     "gallery": "demo/hlin-gallery.toml",
+    # The demo with an operator's own shell at `/`, from demo/shell.json
+    # (HLIN-T-0115).
+    "shell": "demo/hlin-shell.toml",
     "live": "demo/hlin-live.toml",
     "collab": "demo/hlin-collab.toml",
     # Not run as it is: `up` writes demo/state/hlin-twenty.toml, this plus one
@@ -505,7 +508,7 @@ def _wasm_opt_ready():
     long="with",
     takes_value=True,
     help=(
-        "which shell configuration to run: demo, aurora, brand, gallery, live, collab, twenty, "
+        "which shell configuration to run: demo, aurora, brand, gallery, shell, live, collab, twenty, "
         "or twenty-compose (the twenty in containers)"
     ),
 )

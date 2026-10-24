@@ -30,6 +30,10 @@ data:
     # trust store, not a replacement for it.
     ca_bundle = "/etc/hlin-trust/{{ include "hlin.trustFile" . }}"
     {{- end }}
+    {{- if include "hlin.shellMounted" . }}
+    # The shell people see at `/`.
+    default_surface = "/etc/hlin-shell/{{ include "hlin.shellFile" . }}"
+    {{- end }}
 
     {{- with .Values.config.brand }}
     {{- if or .name .existingConfigMap }}

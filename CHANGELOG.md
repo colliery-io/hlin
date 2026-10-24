@@ -39,6 +39,16 @@ All notable changes to this project will be documented in this file.
   address names what each content component shows, one query parameter per
   component (`?main=/s/…`; inside it, `main.inner=…`), so a reload, a link and
   back and forward open the same pages.
+- The shell at `/` is a surface (HLIN-T-0115). Hlin draws its own: a bar, a
+  rail of the person's surfaces and the platforms' pages, and their home
+  surface in `main`. `GET /api/shell` serves it. An operator replaces it with
+  `default_surface` in hlin.toml, a JSON file of shell components checked at
+  startup (a file that cannot be read, holds a panel, or has an item without
+  an id stops the shell); the chart takes it as `config.defaultSurface`.
+  Edit composes the surface open in the shell's first content component.
+  `/s/{id}` still opens a surface on its own, and `/page/…` a page at full
+  width, with a way back. The row of page links under the bar is gone; the
+  rail lists the same pages.
 
 ## [0.1.1] — 2026-10-06
 

@@ -264,24 +264,6 @@ body {
 
 /* -- Pages -------------------------------------------------------------- */
 
-/* The platforms' pages, one row under the bar, beside the way back to the
-   surface. Links rather than buttons, so each one's address can be opened in
-   another tab or copied like any other. */
-.pages {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
-  padding: 6px 16px; font-size: 12px;
-  background: var(--hlin-raised); border-bottom: 1px solid var(--hlin-border);
-}
-.pages .pages-platform { color: var(--hlin-dim); margin-left: 8px; }
-.pages .page-link {
-  color: inherit; text-decoration: none;
-  padding: 2px 8px; border: 1px solid transparent; border-radius: 4px;
-}
-.pages .page-link:hover { border-color: var(--hlin-border); }
-.pages .page-link[aria-current="page"] {
-  border-color: var(--hlin-accent); color: var(--hlin-accent);
-}
-
 /* The surface stays where it was while a page is open, hidden rather than
    torn down, so going back to it is going back, not starting again. */
 .stage[hidden] { display: none; }
@@ -339,3 +321,5 @@ body {
   border-color: var(--hlin-accent);
   background: color-mix(in srgb, var(--hlin-accent) 10%, transparent);
 }
+.page .page-back { font-size: 12px; color: var(--hlin-dim); text-decoration: none; margin-right: 4px; }
+.page .page-back:hover { color: var(--hlin-text); }
