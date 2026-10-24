@@ -167,6 +167,16 @@ impl SurfaceState {
         self.generation
     }
 
+    /// The browser is about to ask for new parameters, under a generation
+    /// counted for the whole page rather than by this surface.
+    ///
+    /// Every surface on screen follows one time range, so one counter numbers
+    /// the asks and each surface adopts the number. A number behind this
+    /// surface's own is ignored: generations only move forward.
+    pub fn adopt_generation(&mut self, generation: u64) {
+        self.generation = self.generation.max(generation);
+    }
+
     /// The stream went away.
     ///
     /// Everything becomes stale at once. This is the only state the browser

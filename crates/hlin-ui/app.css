@@ -297,3 +297,20 @@ body {
 .page .page-head h2 { margin: 0; font-size: 15px; }
 .page .page-platform { font-size: 12px; color: var(--hlin-dim); }
 .page .module-frame iframe { height: calc(100vh - 170px); min-height: 320px; }
+
+/* -- Shell components on a surface (HLIN-A-0015) ------------------------ */
+
+/* Each sits in its own cells, like a panel. */
+.item { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.item > .bar { position: static; border: 1px solid var(--hlin-border); border-radius: 6px; }
+.item[data-type="content"] {
+  overflow: auto;
+  background: var(--hlin-surface);
+  border: 1px solid var(--hlin-border); border-radius: 6px;
+}
+/* A surface opened in a content component fills it. */
+.item .stage { flex: 1; }
+.item .grid { padding: 8px; }
+.item .page { margin: 0; flex: 1; border: 0; }
+.item .page .module-frame iframe { height: 100%; min-height: 240px; }
+.content-missing { margin: 12px; color: var(--hlin-dim); font-size: 13px; }

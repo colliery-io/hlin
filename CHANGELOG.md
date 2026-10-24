@@ -21,6 +21,18 @@ All notable changes to this project will be documented in this file.
   with one id. Postgres keeps the items as one JSON column on `layouts`;
   migration 0005 drops `panel_instances`, and stored panels are not kept.
 
+### Added
+
+- A surface draws its shell components in their cells (HLIN-T-0113,
+  HLIN-A-0015). A `bar` item draws the surface's bar without the time picker
+  or Edit. A `content` item opens its `initial` page: a surface, one level
+  deeper, with its own stream; a platform's module page; or a view the front
+  end registers with `App`'s new `views` prop (`hlin_ui::Views`). Surfaces
+  open at most two levels below the outermost. A page that cannot be opened —
+  too deep, already open around it, not offered, not registered, not
+  fetched — shows a placeholder with the reason. Every surface on screen
+  follows the outermost time picker.
+
 ## [0.1.1] — 2026-10-06
 
 Hlin is on Aurora 0.5.0, in light and dark (COLLIERY-I-0608), and an operator
