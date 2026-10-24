@@ -6,7 +6,7 @@
 
 use gloo_net::http::Request;
 use hlin_manifest::envelope::Choice;
-use hlin_stream::layout::{CatalogPlatform, ClientConfig, LayoutDocument};
+use hlin_stream::layout::{CatalogPlatform, ClientConfig, LayoutDocument, LayoutSummary};
 
 /// What the shell says about itself.
 pub async fn config() -> Result<ClientConfig, String> {
@@ -24,6 +24,11 @@ pub async fn home() -> Result<LayoutDocument, String> {
 /// One layout by id.
 pub async fn layout(id: &str) -> Result<LayoutDocument, String> {
     read(&format!("/api/layouts/{id}")).await
+}
+
+/// The layouts this person owns, most recently changed first.
+pub async fn layouts() -> Result<Vec<LayoutSummary>, String> {
+    read("/api/layouts").await
 }
 
 /// Every panel that can be put on a surface, grouped by platform.

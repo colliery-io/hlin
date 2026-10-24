@@ -12,7 +12,8 @@ use crate::pack::Drawer;
 use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use hlin_manifest::envelope::Choice;
 use hlin_stream::layout::{
-    CatalogPanel, CatalogPlatform, LayoutDocument, LayoutItem, Page, Placement,
+    CatalogPanel, CatalogPlatform, LayoutDocument, LayoutItem, Page, PageSelectorItem, Placement,
+    SelectorStyle,
 };
 use hlin_stream::{Frame, ParamsRequest, TimeRange};
 use hlin_view::{Kind, plan};
@@ -144,6 +145,12 @@ pub struct Shell {
     views: StoredValue<Views>,
     /// The outermost surface's id, once it is known: where "back" goes.
     top: RwSignal<Option<String>>,
+    /// The address's query string, which names what each content component
+    /// shows (D18). Moved by a page selector, and by back and forward.
+    query: RwSignal<String>,
+    /// What each surface is called, by id, as far as this page has heard: a
+    /// page selector's label for a surface nobody renamed.
+    titles: RwSignal<BTreeMap<String, String>>,
     /// Each surface on screen, by a number of the page's own.
     owners: StoredValue<BTreeMap<u64, Owner>>,
     serial: StoredValue<u64>,
@@ -226,9 +233,9 @@ struct SurfaceScope {
     writing: ReadSignal<u32>,
     save: Callback<()>,
     act: Callback<(String, hlin_view::Intent)>,
-    /// The page each content component shows, by its id. A page selector
-    /// names one of these as its target.
-    contents: StoredValue<BTreeMap<String, RwSignal<Option<Page>>>>,
+    /// The key, in the address, of the content component this surface is
+    /// open in. `None` for the outermost.
+    around: StoredValue<Option<String>>,
 }
 
 fn scope() -> SurfaceScope {
@@ -416,6 +423,22 @@ where
     // -- Pages -------------------------------------------------------------
 
     let top = RwSignal::new(Option::<String>::None);
+    let query = RwSignal::new(current_search());
+    let titles = RwSignal::new(BTreeMap::<String, String>::new());
+
+    // What the person's own surfaces are called, for the labels of page
+    // selectors. Surfaces of others are named when they are opened.
+    Effect::new(move |_| {
+        leptos::task::spawn_local(async move {
+            if let Ok(owned) = crate::api::layouts().await {
+                titles.update(|titles| {
+                    for layout in owned {
+                        titles.entry(layout.id).or_insert(layout.title);
+                    }
+                });
+            }
+        });
+    });
 
     // Open a platform's page, and say so in the address bar, as a new entry in
     // the history: a page is somewhere a person went, and the browser's back
@@ -435,7 +458,8 @@ where
             return;
         }
         let surface = top.get_untracked();
-        push_address(&surface.map_or_else(|| "/".to_string(), |id| format!("/s/{id}")));
+        let path = surface.map_or_else(|| "/".to_string(), |id| format!("/s/{id}"));
+        push_address(&format!("{path}{}", query.get_untracked()));
         set_page.set(None);
     };
 
@@ -447,6 +471,7 @@ where
         };
         let popped = Closure::<dyn Fn()>::new(move || {
             set_page.set(route::page_of(&current_path()));
+            query.set(current_search());
         });
         let _ =
             window.add_event_listener_with_callback("popstate", popped.as_ref().unchecked_ref());
@@ -499,6 +524,8 @@ where
         wants_time,
         views: StoredValue::new(views),
         top,
+        query,
+        titles,
         owners,
         serial: StoredValue::new(0),
         contexts,
@@ -617,6 +644,9 @@ fn SurfaceHost(
     /// The front end's own controls for the outermost bar.
     #[prop(default = None)]
     chrome: Option<ViewFn>,
+    /// The key of the content component this surface is open in.
+    #[prop(default = None)]
+    around: Option<String>,
 ) -> AnyView {
     let shell = shell();
     let key = shell.next_key();
@@ -682,10 +712,16 @@ fn SurfaceHost(
                             && let Some(id) = document.surface_id()
                         {
                             if asked.is_none() && shell.open.get_untracked().is_none() {
-                                show_address(&format!("/s/{id}"));
+                                show_address(&format!("/s/{id}{}", shell.query.get_untracked()));
                             }
                             shell.top.set(Some(id.to_string()));
                             ancestry.update_value(|around| around.push(id.to_string()));
+                        }
+                        if let Some(id) = document.surface_id() {
+                            let (id, title) = (id.to_string(), document.title.clone());
+                            shell.titles.update(|titles| {
+                                titles.insert(id, title);
+                            });
                         }
                         set_draft.set(LayoutDraft::of(document));
                         set_revision.update(|revision| *revision += 1);
@@ -1045,7 +1081,7 @@ fn SurfaceHost(
         writing,
         save: Callback::new(move |()| save()),
         act,
-        contents: StoredValue::new(BTreeMap::new()),
+        around: StoredValue::new(around),
     });
 
     if !top {
@@ -1176,9 +1212,18 @@ fn Content(
     let shell = shell();
     let scope = scope();
 
-    let shown = RwSignal::new(initial);
-    scope.contents.update_value(|contents| {
-        contents.insert(id, shown);
+    // What the address says it shows, or its own first page.
+    let key = scope
+        .around
+        .with_value(|around| route::content_key(around.as_deref(), &id));
+    let shown = Memo::new({
+        let key = key.clone();
+        move |_| {
+            shell
+                .query
+                .with(|query| route::shown_in(query).remove(&key))
+                .or_else(|| initial.clone())
+        }
     });
 
     let views = shell.views;
@@ -1199,6 +1244,7 @@ fn Content(
                 depth=scope.depth + 1
                 ancestry=scope.ancestry.get_value()
                 drawer=drawer.clone()
+                around=Some(key.clone())
             />
         }
         .into_any(),
@@ -1223,6 +1269,134 @@ fn Content(
         .into_any(),
     })
     .into_any()
+}
+
+/// A page selector: the pages of a surface, in groups, as tabs or a rail
+/// (decision HLIN-A-0015).
+///
+/// Choosing a page opens it in the content component the selector names as its
+/// target, and says so in the address as a new history entry, so a reload or a
+/// link sent to somebody opens the same page, and back goes back.
+#[component]
+fn PageSelector(selector: PageSelectorItem) -> impl IntoView {
+    let shell = shell();
+    let scope = scope();
+    let key = scope
+        .around
+        .with_value(|around| route::content_key(around.as_deref(), &selector.target));
+
+    // The page the target shows when the address names none: its own first.
+    let initial = Memo::new({
+        let target = selector.target.clone();
+        move |_| {
+            scope.draft.with(|draft| {
+                draft.document().items.iter().find_map(|item| match item {
+                    LayoutItem::Content(content) if content.id.as_deref() == Some(&target) => {
+                        content.initial.clone()
+                    }
+                    _ => None,
+                })
+            })
+        }
+    });
+    let current = Memo::new({
+        let key = key.clone();
+        move |_| {
+            shell
+                .query
+                .with(|query| route::shown_in(query).remove(&key))
+                .or_else(|| initial.get())
+        }
+    });
+
+    let style = match selector.style {
+        SelectorStyle::Tabs => "tabs",
+        SelectorStyle::Rail => "rail",
+    };
+
+    let groups = selector
+        .groups
+        .into_iter()
+        .map(|group| {
+            let pages = group
+                .pages
+                .into_iter()
+                .map(|entry| {
+                    let page = entry.page;
+                    let key = key.clone();
+                    let label = {
+                        let page = page.clone();
+                        let renamed = entry.label.clone();
+                        move || renamed.clone().unwrap_or_else(|| label_of(&shell, &page))
+                    };
+                    let href = {
+                        let (page, key) = (page.clone(), key.clone());
+                        move || {
+                            let next = shell.query.with(|query| route::showing(query, &key, &page));
+                            format!("{}{next}", current_path())
+                        }
+                    };
+                    let chosen = {
+                        let page = page.clone();
+                        move || current.with(|current| current.as_ref() == Some(&page)).then_some("page")
+                    };
+                    let address = route::address_of(&page);
+                    view! {
+                        <a
+                            class="selector-page"
+                            href=href.clone()
+                            data-address=address
+                            aria-current=chosen
+                            on:click=move |event: leptos::ev::MouseEvent| {
+                                if plain_click(&event) {
+                                    event.prevent_default();
+                                    let next = shell.query.with_untracked(|query| route::showing(query, &key, &page));
+                                    push_address(&format!("{}{next}", current_path()));
+                                    shell.query.set(next);
+                                }
+                            }
+                        >
+                            {label}
+                        </a>
+                    }
+                })
+                .collect_view();
+            view! {
+                <div class="selector-group" role="group" aria-label=group.label.clone()>
+                    <span class="selector-group-label">{group.label.clone()}</span>
+                    {pages}
+                </div>
+            }
+        })
+        .collect_view();
+
+    view! {
+        <nav class="page-selector" data-style=style data-target=selector.target.clone() aria-label="Pages">
+            {groups}
+        </nav>
+    }
+}
+
+/// What a page selector calls a page nobody renamed: its surface's title, its
+/// platform's label for it, or its view's id, made readable.
+fn label_of(shell: &Shell, page: &Page) -> String {
+    match page {
+        Page::Surface(id) => shell
+            .titles
+            .with(|titles| titles.get(id).cloned())
+            .unwrap_or_else(|| "Surface".to_string()),
+        Page::Page(platform_page) => {
+            let target = PageTarget {
+                platform: platform_page.platform.clone(),
+                path: platform_page.path.clone(),
+            };
+            shell
+                .catalog
+                .with(|catalog| route::page_entry(catalog, &target).map(|entry| entry.label))
+                .unwrap_or_else(|| platform_page.path.clone())
+        }
+        Page::View(id) => readable(id),
+    }
 }
 
 /// The bar across the top: whose shell this is, the time controls, whether the
@@ -2013,8 +2187,10 @@ pub fn SurfaceView(
                                         />
                                     }
                                     .into_any(),
-                                    // A page selector is drawn by HLIN-T-0114;
-                                    // until then it holds its cells.
+                                    Some(LayoutItem::PageSelector(selector)) => view! {
+                                        <PageSelector selector=selector />
+                                    }
+                                    .into_any(),
                                     _ => ().into_any(),
                                 }}
                             </section>
@@ -2600,6 +2776,13 @@ fn requested_layout() -> Option<String> {
 fn current_path() -> String {
     web_sys::window()
         .and_then(|window| window.location().pathname().ok())
+        .unwrap_or_default()
+}
+
+/// The query string the address bar holds now, with its `?`, or nothing.
+fn current_search() -> String {
+    web_sys::window()
+        .and_then(|window| window.location().search().ok())
         .unwrap_or_default()
 }
 

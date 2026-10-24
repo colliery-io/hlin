@@ -32,6 +32,13 @@ All notable changes to this project will be documented in this file.
   too deep, already open around it, not offered, not registered, not
   fetched — shows a placeholder with the reason. Every surface on screen
   follows the outermost time picker.
+- The page selector (HLIN-T-0114). A `page-selector` item draws its pages in
+  groups, as `tabs` or a `rail`, and opens the chosen page in the content
+  component it names as `target`. A page's label is its surface's title, its
+  platform's label, or its view's id, unless the layout gives one. The
+  address names what each content component shows, one query parameter per
+  component (`?main=/s/…`; inside it, `main.inner=…`), so a reload, a link and
+  back and forward open the same pages.
 
 ## [0.1.1] — 2026-10-06
 

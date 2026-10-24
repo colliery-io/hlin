@@ -12,7 +12,9 @@
 //! address means is the part worth getting exactly right, because a link that
 //! opens the wrong page, or none, fails silently in somebody else's browser.
 
-use hlin_stream::layout::{CatalogPlatform, CatalogUi, ModuleLimits};
+use std::collections::BTreeMap;
+
+use hlin_stream::layout::{CatalogPlatform, CatalogUi, ModuleLimits, Page, PlatformPage};
 
 /// Where every page's address starts.
 pub const PAGE_PREFIX: &str = "/page/";
@@ -130,6 +132,135 @@ pub fn page_entry(catalog: &[CatalogPlatform], target: &PageTarget) -> Option<Pa
         .find(|page| page.platform == target.platform && page.path == target.path)
 }
 
+// -- What content components show (D18) ---------------------------------------
+//
+// A surface's address names the page each of its content components shows,
+// one query parameter per component: `/s/shell?main=/page/pipeline/runs`. A
+// component on a surface opened inside `main` is `main.inner`. Each value is an
+// ordinary address — a surface's, a platform page's, or a view's — so a link
+// sent to somebody opens the same pages, and a reload keeps them.
+
+/// Where a surface's address starts.
+pub const SURFACE_PREFIX: &str = "/s/";
+
+/// Where a view's address starts. Only ever a query value: a view is drawn in
+/// a content component, never on its own.
+pub const VIEW_PREFIX: &str = "/v/";
+
+/// The address of a page a content component may show.
+pub fn address_of(page: &Page) -> String {
+    match page {
+        Page::Surface(id) => format!("{SURFACE_PREFIX}{}", encode(id)),
+        Page::Page(platform_page) => page_address(&PageTarget {
+            platform: platform_page.platform.clone(),
+            path: platform_page.path.clone(),
+        }),
+        Page::View(id) => format!("{VIEW_PREFIX}{}", encode(id)),
+    }
+}
+
+/// The page an address names, if it names one a content component may show.
+pub fn page_at(address: &str) -> Option<Page> {
+    if let Some(target) = page_of(address) {
+        return Some(Page::Page(PlatformPage {
+            platform: target.platform,
+            path: target.path,
+        }));
+    }
+    let one = |rest: &str| {
+        let id = decode(rest.trim_end_matches('/'))?;
+        (!id.is_empty() && !id.contains('/')).then_some(id)
+    };
+    if let Some(rest) = address.strip_prefix(SURFACE_PREFIX) {
+        return one(rest).map(Page::Surface);
+    }
+    if let Some(rest) = address.strip_prefix(VIEW_PREFIX) {
+        return one(rest).map(Page::View);
+    }
+    None
+}
+
+/// The key a content component's page goes under in the address: its id, after
+/// the key of the content component its surface is open in.
+pub fn content_key(around: Option<&str>, id: &str) -> String {
+    match around {
+        Some(around) => format!("{around}.{id}"),
+        None => id.to_string(),
+    }
+}
+
+/// What each content component is shown, by key, as a query string names it.
+///
+/// A parameter whose value is not a page's address is not one of these, and is
+/// left out: the component shows its own first page.
+pub fn shown_in(query: &str) -> BTreeMap<String, Page> {
+    pairs(query)
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let key = decode_query(&key)?;
+            let page = page_at(&decode_query(&value?)?)?;
+            Some((key, page))
+        })
+        .collect()
+}
+
+/// The query string once the content component under `key` shows `page`.
+///
+/// Whatever the components inside it showed goes, because they were on the
+/// page it showed before. Every other parameter stays as it was, a front end's
+/// own included. Empty, or starting with `?`.
+pub fn showing(query: &str, key: &str, page: &Page) -> String {
+    let inside = format!("{key}.");
+    let mut kept: Vec<String> = pairs(query)
+        .into_iter()
+        .filter(|(name, _)| {
+            decode_query(name).is_none_or(|name| name != key && !name.starts_with(&inside))
+        })
+        .map(|(name, value)| match value {
+            Some(value) => format!("{name}={value}"),
+            None => name,
+        })
+        .collect();
+    kept.push(format!(
+        "{}={}",
+        encode_query(key),
+        encode_query(&address_of(page))
+    ));
+    format!("?{}", kept.join("&"))
+}
+
+/// A query string's parameters as written, without the `?`.
+fn pairs(query: &str) -> Vec<(String, Option<String>)> {
+    query
+        .trim_start_matches('?')
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| match pair.split_once('=') {
+            Some((name, value)) => (name.to_string(), Some(value.to_string())),
+            None => (pair.to_string(), None),
+        })
+        .collect()
+}
+
+/// Percent-encode a query key or value, keeping `/` and `.` as they are so an
+/// address reads as one.
+fn encode_query(text: &str) -> String {
+    let mut encoded = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'/') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+/// Undo [`encode_query`]; a `+` is a space, as a form writes one.
+fn decode_query(text: &str) -> Option<String> {
+    decode(&text.replace('+', "%20"))
+}
+
 /// Percent-encode everything but the characters a path segment may carry as
 /// they are.
 fn encode(segment: &str) -> String {
@@ -242,6 +373,100 @@ mod tests {
         ] {
             assert_eq!(page_of(address), None, "{address}");
         }
+    }
+
+    fn surface(id: &str) -> Page {
+        Page::Surface(id.to_string())
+    }
+
+    fn platform_page(platform: &str, path: &str) -> Page {
+        Page::Page(PlatformPage {
+            platform: platform.to_string(),
+            path: path.to_string(),
+        })
+    }
+
+    #[test]
+    fn every_kind_of_page_has_an_address_that_names_it() {
+        for page in [
+            surface("7f3c"),
+            surface("a b&c"),
+            platform_page("pipeline", "runs"),
+            platform_page("orebank", "a page/with spaces & ünïcode"),
+            Page::View("about".to_string()),
+            Page::View("audit log".to_string()),
+        ] {
+            assert_eq!(page_at(&address_of(&page)), Some(page.clone()), "{page:?}");
+        }
+        assert_eq!(address_of(&surface("ops")), "/s/ops");
+        assert_eq!(address_of(&Page::View("about".into())), "/v/about");
+    }
+
+    #[test]
+    fn an_address_that_is_not_a_page_names_nothing() {
+        for address in ["", "/", "/s/", "/v/", "/s/a/b", "/x/ops", "ops", "/s/%zz"] {
+            assert_eq!(page_at(address), None, "{address}");
+        }
+    }
+
+    #[test]
+    fn a_content_key_is_its_id_after_the_one_around_it() {
+        assert_eq!(content_key(None, "main"), "main");
+        assert_eq!(content_key(Some("main"), "inner"), "main.inner");
+        assert_eq!(content_key(Some("main.inner"), "deep"), "main.inner.deep");
+    }
+
+    #[test]
+    fn a_query_says_what_each_content_component_shows() {
+        let shown =
+            shown_in("?main=/page/pipeline/runs&main.inner=/s/ingest&pack=aurora&side=/v/about");
+        assert_eq!(
+            shown,
+            BTreeMap::from([
+                ("main".to_string(), platform_page("pipeline", "runs")),
+                ("main.inner".to_string(), surface("ingest")),
+                ("side".to_string(), Page::View("about".into())),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_page_is_left_out() {
+        assert!(shown_in("?main=nonsense&other&=x&main.inner=/s/").is_empty());
+        assert!(shown_in("").is_empty());
+        assert!(shown_in("?").is_empty());
+        // Broken escapes are not pages.
+        assert!(shown_in("?main=%2Fs%2F%zz").is_empty());
+    }
+
+    #[test]
+    fn showing_a_page_sets_its_key_and_forgets_what_was_inside_it() {
+        let query = "?pack=aurora&main=/s/old&main.inner=/s/deep&main.inner.x=/v/a&side=/v/about";
+        let next = showing(query, "main", &platform_page("pipeline", "runs"));
+        assert_eq!(next, "?pack=aurora&side=/v/about&main=/page/pipeline/runs");
+        assert_eq!(
+            shown_in(&next),
+            BTreeMap::from([
+                ("main".to_string(), platform_page("pipeline", "runs")),
+                ("side".to_string(), Page::View("about".into())),
+            ])
+        );
+    }
+
+    #[test]
+    fn showing_a_page_inside_keeps_the_page_around_it() {
+        let next = showing("?main=/s/ops", "main.inner", &surface("ingest"));
+        assert_eq!(next, "?main=/s/ops&main.inner=/s/ingest");
+        // A key that only starts the same is not inside.
+        let next = showing("?mainly=/s/x&main=/s/ops", "main", &surface("y"));
+        assert_eq!(next, "?mainly=/s/x&main=/s/y");
+    }
+
+    #[test]
+    fn an_awkward_address_survives_the_query() {
+        let page = platform_page("orebank", "a&b=c/100% done");
+        let next = showing("", "main", &page);
+        assert_eq!(shown_in(&next).get("main"), Some(&page));
     }
 
     #[test]

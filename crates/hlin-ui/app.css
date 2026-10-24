@@ -314,3 +314,28 @@ body {
 .item .page { margin: 0; flex: 1; border: 0; }
 .item .page .module-frame iframe { height: 100%; min-height: 240px; }
 .content-missing { margin: 12px; color: var(--hlin-dim); font-size: 13px; }
+
+/* A page selector: tabs across, or a rail down the side. */
+.page-selector {
+  display: flex; gap: 4px 16px; font-size: 13px; min-height: 0; overflow: auto;
+  background: var(--hlin-raised);
+  border: 1px solid var(--hlin-border); border-radius: 6px; padding: 8px;
+}
+.page-selector[data-style="tabs"] { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.page-selector[data-style="rail"] { flex-direction: column; }
+.page-selector .selector-group { display: flex; gap: 4px; }
+.page-selector[data-style="tabs"] .selector-group { flex-direction: row; align-items: center; }
+.page-selector[data-style="rail"] .selector-group { flex-direction: column; }
+.page-selector .selector-group-label {
+  font-size: 11px; font-weight: 600; color: var(--hlin-dim);
+  text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px;
+}
+.page-selector .selector-page {
+  color: inherit; text-decoration: none; white-space: nowrap;
+  padding: 4px 8px; border: 1px solid transparent; border-radius: 4px;
+}
+.page-selector .selector-page:hover { border-color: var(--hlin-border); }
+.page-selector .selector-page[aria-current="page"] {
+  border-color: var(--hlin-accent);
+  background: color-mix(in srgb, var(--hlin-accent) 10%, transparent);
+}
