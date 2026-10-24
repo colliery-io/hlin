@@ -49,6 +49,13 @@ All notable changes to this project will be documented in this file.
   `/s/{id}` still opens a surface on its own, and `/page/…` a page at full
   width, with a way back. The row of page links under the bar is gone; the
   rail lists the same pages.
+- Editing pages, and a surface as JSON (HLIN-T-0116). While a surface is
+  composed, its page selectors show their groups and pages as controls: add a
+  page from the person's surfaces, the platforms' pages and the front end's
+  views; rename, reorder and remove pages and groups; add a group. The
+  composing catalogue shows the surface as JSON, to edit and apply, download,
+  or load from a file. Text that is not a surface is refused with the reason,
+  and the surface stays as it was.
 
 ## [0.1.1] — 2026-10-06
 

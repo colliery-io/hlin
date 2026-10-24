@@ -12,7 +12,8 @@
 use std::collections::BTreeMap;
 
 use hlin_stream::layout::{
-    CatalogPlatform, LayoutDocument, LayoutItem, PanelInstanceDocument, Placement,
+    CatalogPlatform, LayoutDocument, LayoutItem, Page, PageEntry, PageGroup, PageSelectorItem,
+    PanelInstanceDocument, Placement,
 };
 
 use crate::grid;
@@ -259,7 +260,204 @@ impl LayoutDraft {
         })
     }
 
+    // -- A page selector's pages (HLIN-T-0116) -----------------------------
+    //
+    // Each takes the selector by its id and a group or page by its place. A
+    // place that is not there changes nothing, so a click that lands after the
+    // layout moved on under it is harmless.
+
+    /// Add an empty group at the end.
+    pub fn add_group(&mut self, selector: &str, label: &str) {
+        let label = label.trim();
+        if label.is_empty() {
+            return;
+        }
+        let Some(selector) = self.selector_mut(selector) else {
+            return;
+        };
+        selector.groups.push(PageGroup {
+            label: label.to_string(),
+            pages: Vec::new(),
+        });
+        self.dirty = true;
+    }
+
+    /// Rename a group. A group needs a name, so an empty one is ignored.
+    pub fn rename_group(&mut self, selector: &str, group: usize, label: &str) {
+        let label = label.trim();
+        if label.is_empty() {
+            return;
+        }
+        let Some(found) = self.group_mut(selector, group) else {
+            return;
+        };
+        if found.label != label {
+            found.label = label.to_string();
+            self.dirty = true;
+        }
+    }
+
+    /// Move a group to another place among the selector's groups.
+    pub fn move_group(&mut self, selector: &str, from: usize, to: usize) {
+        let Some(selector) = self.selector_mut(selector) else {
+            return;
+        };
+        if from >= selector.groups.len() || from == to {
+            return;
+        }
+        let group = selector.groups.remove(from);
+        let to = to.min(selector.groups.len());
+        selector.groups.insert(to, group);
+        self.dirty = true;
+    }
+
+    /// Take a group, and its pages, off the selector.
+    pub fn remove_group(&mut self, selector: &str, group: usize) {
+        let Some(selector) = self.selector_mut(selector) else {
+            return;
+        };
+        if group < selector.groups.len() {
+            selector.groups.remove(group);
+            self.dirty = true;
+        }
+    }
+
+    /// Add a page at the end of a group.
+    pub fn add_page(&mut self, selector: &str, group: usize, page: Page) {
+        let Some(found) = self.group_mut(selector, group) else {
+            return;
+        };
+        found.pages.push(PageEntry { page, label: None });
+        self.dirty = true;
+    }
+
+    /// Give a page a name of its own. Empty clears it, so the page is called
+    /// what its target calls itself again.
+    pub fn rename_page(&mut self, selector: &str, group: usize, index: usize, label: &str) {
+        let Some(entry) = self
+            .group_mut(selector, group)
+            .and_then(|group| group.pages.get_mut(index))
+        else {
+            return;
+        };
+        let label = label.trim();
+        let label = (!label.is_empty()).then(|| label.to_string());
+        if entry.label != label {
+            entry.label = label;
+            self.dirty = true;
+        }
+    }
+
+    /// Move a page, within its group or into another: `from` and `to` are
+    /// (group, place). A place past the end of the group is its end.
+    pub fn move_page(&mut self, selector: &str, from: (usize, usize), to: (usize, usize)) {
+        let Some(selector) = self.selector_mut(selector) else {
+            return;
+        };
+        if from == to
+            || to.0 >= selector.groups.len()
+            || selector
+                .groups
+                .get(from.0)
+                .is_none_or(|group| from.1 >= group.pages.len())
+        {
+            return;
+        }
+        let entry = selector.groups[from.0].pages.remove(from.1);
+        let pages = &mut selector.groups[to.0].pages;
+        let at = to.1.min(pages.len());
+        pages.insert(at, entry);
+        self.dirty = true;
+    }
+
+    /// Take a page off a group.
+    pub fn remove_page(&mut self, selector: &str, group: usize, index: usize) {
+        let Some(found) = self.group_mut(selector, group) else {
+            return;
+        };
+        if index < found.pages.len() {
+            found.pages.remove(index);
+            self.dirty = true;
+        }
+    }
+
+    // -- The surface as JSON text (HLIN-T-0116, D11) ----------------------
+
+    /// The surface as a person edits it as text: its title and items.
+    pub fn export(&self) -> String {
+        let text = serde_json::json!({
+            "title": self.document.title,
+            "items": self.document.items,
+        });
+        serde_json::to_string_pretty(&text).unwrap_or_default()
+    }
+
+    /// Take a surface's title and items from text a person wrote or loaded.
+    ///
+    /// Refused with a reason, and nothing changed, for anything that is not a
+    /// surface: text that is not JSON, an item of a type this shell does not
+    /// know, two items with one id. Who owns it, who sees it and its id stay
+    /// as they are: those are not the text's to change.
+    pub fn import(&mut self, text: &str) -> Result<(), String> {
+        let value: serde_json::Value =
+            serde_json::from_str(text).map_err(|error| format!("This is not JSON: {error}."))?;
+        if value.get("panels").is_some() && value.get("items").is_none() {
+            return Err(
+                "`panels` is now `items`: give a list of items, each with a `type`.".into(),
+            );
+        }
+        let Some(items) = value.get("items").and_then(|items| items.as_array()) else {
+            return Err("A surface needs `items`: a list of items, each with a `type`.".into());
+        };
+        for (index, item) in items.iter().enumerate() {
+            let kind = item
+                .get("type")
+                .and_then(|kind| kind.as_str())
+                .unwrap_or_default();
+            if !LayoutItem::TYPES.contains(&kind) {
+                return Err(format!(
+                    "Item {index} has the type `{kind}`. Known types: {}.",
+                    LayoutItem::TYPES.join(", ")
+                ));
+            }
+        }
+        let items: Vec<LayoutItem> =
+            serde_json::from_value(serde_json::Value::Array(items.clone()))
+                .map_err(|error| format!("The items could not be read: {error}."))?;
+        let mut ids = std::collections::BTreeSet::new();
+        for id in items.iter().filter_map(LayoutItem::id) {
+            if !ids.insert(id) {
+                return Err(format!("Two items have the id `{id}`."));
+            }
+        }
+        if let Some(title) = value
+            .get("title")
+            .and_then(|title| title.as_str())
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+        {
+            self.document.title = title.to_string();
+        }
+        self.document.items = items;
+        self.arrange(None);
+        self.dirty = true;
+        Ok(())
+    }
+
     // -- Inside -----------------------------------------------------------
+
+    fn selector_mut(&mut self, id: &str) -> Option<&mut PageSelectorItem> {
+        self.document.items.iter_mut().find_map(|item| match item {
+            LayoutItem::PageSelector(selector) if selector.id.as_deref() == Some(id) => {
+                Some(selector)
+            }
+            _ => None,
+        })
+    }
+
+    fn group_mut(&mut self, selector: &str, group: usize) -> Option<&mut PageGroup> {
+        self.selector_mut(selector)?.groups.get_mut(group)
+    }
 
     fn index_of(&self, instance: &str) -> Option<usize> {
         self.document

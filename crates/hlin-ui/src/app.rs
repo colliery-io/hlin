@@ -13,7 +13,7 @@ use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use hlin_manifest::envelope::Choice;
 use hlin_stream::layout::{
     CatalogPanel, CatalogPlatform, LayoutDocument, LayoutItem, Page, PageSelectorItem, Placement,
-    SelectorStyle,
+    PlatformPage, SelectorStyle,
 };
 use hlin_stream::{Frame, ParamsRequest, TimeRange};
 use hlin_view::{Kind, plan};
@@ -1362,6 +1362,266 @@ fn PageSelector(selector: PageSelectorItem) -> impl IntoView {
     }
 }
 
+/// A page selector while its surface is composed: its groups and pages as
+/// controls, to add, rename, reorder and remove (HLIN-T-0116).
+///
+/// Every change goes through the draft and is written at once, as a panel's
+/// rename is.
+#[component]
+fn SelectorEditor(selector: PageSelectorItem) -> impl IntoView {
+    let shell = shell();
+    let scope = scope();
+    let id = selector.id.clone().unwrap_or_default();
+    let named = StoredValue::new(id.clone());
+    let edit = move |apply: Box<dyn FnOnce(&mut LayoutDraft, &str)>| {
+        let id = named.get_value();
+        scope.set_draft.update(|draft| apply(draft, &id));
+        scope.save.run(());
+    };
+
+    // What a page may be added from: the person's surfaces, the platforms'
+    // pages, and the front end's views.
+    let offered = move || {
+        let mut offered: Vec<(&'static str, Page, String)> = shell.titles.with(|titles| {
+            titles
+                .iter()
+                .map(|(id, title)| ("Surfaces", Page::Surface(id.clone()), title.clone()))
+                .collect()
+        });
+        offered.extend(shell.catalog.with(|catalog| {
+            route::pages(catalog).into_iter().map(|entry| {
+                (
+                    "Platform pages",
+                    Page::Page(PlatformPage {
+                        platform: entry.platform.clone(),
+                        path: entry.path.clone(),
+                    }),
+                    format!("{} — {}", entry.label, entry.platform_name),
+                )
+            })
+        }));
+        offered.extend(shell.views.with_value(Views::ids).into_iter().map(|view| {
+            let label = readable(&view);
+            ("Views", Page::View(view), label)
+        }));
+        offered
+    };
+
+    let groups = selector.groups.len();
+    let edited = selector
+        .groups
+        .into_iter()
+        .enumerate()
+        .map(|(g, group)| {
+            let count = group.pages.len();
+            let pages = group
+                .pages
+                .into_iter()
+                .enumerate()
+                .map(|(i, entry)| {
+                    let own = label_of(&shell, &entry.page);
+                    view! {
+                        <li class="page-edit" data-address=route::address_of(&entry.page)>
+                            <input
+                                class="page-label"
+                                placeholder=own
+                                prop:value=entry.label.clone().unwrap_or_default()
+                                on:change=move |event| {
+                                    let label = event_value(&event);
+                                    edit(Box::new(move |draft, id| draft.rename_page(id, g, i, &label)));
+                                }
+                            />
+                            <button class="page-up" title="Move up" disabled=i == 0
+                                on:click=move |_| edit(Box::new(move |draft, id| draft.move_page(id, (g, i), (g, i - 1))))
+                            >"↑"</button>
+                            <button class="page-down" title="Move down" disabled=i + 1 == count
+                                on:click=move |_| edit(Box::new(move |draft, id| draft.move_page(id, (g, i), (g, i + 1))))
+                            >"↓"</button>
+                            <button class="page-remove" title="Remove"
+                                on:click=move |_| edit(Box::new(move |draft, id| draft.remove_page(id, g, i)))
+                            >"✕"</button>
+                        </li>
+                    }
+                })
+                .collect_view();
+            view! {
+                <fieldset class="group-edit" data-group=g>
+                    <div class="group-edit-head">
+                        <input
+                            class="group-label"
+                            prop:value=group.label.clone()
+                            on:change=move |event| {
+                                let label = event_value(&event);
+                                edit(Box::new(move |draft, id| draft.rename_group(id, g, &label)));
+                            }
+                        />
+                        <button class="group-up" title="Move up" disabled=g == 0
+                            on:click=move |_| edit(Box::new(move |draft, id| draft.move_group(id, g, g - 1)))
+                        >"↑"</button>
+                        <button class="group-down" title="Move down" disabled=g + 1 == groups
+                            on:click=move |_| edit(Box::new(move |draft, id| draft.move_group(id, g, g + 1)))
+                        >"↓"</button>
+                        <button class="group-remove" title="Remove the group"
+                            on:click=move |_| edit(Box::new(move |draft, id| draft.remove_group(id, g)))
+                        >"✕"</button>
+                    </div>
+                    <ol class="pages-edit">{pages}</ol>
+                    <select
+                        class="add-page"
+                        on:change=move |event| {
+                            let Some(page) = route::page_at(&event_value(&event)) else {
+                                return;
+                            };
+                            edit(Box::new(move |draft, id| draft.add_page(id, g, page)));
+                        }
+                    >
+                        <option value="" selected>"Add a page…"</option>
+                        {move || {
+                            let mut heading = "";
+                            let mut sections: Vec<(&'static str, Vec<(Page, String)>)> = Vec::new();
+                            for (section, page, label) in offered() {
+                                if section != heading {
+                                    sections.push((section, Vec::new()));
+                                    heading = section;
+                                }
+                                if let Some((_, list)) = sections.last_mut() {
+                                    list.push((page, label));
+                                }
+                            }
+                            sections
+                                .into_iter()
+                                .map(|(section, list)| view! {
+                                    <optgroup label=section>
+                                        {list
+                                            .into_iter()
+                                            .map(|(page, label)| view! {
+                                                <option value=route::address_of(&page)>{label}</option>
+                                            })
+                                            .collect_view()}
+                                    </optgroup>
+                                })
+                                .collect_view()
+                        }}
+                    </select>
+                </fieldset>
+            }
+        })
+        .collect_view();
+
+    let (new_group, set_new_group) = signal(String::new());
+    view! {
+        <div class="selector-editor" data-selector=id.clone() data-style=match selector.style {
+            SelectorStyle::Tabs => "tabs",
+            SelectorStyle::Rail => "rail",
+        }>
+            {edited}
+            <form
+                class="add-group"
+                on:submit=move |event: leptos::ev::SubmitEvent| {
+                    event.prevent_default();
+                    let label = new_group.get_untracked();
+                    set_new_group.set(String::new());
+                    edit(Box::new(move |draft, id| draft.add_group(id, &label)));
+                }
+            >
+                <input
+                    class="new-group"
+                    placeholder="New group"
+                    prop:value=move || new_group.get()
+                    on:input=move |event| set_new_group.set(event_value(&event))
+                />
+                <button type="submit">"Add group"</button>
+            </form>
+        </div>
+    }
+}
+
+/// The composed surface as JSON text: shown, edited, applied, downloaded, or
+/// loaded from a file (HLIN-T-0116, D11). Text that is not a surface is
+/// refused with the reason, and the surface stays as it was.
+#[component]
+fn SurfaceJson() -> impl IntoView {
+    let scope = scope();
+    let (text, set_text) = signal(scope.draft.with_untracked(LayoutDraft::export));
+    let (refused, set_refused) = signal(Option::<String>::None);
+
+    let apply = move |_| {
+        let written = text.get_untracked();
+        let mut outcome = Ok(());
+        scope
+            .set_draft
+            .update(|draft| outcome = draft.import(&written));
+        match outcome {
+            Ok(()) => {
+                set_refused.set(None);
+                scope.save.run(());
+            }
+            Err(reason) => set_refused.set(Some(reason)),
+        }
+    };
+
+    let download = move || {
+        format!(
+            "data:application/json;charset=utf-8,{}",
+            js_sys::encode_uri_component(&text.get())
+        )
+    };
+
+    let load = move |event: leptos::ev::Event| {
+        let Some(file) = event
+            .target()
+            .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
+            .and_then(|input| input.files())
+            .and_then(|files| files.get(0))
+        else {
+            return;
+        };
+        leptos::task::spawn_local(async move {
+            match wasm_bindgen_futures::JsFuture::from(file.text()).await {
+                Ok(read) => {
+                    set_text.set(read.as_string().unwrap_or_default());
+                    set_refused.set(None);
+                }
+                Err(_) => set_refused.set(Some("The file could not be read.".to_string())),
+            }
+        });
+    };
+
+    view! {
+        <section class="surface-json">
+            <h3>"Surface as JSON"</h3>
+            <textarea
+                class="json-text"
+                spellcheck="false"
+                prop:value=move || text.get()
+                on:input=move |event| {
+                    let value = event
+                        .target()
+                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                        .map(|area| area.value())
+                        .unwrap_or_default();
+                    set_text.set(value);
+                }
+            />
+            <div class="json-actions">
+                <button class="json-show" on:click=move |_| {
+                    set_text.set(scope.draft.with_untracked(LayoutDraft::export));
+                    set_refused.set(None);
+                }>"Show current"</button>
+                <button class="json-apply" on:click=apply>"Apply"</button>
+                <a class="json-download" download="surface.json" href=download>"Download"</a>
+                <label class="json-load">
+                    "Load a file"
+                    <input class="json-file" type="file" accept=".json,application/json" on:change=load />
+                </label>
+            </div>
+            {move || refused.get().map(|reason| view! {
+                <p class="json-refused" role="alert">{reason}</p>
+            })}
+        </section>
+    }
+}
+
 /// What a page selector calls a page nobody renamed: its surface's title, its
 /// platform's label for it, or its view's id, made readable.
 fn label_of(shell: &Shell, page: &Page) -> String {
@@ -1792,6 +2052,7 @@ pub fn SurfaceView(
                             }.into_any()
                         }).collect_view()
                     }}
+                    <SurfaceJson />
                 </aside>
             </Show>
 
@@ -1812,7 +2073,7 @@ pub fn SurfaceView(
                 // effect above.
             >
                 <Show when=move || draft.with(|draft| draft.document().items.is_empty())>
-                    {move || view! { <Empty composing=composing() read_only=read_only.get() /> }}
+                    {move || view! { <Empty composing=composing() read_only=read_only.get() || !composed /> }}
                 </Show>
 
                 // One entry per panel, keyed, so a panel is created once and
@@ -2193,6 +2454,11 @@ pub fn SurfaceView(
                                         />
                                     }
                                     .into_any(),
+                                    // Its pages as controls while the surface is composed.
+                                    Some(LayoutItem::PageSelector(selector)) if composing() => view! {
+                                        <SelectorEditor selector=selector />
+                                    }
+                                    .into_any(),
                                     Some(LayoutItem::PageSelector(selector)) => view! {
                                         <PageSelector selector=selector />
                                     }
@@ -2431,8 +2697,8 @@ fn Empty(composing: bool, read_only: bool) -> impl IntoView {
                 "Pick a panel on the left to put it here."
             } else if read_only {
                 // Telling somebody to press a button that is not there is
-                // worse than saying nothing, and this is the one screen where
-                // the difference between the two shells is visible.
+                // worse than saying nothing: on a read-only shell, and on a
+                // surface open inside another, which Edit does not compose.
                 "Nothing on this surface yet."
             } else {
                 "Nothing on this surface yet. Press Edit to compose one."
