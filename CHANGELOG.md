@@ -82,6 +82,11 @@ All notable changes to this project will be documented in this file.
   composing catalogue shows the surface as JSON, to edit and apply, download,
   or load from a file. Text that is not a surface is refused with the reason,
   and the surface stays as it was.
+- Docs for shell components (HLIN-T-0118): how to build the shell at `/`,
+  the surface JSON, and the class names an operator's stylesheet may style,
+  which do not change within a major version. A browser test proves the
+  default shell end to end, and the branded demo's stylesheet restyles the
+  page selector by its class names.
 
 ## [0.1.1] — 2026-10-06
 

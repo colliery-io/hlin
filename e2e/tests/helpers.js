@@ -65,8 +65,9 @@ async function discardLayout(request, id) {
 async function openSurface(page, id) {
   await page.goto(`/s/${id}`);
   // The bar is the first thing the app renders, so its presence is the signal
-  // that the WebAssembly bundle loaded and mounted rather than erroring.
-  await page.locator('header.bar').waitFor({ state: 'visible' });
+  // that the WebAssembly bundle loaded and mounted rather than erroring. A
+  // surface may hold bars of its own, so the first is the shell's.
+  await page.locator('header.bar').first().waitFor({ state: 'visible' });
 }
 
 /**

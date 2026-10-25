@@ -28,8 +28,10 @@ const link = (page, path) =>
   page.locator(`nav.page-selector a.selector-page[data-address="/page/${PLATFORM}/${path}"]`);
 const main = (page) => page.locator('section.item[data-item="main"]');
 
-/** The shell at `/`, drawn. */
+/** The shell at `/`, drawn: Hlin's own, whose rail lists the platforms' pages. */
 async function openShell(page) {
+  const shell = await (await page.request.get('/api/shell')).json();
+  test.skip(shell.title === 'Operator shell', "this shell is the operator's, with no platform rail");
   await page.goto('/');
   await page.locator('nav.page-selector').waitFor({ state: 'visible' });
 }

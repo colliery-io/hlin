@@ -56,6 +56,7 @@ fn config(auth: AuthConfig) -> Config {
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
         ca_bundle: None,
+        default_surface: None,
         brand: Default::default(),
         database_url: None,
         database_url_env: None,

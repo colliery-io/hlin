@@ -33,10 +33,21 @@ export default defineConfig({
 			sidebar: [
 				{ label: 'Home', link: '/' },
 				{ label: 'Tutorials', items: [{ slug: 'tutorials/quickstart', label: 'Quick Start' }] },
-				{ label: 'How-to guides', items: [{ slug: 'how-to/installation', label: 'Installation' }] },
+				{
+					label: 'How-to guides',
+					items: [
+						{ slug: 'how-to/installation', label: 'Installation' },
+						{ slug: 'how-to/shell', label: 'Build the shell at /' },
+					],
+				},
 				{
 					label: 'Reference',
-					items: [{ slug: 'reference', label: 'Overview' }, apiSidebar],
+					items: [
+						{ slug: 'reference', label: 'Overview' },
+						{ slug: 'reference/surface-json', label: 'Surface JSON' },
+						{ slug: 'reference/shell-css', label: 'Shell class names' },
+						apiSidebar,
+					],
 				},
 			],
 		}),
