@@ -13,7 +13,10 @@ import angreal
 from angreal.integrations.docker import DockerCompose
 
 cwd = os.path.join(angreal.get_root(), "..")
-COMPOSE_FILE = os.path.join(cwd, "docker-compose.yml")
+# Names here are prefixed with `DB_`/`_db_`: angreal runs every task file in
+# one namespace, so a `COMPOSE_FILE` or `_compose` here was replaced by
+# task_demo.py's, which are the containerised twenty's (HLIN-T-0119).
+DB_COMPOSE_FILE = os.path.join(cwd, "docker-compose.yml")
 MIGRATIONS = os.path.join(cwd, "crates", "hlin", "migrations")
 
 #: Where the containerised development database listens. Deliberately not 5432,
@@ -23,8 +26,8 @@ DEV_DATABASE_URL = "postgres://hlin:hlin@localhost:55432/hlin"
 db = angreal.command_group(name="db", about="commands for the development database")
 
 
-def _compose():
-    return DockerCompose(COMPOSE_FILE, project_name="hlin")
+def _db_compose():
+    return DockerCompose(DB_COMPOSE_FILE, project_name="hlin")
 
 
 def _wait_until_ready(timeout_seconds=60):
@@ -65,7 +68,7 @@ def _wait_until_ready(timeout_seconds=60):
     ),
 )
 def db_up():
-    result = _compose().up(detach=True)
+    result = _db_compose().up(detach=True)
     if not result.success:
         print(result.stderr)
         return 1
@@ -81,7 +84,7 @@ def db_up():
 @db()
 @angreal.command(name="down", about="stop the development database, keeping its data")
 def db_down():
-    result = _compose().down()
+    result = _db_compose().down()
     if not result.success:
         print(result.stderr)
         return 1
@@ -109,7 +112,7 @@ def db_down():
     ),
 )
 def db_reset():
-    result = _compose().down(volumes=True, remove_orphans=True)
+    result = _db_compose().down(volumes=True, remove_orphans=True)
     if not result.success:
         print(result.stderr)
         return 1
@@ -149,7 +152,7 @@ def _migrate():
 @db()
 @angreal.command(name="status", about="show whether the development database is running")
 def db_status():
-    result = _compose().ps(all=True)
+    result = _db_compose().ps(all=True)
     print(result.stdout or "No containers.")
     if _wait_until_ready(timeout_seconds=1):
         print(f"\nReady at {DEV_DATABASE_URL}")
