@@ -55,6 +55,16 @@ pub struct Config {
     #[serde(default)]
     pub ca_bundle: Option<PathBuf>,
 
+    /// The shell people see at `/`, as a JSON file: a surface of shell
+    /// components (decision HLIN-A-0015). Absent, Hlin draws its own: a bar,
+    /// a rail of each person's surfaces and the platforms' pages, and a
+    /// content component that opens their home surface.
+    ///
+    /// Read and checked at startup, like `ca_bundle`: a shell that cannot be
+    /// drawn would otherwise be found by the first person to open the page.
+    #[serde(default)]
+    pub default_surface: Option<PathBuf>,
+
     /// Postgres. Absent means run without persistence, which is only sensible
     /// in development and is warned about at startup.
     ///
@@ -123,6 +133,25 @@ pub struct Config {
     /// Hlin's own, unless an operator says otherwise.
     #[serde(default)]
     pub brand: crate::brand::BrandConfig,
+
+    /// Who is an admin of this shell's own data (HLIN-A-0016).
+    ///
+    /// Principals named here. An identity strategy can name more, by group or
+    /// claim, in its own `[auth]` settings.
+    #[serde(default)]
+    pub admin: AdminConfig,
+}
+
+/// The admins named by principal (HLIN-A-0016).
+///
+/// An admin may set the org default surface, make a surface public for
+/// anonymous viewers, and delete what another person published. Nothing in
+/// any platform: there the platform decides (HLIN-A-0014).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AdminConfig {
+    /// Each is compared with a principal's `sub`, exactly.
+    #[serde(default)]
+    pub principals: Vec<String>,
 }
 
 fn default_bind() -> String {
@@ -193,6 +222,10 @@ pub enum AuthConfig {
         /// A header carrying their display name.
         #[serde(default)]
         name_header: Option<String>,
+
+        /// Groups that make a person an admin, read from `groups_header`.
+        #[serde(default)]
+        admin_groups: Vec<String>,
 
         /// That the deployment guarantees the shell is unreachable except
         /// through the proxy that sets these headers.
@@ -282,6 +315,18 @@ pub struct OidcConfig {
     #[serde(default = "default_groups_claim")]
     pub groups_claim: String,
 
+    /// The claim that names admins. `groups_claim` when not set.
+    ///
+    /// Read at sign-in, like the rest of the claims: a change at the
+    /// provider shows at the person's next sign-in.
+    #[serde(default)]
+    pub admin_claim: Option<String>,
+
+    /// Values of `admin_claim` that make a person an admin. A claim that is
+    /// `true` matches the value `"true"`.
+    #[serde(default)]
+    pub admin_values: Vec<String>,
+
     /// How long a session lasts before the person signs in again.
     #[serde(default = "default_session_hours")]
     pub session_hours: u64,
@@ -304,6 +349,11 @@ impl OidcConfig {
     /// How long a session lasts.
     pub fn session_life(&self) -> chrono::Duration {
         chrono::Duration::hours(self.session_hours as i64)
+    }
+
+    /// The claim read at sign-in to decide who is an admin.
+    pub fn admin_claim(&self) -> &str {
+        self.admin_claim.as_deref().unwrap_or(&self.groups_claim)
     }
 }
 
@@ -443,11 +493,19 @@ impl AuthConfig {
 
             Self::TrustedHeader {
                 header,
+                groups_header,
+                admin_groups,
                 acknowledge_proxy_required,
                 ..
             } => {
                 if header.trim().is_empty() {
                     return Err("trusted-header names no header to read".to_string());
+                }
+                if !admin_groups.is_empty() && groups_header.is_none() {
+                    return Err(
+                        "trusted-header names admin_groups but no groups_header to read them from"
+                            .to_string(),
+                    );
                 }
                 if !acknowledge_proxy_required {
                     return Err(
@@ -532,6 +590,13 @@ impl OidcConfig {
             return Err(
                 "oidc scopes must include `openid`, or the provider returns no id token and \
                  there is nothing to learn who anybody is from"
+                    .to_string(),
+            );
+        }
+
+        if self.admin_claim.is_some() && self.admin_values.is_empty() {
+            return Err(
+                "oidc names an admin_claim but no admin_values, so nobody could be an admin by it"
                     .to_string(),
             );
         }
@@ -840,6 +905,10 @@ pub enum ConfigError {
     #[error("{0}")]
     Brand(String),
 
+    /// `default_surface` cannot be used as configured.
+    #[error("{0}")]
+    Shell(String),
+
     /// A named environment variable is not in the environment.
     #[error("{setting} names `{variable}`, which is not in the environment")]
     MissingVariable {
@@ -938,6 +1007,10 @@ impl Config {
         // logo, or in Hlin's colours, which nobody would connect to a typo in
         // a path.
         self.brand.check().map_err(ConfigError::Brand)?;
+
+        if let Some(shell) = &self.default_surface {
+            crate::shell::read_operator_shell(shell).map_err(ConfigError::Shell)?;
+        }
 
         let mut seen: Vec<&str> = Vec::new();
 
@@ -1087,6 +1160,35 @@ impl Config {
     /// (HLIN-A-0012).
     pub fn read_only(&self) -> bool {
         matches!(self.auth, AuthConfig::Anonymous { .. })
+    }
+
+    /// Whether a principal is an admin of this shell's own data (HLIN-A-0016).
+    ///
+    /// Named in `[admin] principals`, or by the strategy: a group in the
+    /// groups header under `trusted-header`, a value of the admin claim under
+    /// `oidc`. `admin_claim` is that claim's values, as the session stored
+    /// them at sign-in; empty under every other strategy.
+    ///
+    /// Never under `anonymous`: nobody signs in, and the shell refuses every
+    /// write. `dev` has no group or claim of its own, so its principal is an
+    /// admin only when `[admin] principals` names it.
+    pub fn is_admin(&self, principal: &hlin_identity::Principal, admin_claim: &[String]) -> bool {
+        if self.read_only() {
+            return false;
+        }
+        if self.admin.principals.contains(&principal.sub) {
+            return true;
+        }
+        match &self.auth {
+            AuthConfig::TrustedHeader { admin_groups, .. } => principal
+                .groups
+                .iter()
+                .any(|group| admin_groups.contains(group)),
+            AuthConfig::Oidc(oidc) => admin_claim
+                .iter()
+                .any(|value| oidc.admin_values.contains(value)),
+            AuthConfig::Dev { .. } | AuthConfig::Anonymous { .. } => false,
+        }
     }
 
     /// Who is making this request.
@@ -1289,9 +1391,11 @@ mod trust_tests {
             issuer: "hlin".to_string(),
             key_path: "/tmp/unused.key".into(),
             ca_bundle: None,
+            default_surface: None,
             brand: Default::default(),
             database_url: None,
             database_url_env: None,
+            admin: Default::default(),
             frontend: "unused".into(),
             auth: AuthConfig::default(),
             timings: Timings::default(),
@@ -1435,6 +1539,7 @@ mod trust_tests {
     fn a_bundle_that_cannot_be_read_refuses_to_start() {
         let refused = Config {
             ca_bundle: Some("/tmp/hlin-no-such-bundle.pem".into()),
+            default_surface: None,
             brand: Default::default(),
             ..config()
         }
@@ -1443,6 +1548,20 @@ mod trust_tests {
 
         let said = refused.to_string();
         assert!(said.contains("hlin-no-such-bundle.pem"), "{said}");
+    }
+
+    #[test]
+    fn a_shell_that_cannot_be_read_refuses_to_start() {
+        let refused = Config {
+            default_surface: Some("/tmp/hlin-no-such-shell.json".into()),
+            brand: Default::default(),
+            ..config()
+        }
+        .check()
+        .expect_err("this must not start");
+
+        let said = refused.to_string();
+        assert!(said.contains("hlin-no-such-shell.json"), "{said}");
     }
 }
 

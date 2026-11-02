@@ -50,9 +50,40 @@ visitor able to edit could delete the surfaces everyone else came to see.
 Read-only is not a separate setting — `anonymous` plus writes is `dev`, which
 is refused above for that exact reason.
 
-So an open instance shows what has been *published*. Compose against the same
-database from a shell configured with `trusted-header` or `oidc`, publish, and
-point the open one at it.
+So an open instance shows only surfaces an admin made *public*. Compose against
+the same database from a shell configured with `trusted-header` or `oidc`, have
+an admin make the surface public, and point the open one at it. A *published*
+surface is for people signed in, and an open instance does not show it.
+
+### Admins
+
+Hlin has one role of its own, admin, over its own data (HLIN-A-0016). An admin
+may set the org default surface, make a surface public for anonymous viewers,
+and delete a surface another person published. It gives nothing in any
+platform. Anyone signed in may still publish.
+
+Name admins by principal (compared with `sub`), by strategy, or both:
+
+```toml
+[admin]
+principals = ["robin"]
+
+[auth]
+strategy = "trusted-header"
+groups_header = "x-forwarded-groups"
+admin_groups = ["hlin-admins"]     # groups in groups_header
+acknowledge_proxy_required = true
+```
+
+Under `oidc`, `admin_claim` names the claim (default: `groups_claim`) and
+`admin_values` the values that make an admin. The claim is read at sign-in. A
+claim that is `true` matches `"true"`. Under `anonymous` nobody is an admin.
+Under `dev` the principal is an admin only when `[admin] principals` names it.
+
+`/api/config` says `admin: true` or `false`. The org default is at
+`GET/PUT/DELETE /api/layouts/default`; `PUT` takes `{ "id": … }` of a
+published or public surface. A person with no surface of their own opens on
+the org default.
 
 Platforms in an open ecosystem often want no credential either:
 
@@ -94,6 +125,35 @@ public_url = "https://hlin.example.com"
 
 To try it without a provider of your own, `angreal demo up --with collab` runs
 the shell on `oidc` against [Dex](https://dexidp.io) in a container (below).
+
+### The shell at `/`
+
+A person opening the shell sees a bar, a rail of their surfaces and each
+platform's pages, and their home surface beside it. To give everyone a shell of
+your own instead, write it as a JSON file of shell components and name it:
+
+```toml
+default_surface = "/etc/hlin-shell/shell.json"
+```
+
+```json
+{
+  "title": "Operations",
+  "items": [
+    { "type": "bar", "id": "bar", "position": { "x": 0, "y": 0, "w": 12, "h": 1 } },
+    { "type": "page-selector", "id": "tabs", "style": "tabs", "target": "main",
+      "position": { "x": 0, "y": 1, "w": 12, "h": 1 },
+      "groups": [ { "label": "Pages", "pages": [ { "page": { "platform": "orebank", "path": "runs" } } ] } ] },
+    { "type": "content", "id": "main", "position": { "x": 0, "y": 2, "w": 12, "h": 10 },
+      "initial": { "page": { "platform": "orebank", "path": "runs" } } }
+  ]
+}
+```
+
+The shell holds shell components only: put panels on a surface and open it in
+a content component. Every item needs an `id`. A file that cannot be read, or
+is not a shell, stops the shell at startup. In the chart, `config.defaultSurface`
+takes the JSON inline, or the name of a ConfigMap that holds it.
 
 ### An internal certificate authority
 
@@ -399,7 +459,7 @@ All five are now decided. Each names the decision that closed it.
 - **The manifest schema.** A document at a well-known path, with contract identity separated from presentation, so a fingerprint moves only when a promise moves. Specification HLIN-S-0001.
 - **The data envelope per view kind, and the initial vocabulary.** Five envelopes and six kinds, named separately and paired by an acceptance matrix, so data shape and rendering evolve on their own cadences. Specification HLIN-S-0002, decision HLIN-A-0003.
 - **Where the view registry lives.** A companion crate, `hlin-view`, so the design system stays a plain component library that platform frontends can use without taking on Hlin's contract types. Decision HLIN-A-0005.
-- **Layout persistence and sharing.** One owner per layout, personal or published to a shell-wide gallery, shared read-only with fork to edit. A layout referencing a platform the viewer cannot reach renders normally, with the refused panels showing as forbidden. Decision HLIN-A-0007.
+- **Layout persistence and sharing.** One owner per layout, personal or published to a shell-wide gallery, shared read-only with fork to edit. An admin may also make a layout public, for anonymous viewers (HLIN-A-0016). A layout referencing a platform the viewer cannot reach renders normally, with the refused panels showing as forbidden. Decision HLIN-A-0007.
 - **Authorization.** Authentication is hoisted to Hlin, the shell forwards a signed identity on every request, and platforms decide at fetch time. The shell interprets nobody's policy. Decision HLIN-A-0004, specification HLIN-S-0004.
 
 What remains open is recorded in those specifications rather than here.

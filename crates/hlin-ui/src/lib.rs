@@ -13,7 +13,7 @@
 //! }
 //! ```
 //!
-//! Two halves live here for two different reasons. [`draft`], [`grid`],
+//! Two halves live here for two different reasons. [`content`], [`draft`], [`grid`],
 //! [`route`] and [`state`] are free of the DOM and are tested on the host,
 //! because the rules that are easiest to get wrong — where a dragged panel
 //! lands, which frame is stale, when a silent stream becomes an absent one,
@@ -40,6 +40,7 @@ pub const APP_CSS: &str = include_str!("../app.css");
 
 pub mod brand;
 pub mod bridge;
+pub mod content;
 pub mod draft;
 pub mod grid;
 pub mod route;
@@ -59,6 +60,7 @@ pub mod stream;
 /// this product's and ships with it.
 pub const CHROME_CSS: &str = include_str!("../app.css");
 
+pub use app::{App, Bar, Shell, SurfaceView, Views};
 pub use draft::LayoutDraft;
 pub use pack::Drawer;
 pub use state::{PanelView, SurfaceState};

@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const { freshLayout, discardLayout, openSurface, shot } = require('./helpers');
+const { freshLayout, discardLayout, openSurface, shot, asPanels } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -41,9 +41,9 @@ function releaseBuild() {
 async function layoutOf(request, title) {
   const id = await freshLayout(request, title);
   const current = await (await request.get(`/api/layouts/${id}`)).json();
-  current.panels = [
+  current.items = asPanels([
     { platform_id: PLATFORM, panel_key: 'annotations', position: { x: 0, y: 0, w: 6, h: 8 } },
-  ];
+  ]);
   const written = await request.put(`/api/layouts/${id}`, { data: current });
   expect(written.ok()).toBeTruthy();
   return id;

@@ -11,7 +11,7 @@
 // registers against is running.
 
 const { test, expect } = require('@playwright/test');
-const { shot, freshLayout, discardLayout, drewSomething } = require('./helpers');
+const { shot, freshLayout, discardLayout, drewSomething, asPanels } = require('./helpers');
 
 /** A panel the sample platforms declare a component for, and its fallback. */
 const ASKING = { key: 'pipeline', kind: 'table' };
@@ -42,14 +42,14 @@ test.describe('a panel that asks for a component by name', () => {
       data: {
         title: 'Asking for a component',
         visibility: 'personal',
-        panels: [
+        items: asPanels([
           {
             platform_id: asking.platform,
             panel_key: asking.key,
             selections: {},
             position: { x: 0, y: 0, w: 8, h: 5 },
           },
-        ],
+        ]),
       },
     });
   });

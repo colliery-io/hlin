@@ -114,9 +114,11 @@ fn config(modular_base: &str) -> Config {
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
         ca_bundle: None,
+        default_surface: None,
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::default(),
         timings: Timings {
@@ -205,6 +207,11 @@ fn json(method: &str, path: &str, body: &serde_json::Value) -> Request<Body> {
         .expect("a request")
 }
 
+/// Panels as items.
+fn items(panels: Vec<PanelInstanceDocument>) -> Vec<hlin_stream::layout::LayoutItem> {
+    panels.into_iter().map(Into::into).collect()
+}
+
 /// A new layout holding these panels, and its id.
 async fn layout(app: &axum::Router, panels: &[(&str, &str)]) -> String {
     let (status, body) = call(
@@ -215,20 +222,22 @@ async fn layout(app: &axum::Router, panels: &[(&str, &str)]) -> String {
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let mut document: LayoutDocument = serde_json::from_value(body).expect("a layout");
     let id = document.id.clone().expect("an identity");
-    document.panels = panels
-        .iter()
-        .enumerate()
-        .map(|(index, &(platform, key))| {
-            PanelInstanceDocument::new(
-                platform,
-                key,
-                Placement {
-                    y: index as u32 * 4,
-                    ..Placement::default()
-                },
-            )
-        })
-        .collect();
+    document.items = items(
+        panels
+            .iter()
+            .enumerate()
+            .map(|(index, &(platform, key))| {
+                PanelInstanceDocument::new(
+                    platform,
+                    key,
+                    Placement {
+                        y: index as u32 * 4,
+                        ..Placement::default()
+                    },
+                )
+            })
+            .collect(),
+    );
     let (status, body) = call(
         app,
         json(

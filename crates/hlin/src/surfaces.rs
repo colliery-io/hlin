@@ -255,7 +255,7 @@ impl Surfaces {
             .map_err(|error| error.to_string())?
             .ok_or_else(|| format!("no layout `{surface_id}`"))?;
 
-        if !layout.is_visible_to(&principal.sub) {
+        if !layout.is_visible_to(&principal.sub, state.config.read_only()) {
             return Err(format!("layout `{surface_id}` is not visible"));
         }
 
@@ -264,7 +264,7 @@ impl Surfaces {
         let mut selections: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         let mut modules = BTreeSet::new();
 
-        for panel in &layout.panels {
+        for panel in layout.panels() {
             // What the viewer chose, stored with the panel. A selection that no
             // longer parses is dropped rather than refused: the panel is still
             // drawable without it, and refusing the whole surface over one

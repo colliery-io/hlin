@@ -1,6 +1,7 @@
 //! The shapes the store holds.
 
 use chrono::{DateTime, Utc};
+pub use hlin_stream::layout::{BarItem, ContentItem, PageSelectorItem};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -80,11 +81,12 @@ pub struct PlatformSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Visibility {
-    /// Its owner, and anyone holding its link.
+    /// Its owner only.
     Personal,
-    /// Listed in the shell-wide gallery, visible to every authenticated
-    /// principal.
+    /// Visible to every signed-in principal. Anyone signed in may publish.
     Published,
+    /// Visible to anonymous viewers too. Only an admin sets it (HLIN-A-0016).
+    Public,
 }
 
 impl Visibility {
@@ -93,6 +95,7 @@ impl Visibility {
         match self {
             Self::Personal => "personal",
             Self::Published => "published",
+            Self::Public => "public",
         }
     }
 
@@ -101,6 +104,7 @@ impl Visibility {
         match value {
             "personal" => Some(Self::Personal),
             "published" => Some(Self::Published),
+            "public" => Some(Self::Public),
             _ => None,
         }
     }
@@ -128,8 +132,8 @@ pub struct Layout {
     /// left it.
     pub time_range: Option<Value>,
 
-    /// The panels on it, in the order they were stored.
-    pub panels: Vec<PanelInstance>,
+    /// What is on it, panels and shell components, in the order stored.
+    pub items: Vec<LayoutItem>,
 
     /// When it was made.
     pub created_at: DateTime<Utc>,
@@ -144,6 +148,13 @@ impl Layout {
         self.visibility == Visibility::Published
     }
 
+    /// Whether this layout is open to more than its owner: published or
+    /// public. Only such a layout can be the org default, and an admin may
+    /// delete it.
+    pub fn is_shared(&self) -> bool {
+        matches!(self.visibility, Visibility::Published | Visibility::Public)
+    }
+
     /// Whether a principal may change this layout.
     ///
     /// Only its owner. Everyone else reads it and forks to edit, which is what
@@ -154,12 +165,69 @@ impl Layout {
 
     /// Whether a principal may open this layout.
     ///
-    /// A published layout is open to anyone; a personal one is open to its
-    /// owner and to anyone who was given its link, which the shell cannot
-    /// distinguish from anyone else who knows the identifier. Link sharing is
-    /// exactly that: knowing the link is the permission.
-    pub fn is_visible_to(&self, principal: &str) -> bool {
-        self.is_published() || self.owner == principal
+    /// Signed in, a published or public layout is open to anyone, and a
+    /// personal one to its owner. On a shell where nobody signs in
+    /// (`anonymous`, so `read_only`), only a public one is open (HLIN-A-0016).
+    pub fn is_visible_to(&self, principal: &str, read_only: bool) -> bool {
+        if read_only {
+            return self.visibility == Visibility::Public;
+        }
+        self.is_shared() || self.owner == principal
+    }
+
+    /// The panels on it, in order.
+    pub fn panels(&self) -> impl Iterator<Item = &PanelInstance> {
+        self.items.iter().filter_map(LayoutItem::as_panel)
+    }
+
+    /// Its items as a fork gets them: each panel with a new identity, so two
+    /// layouts never stream the same panel id. A shell component keeps its id,
+    /// because a selector names its content item by it.
+    pub fn forked_items(&self) -> Vec<LayoutItem> {
+        self.items
+            .iter()
+            .map(|item| match item {
+                LayoutItem::Panel(panel) => LayoutItem::Panel(PanelInstance {
+                    id: Uuid::new_v4(),
+                    ..panel.clone()
+                }),
+                other => other.clone(),
+            })
+            .collect()
+    }
+}
+
+/// One thing on a surface, as it is stored, tagged by its `type`.
+///
+/// A panel is stored with what only the shell knows about it (its `Uuid`, when
+/// it was added). A shell component is stored as it travels: it has nothing
+/// the browser does not see.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum LayoutItem {
+    /// A panel from a platform.
+    Panel(PanelInstance),
+    /// The shell's bar.
+    Bar(BarItem),
+    /// A list of pages.
+    PageSelector(PageSelectorItem),
+    /// Where a chosen page opens.
+    Content(ContentItem),
+}
+
+impl LayoutItem {
+    /// The panel, if this is one.
+    pub fn as_panel(&self) -> Option<&PanelInstance> {
+        match self {
+            Self::Panel(panel) => Some(panel),
+            _ => None,
+        }
+    }
+}
+
+impl From<PanelInstance> for LayoutItem {
+    fn from(panel: PanelInstance) -> Self {
+        Self::Panel(panel)
     }
 }
 
@@ -176,8 +244,8 @@ pub struct NewLayout {
     pub forked_from: Option<Uuid>,
     /// The time range it opens at.
     pub time_range: Option<Value>,
-    /// The panels to put on it.
-    pub panels: Vec<PanelInstance>,
+    /// What to put on it.
+    pub items: Vec<LayoutItem>,
 }
 
 impl NewLayout {
@@ -189,7 +257,7 @@ impl NewLayout {
             visibility: Visibility::Personal,
             forked_from: None,
             time_range: None,
-            panels: Vec::new(),
+            items: Vec::new(),
         }
     }
 }
@@ -275,6 +343,10 @@ pub struct Session {
 
     /// The groups claim, as read at sign-in.
     pub groups: Vec<String>,
+
+    /// The values of the admin claim, as read at sign-in (HLIN-A-0016).
+    /// Kept apart from `groups`, which go to platforms.
+    pub admin_claim: Vec<String>,
 
     /// When they signed in.
     pub created_at: DateTime<Utc>,

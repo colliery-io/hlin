@@ -34,7 +34,7 @@
 // how, and so do the tests.
 
 const { test, expect } = require('@playwright/test');
-const { freshLayout, discardLayout, openSurface, shot } = require('./helpers');
+const { freshLayout, discardLayout, openSurface, shot, asPanels } = require('./helpers');
 
 test.describe.configure({ mode: 'serial' });
 
@@ -119,12 +119,12 @@ test.describe('a hostile module cannot get out of its frame', () => {
   test.beforeAll(async ({ request }) => {
     layoutId = await freshLayout(request, 'Containment');
     const current = await (await request.get(`/api/layouts/${layoutId}`)).json();
-    current.panels = [
+    current.items = asPanels([
       ['orebank', 'module-hostile', { x: 0, y: 0, w: 4, h: 8 }],
       ['orebank', 'module-probe', { x: 4, y: 0, w: 4, h: 8 }],
       ['stampmill', 'module-hostile', { x: 8, y: 0, w: 4, h: 8 }],
       ['orebank', 'records-per-second', { x: 0, y: 8, w: 4, h: 3 }],
-    ].map(([platform_id, panel_key, position]) => ({ platform_id, panel_key, position }));
+    ].map(([platform_id, panel_key, position]) => ({ platform_id, panel_key, position })));
     const written = await request.put(`/api/layouts/${layoutId}`, { data: current });
     expect(written.ok()).toBeTruthy();
   });

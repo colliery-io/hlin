@@ -426,38 +426,85 @@ impl axum::extract::FromRequestParts<crate::server::AppState> for Caller {
         parts: &mut axum::http::request::Parts,
         app: &crate::server::AppState,
     ) -> Result<Self, Self::Rejection> {
-        match app.config.principal_from(&parts.headers) {
-            crate::config::Asking::Known(principal) => Ok(Caller(principal)),
+        Ok(Caller(resolve(parts, app).await?.principal))
+    }
+}
 
-            // A session the shell issued. The cookie is a name for an identity
-            // the shell wrote down, so this is where it reads it back.
-            crate::config::Asking::Session(value) => {
-                match app.store.session(&crate::auth::fingerprint(&value)).await {
-                    Ok(Some(session)) => {
-                        let mut principal = hlin_identity::Principal::new(session.subject);
-                        principal.name = session.name;
-                        principal.email = session.email;
-                        principal.groups = session.groups;
-                        Ok(Caller(principal))
-                    }
-                    // A cookie naming no session is somebody whose session
-                    // ended — expired, swept, or signed out — and is refused
-                    // exactly like one who never had one. It is not an error
-                    // and says nothing worth logging.
-                    Ok(None) => Err(refuse(app)),
-                    Err(error) => {
-                        // The store being down must not be reported as "you are
-                        // not signed in", which would send everyone to sign in
-                        // again and produce a stampede at the provider on top
-                        // of whatever is already wrong.
-                        tracing::error!(%error, "could not read a session");
-                        Err(axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response())
+/// Who is asking, and whether they are an admin, worked out once per request.
+///
+/// Kept in the request's extensions, so a handler that asks for both
+/// [`Caller`] (or [`Author`]) and [`IsAdmin`] reads a session once.
+#[derive(Clone)]
+struct Resolved {
+    principal: hlin_identity::Principal,
+    admin: bool,
+}
+
+async fn resolve(
+    parts: &mut axum::http::request::Parts,
+    app: &crate::server::AppState,
+) -> Result<Resolved, axum::response::Response> {
+    if let Some(resolved) = parts.extensions.get::<Resolved>() {
+        return Ok(resolved.clone());
+    }
+
+    let resolved = match app.config.principal_from(&parts.headers) {
+        crate::config::Asking::Known(principal) => Resolved {
+            admin: app.config.is_admin(&principal, &[]),
+            principal,
+        },
+
+        // A session the shell issued. The cookie is a name for an identity
+        // the shell wrote down, so this is where it reads it back.
+        crate::config::Asking::Session(value) => {
+            match app.store.session(&crate::auth::fingerprint(&value)).await {
+                Ok(Some(session)) => {
+                    let mut principal = hlin_identity::Principal::new(session.subject);
+                    principal.name = session.name;
+                    principal.email = session.email;
+                    principal.groups = session.groups;
+                    Resolved {
+                        admin: app.config.is_admin(&principal, &session.admin_claim),
+                        principal,
                     }
                 }
+                // A cookie naming no session is somebody whose session
+                // ended — expired, swept, or signed out — and is refused
+                // exactly like one who never had one. It is not an error
+                // and says nothing worth logging.
+                Ok(None) => return Err(refuse(app)),
+                Err(error) => {
+                    // The store being down must not be reported as "you are
+                    // not signed in", which would send everyone to sign in
+                    // again and produce a stampede at the provider on top
+                    // of whatever is already wrong.
+                    tracing::error!(%error, "could not read a session");
+                    return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response());
+                }
             }
-
-            crate::config::Asking::Nobody => Err(refuse(app)),
         }
+
+        crate::config::Asking::Nobody => return Err(refuse(app)),
+    };
+
+    parts.extensions.insert(resolved.clone());
+    Ok(resolved)
+}
+
+/// Whether the asker is an admin of this shell's own data (HLIN-A-0016).
+///
+/// Refuses a request that carries nobody, as [`Caller`] does. Never true on a
+/// shell that refuses writes.
+pub struct IsAdmin(pub bool);
+
+impl axum::extract::FromRequestParts<crate::server::AppState> for IsAdmin {
+    type Rejection = axum::response::Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        app: &crate::server::AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(IsAdmin(resolve(parts, app).await?.admin))
     }
 }
 

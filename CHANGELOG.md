@@ -14,6 +14,79 @@ All notable changes to this project will be documented in this file.
 - The docs theme `starlight-aurora` 0.2.1 → 0.3.0.
 - The API reference is rendered by plissken 0.2.1 (was 0.2.0): intra-doc
   links resolve by the whole path (HLIN-T-0110).
+- A layout holds `items`, not `panels` (HLIN-T-0111, HLIN-A-0015). Each item
+  has a `type` (`panel`, `bar`, `page-selector`, `content`), an `id` and a
+  `position`. `/api/layouts` takes and returns this shape, and refuses an
+  item of an unknown type, a body that still sends `panels`, and two items
+  with one id. Postgres keeps the items as one JSON column on `layouts`;
+  migration 0005 drops `panel_instances`, and stored panels are not kept.
+
+- **An anonymous shell shows only public surfaces** (HLIN-T-0117,
+  HLIN-A-0016). It used to show every published surface. An existing
+  anonymous shell shows nothing until an admin makes a surface public: sign in
+  to a shell with `trusted-header` or `oidc` on the same database, as an
+  admin, and set the surface's visibility to `public`. Reading a surface that
+  is not public, by link or by stream, is refused.
+- `GET /api/layouts/home` for a person with no surface of their own opens the
+  org default, if one is set. With no default it still creates one.
+
+### Added
+
+- The admin role (HLIN-T-0117, HLIN-A-0016). An admin may set the org
+  default, make a surface `public`, and delete a published or public surface
+  someone else owns. Admins are named in `[admin] principals`, by
+  `admin_groups` under `trusted-header` (read from `groups_header`), and by
+  `admin_claim` and `admin_values` under `oidc` (read at sign-in). Nobody is
+  an admin under `anonymous`; under `dev`, only a listed principal.
+  `/api/config` carries `admin`. The chart has `config.admin.principals`,
+  `trustedHeader.adminGroups`, `oidc.adminClaim` and `oidc.adminValues`.
+- Visibility `public`: open to anonymous viewers as well. Only an admin sets
+  it; `published` stays open to anyone signed in.
+- `GET/PUT/DELETE /api/layouts/default`: the one org default surface. Anyone
+  who may view it reads it; an admin sets it (`{ "id": … }`, a published or
+  public surface) and clears it. A default whose owner makes it personal again
+  is not served.
+- Migration 0006: `public` in the visibility check, the `org_default` table
+  (cleared when its layout is deleted), and `sessions.admin_claim`. Sessions
+  from before it have no admin claim until the next sign-in.
+- A surface draws its shell components in their cells (HLIN-T-0113,
+  HLIN-A-0015). A `bar` item draws the surface's bar without the time picker
+  or Edit. A `content` item opens its `initial` page: a surface, one level
+  deeper, with its own stream; a platform's module page; or a view the front
+  end registers with `App`'s new `views` prop (`hlin_ui::Views`). Surfaces
+  open at most two levels below the outermost. A page that cannot be opened —
+  too deep, already open around it, not offered, not registered, not
+  fetched — shows a placeholder with the reason. Every surface on screen
+  follows the outermost time picker.
+- The page selector (HLIN-T-0114). A `page-selector` item draws its pages in
+  groups, as `tabs` or a `rail`, and opens the chosen page in the content
+  component it names as `target`. A page's label is its surface's title, its
+  platform's label, or its view's id, unless the layout gives one. The
+  address names what each content component shows, one query parameter per
+  component (`?main=/s/…`; inside it, `main.inner=…`), so a reload, a link and
+  back and forward open the same pages.
+- The shell at `/` is a surface (HLIN-T-0115). Hlin draws its own: a bar, a
+  rail of the person's surfaces and the platforms' pages, and their home
+  surface in `main`. `GET /api/shell` serves it. An operator replaces it with
+  `default_surface` in hlin.toml, a JSON file of shell components checked at
+  startup (a file that cannot be read, holds a panel, or has an item without
+  an id stops the shell); the chart takes it as `config.defaultSurface`.
+  Edit composes the surface open in the shell's first content component.
+  `/s/{id}` still opens a surface on its own, and `/page/…` a page at full
+  width, with a way back. The row of page links under the bar is gone; the
+  rail lists the same pages.
+- Editing pages, and a surface as JSON (HLIN-T-0116). While a surface is
+  composed, its page selectors show their groups and pages as controls: add a
+  page from the person's surfaces, the platforms' pages and the front end's
+  views; rename, reorder and remove pages and groups; add a group. The
+  composing catalogue shows the surface as JSON, to edit and apply, download,
+  or load from a file. Text that is not a surface is refused with the reason,
+  and the surface stays as it was.
+- Docs for shell components (HLIN-T-0118): how to build the shell at `/`,
+  the surface JSON, and the class names an operator's stylesheet may style,
+  which do not change within a major version. A browser test proves the
+  default shell end to end, and the branded demo's stylesheet restyles the
+  page selector by its class names.
 
 ## [0.1.1] — 2026-10-06
 

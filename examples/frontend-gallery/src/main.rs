@@ -53,11 +53,17 @@ fn main() {
     let (name, pack) = available.remove(chosen);
     leptos::logging::log!("drawing with the `{name}` pack");
 
+    // A view in the front end's own code, which a content component opens with
+    // `{ "view": "about" }`.
+    let views = hlin_ui::Views::new().with("about", || {
+        view! { <article class="demo-about"><p>"About this shell"</p></article> }
+    });
+
     // The switch is Aurora's, so only Aurora's page offers it. The demo pack
     // is drawn in one theme, and a switch that changed nothing would lie.
     if name == "aurora" {
         leptos::mount::mount_to_body(move || {
-            view! { <App pack=pack bar=|| view! { <aurora_leptos::ThemeToggle /> } /> }
+            view! { <App pack=pack bar=|| view! { <aurora_leptos::ThemeToggle /> } views=views.clone() /> }
         });
     } else {
         // The theme `index.html` restored is Aurora's choice, and this page
@@ -70,7 +76,7 @@ fn main() {
             let _ = root.remove_attribute("data-theme");
             let _ = root.remove_attribute("style");
         }
-        leptos::mount::mount_to_body(move || view! { <App pack=pack /> });
+        leptos::mount::mount_to_body(move || view! { <App pack=pack views=views.clone() /> });
     }
 }
 

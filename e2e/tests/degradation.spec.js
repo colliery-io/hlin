@@ -9,6 +9,7 @@
 // platform, so a demo somebody is looking at in another window is undisturbed.
 
 const { test, expect } = require('@playwright/test');
+const { asPanels } = require('./helpers');
 const { shot, freshLayout, discardLayout, openSurface, drewSomething } = require("./helpers");
 
 test.describe.configure({ mode: 'serial' });
@@ -20,7 +21,7 @@ test.describe('a surface degrades where a person can see it', () => {
     layoutId = await freshLayout(request, 'Degradation test');
 
     const current = await (await request.get(`/api/layouts/${layoutId}`)).json();
-    current.panels = [
+    current.items = asPanels([
       {
         platform_id: 'orebank',
         panel_key: 'records-per-second',
@@ -36,7 +37,7 @@ test.describe('a surface degrades where a person can see it', () => {
         panel_key: 'queue-depth',
         position: { x: 0, y: 3, w: 6, h: 3 },
       },
-    ];
+    ]);
     const written = await request.put(`/api/layouts/${layoutId}`, { data: current });
     expect(written.ok()).toBeTruthy();
   });

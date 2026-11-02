@@ -297,13 +297,15 @@ def _walk():
     )
 
     layout["title"] = "Walkthrough"
-    layout["panels"] = [
+    layout["items"] = [
         {
+            "type": "panel",
             "platform_id": CONTROL,
             "panel_key": control_panel,
             "position": {"x": 0, "y": 0, "w": 6, "h": 3},
         },
         {
+            "type": "panel",
             "platform_id": SUBJECT,
             "panel_key": DROPPED,
             "position": {"x": 6, "y": 0, "w": 6, "h": 3},
@@ -312,10 +314,11 @@ def _walk():
 
     status, written = send("PUT", f"/api/layouts/{layout_id}", layout)
     check(status == 200, f"writing the layout should succeed, and answered {status}")
-    check(len(written["panels"]) == 2, "both panels should have been stored")
+    stored = [item for item in written["items"] if item["type"] == "panel"]
+    check(len(stored) == 2, "both panels should have been stored")
 
-    control_id = written["panels"][0]["id"]
-    subject_id = written["panels"][1]["id"]
+    control_id = stored[0]["id"]
+    subject_id = stored[1]["id"]
     check(
         control_id and subject_id,
         "the shell should have given each panel an identity, since the browser sent none",

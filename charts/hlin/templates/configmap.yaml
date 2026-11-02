@@ -30,6 +30,10 @@ data:
     # trust store, not a replacement for it.
     ca_bundle = "/etc/hlin-trust/{{ include "hlin.trustFile" . }}"
     {{- end }}
+    {{- if include "hlin.shellMounted" . }}
+    # The shell people see at `/`.
+    default_surface = "/etc/hlin-shell/{{ include "hlin.shellFile" . }}"
+    {{- end }}
 
     {{- with .Values.config.brand }}
     {{- if or .name .existingConfigMap }}
@@ -62,6 +66,12 @@ data:
     {{- end }}
     {{- end }}
 
+    {{- with .Values.config.admin.principals }}
+
+    [admin]
+    principals = [{{ range $i, $p := . }}{{ if $i }}, {{ end }}{{ $p | quote }}{{ end }}]
+    {{- end }}
+
     [auth]
     {{- if eq .Values.config.auth.strategy "anonymous" }}
     strategy = "anonymous"
@@ -79,6 +89,9 @@ data:
     {{- with .Values.config.auth.trustedHeader.nameHeader }}
     name_header = {{ . | quote }}
     {{- end }}
+    {{- with .Values.config.auth.trustedHeader.adminGroups }}
+    admin_groups = [{{ range $i, $g := . }}{{ if $i }}, {{ end }}{{ $g | quote }}{{ end }}]
+    {{- end }}
     acknowledge_proxy_required = true
     {{- else }}
     strategy = "oidc"
@@ -88,6 +101,12 @@ data:
     public_url = {{ .Values.config.auth.oidc.publicUrl | quote }}
     scopes = [{{ range $i, $s := .Values.config.auth.oidc.scopes }}{{ if $i }}, {{ end }}{{ $s | quote }}{{ end }}]
     groups_claim = {{ .Values.config.auth.oidc.groupsClaim | quote }}
+    {{- with .Values.config.auth.oidc.adminClaim }}
+    admin_claim = {{ . | quote }}
+    {{- end }}
+    {{- with .Values.config.auth.oidc.adminValues }}
+    admin_values = [{{ range $i, $v := . }}{{ if $i }}, {{ end }}{{ $v | quote }}{{ end }}]
+    {{- end }}
     session_hours = {{ .Values.config.auth.oidc.sessionHours }}
 
     [auth.cookie]

@@ -6,12 +6,15 @@
 //! the DOM, and it is deliberately thin, because none of it can be tested
 //! without a browser.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::pack::Drawer;
 use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use hlin_manifest::envelope::Choice;
-use hlin_stream::layout::{CatalogPanel, CatalogPlatform, Placement};
+use hlin_stream::layout::{
+    CatalogPanel, CatalogPlatform, LayoutDocument, LayoutItem, Page, PageSelectorItem, Placement,
+    PlatformPage, SelectorStyle,
+};
 use hlin_stream::{Frame, ParamsRequest, TimeRange};
 use hlin_view::{Kind, plan};
 use leptos::ev::PointerEvent;
@@ -20,6 +23,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::Closure;
 
+use crate::content::Opened;
 use crate::draft::LayoutDraft;
 use crate::frame::{ModuleFrame, ModuleView, Mount};
 use crate::grid;
@@ -63,6 +67,205 @@ enum GestureKind {
     Move,
     Resize,
 }
+/// Views a front end writes in code, by id (decision HLIN-A-0015).
+///
+/// A content component opens one when its page is `{ "view": "<id>" }`. An id
+/// the front end does not register shows a placeholder saying so; the page is
+/// not dropped from the layout that names it.
+///
+/// ```ignore
+/// let views = Views::new().with("about", || view! { <p>"About this shell"</p> });
+/// view! { <App pack=MyPack views=views /> }
+/// ```
+#[derive(Clone, Default)]
+pub struct Views(BTreeMap<String, ViewFn>);
+
+impl Views {
+    /// No views.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// These views and one more, under `id`.
+    pub fn with(mut self, id: impl Into<String>, view: impl Into<ViewFn>) -> Self {
+        self.0.insert(id.into(), view.into());
+        self
+    }
+
+    /// The ids registered.
+    pub fn ids(&self) -> BTreeSet<String> {
+        self.0.keys().cloned().collect()
+    }
+
+    fn get(&self, id: &str) -> Option<ViewFn> {
+        self.0.get(id).cloned()
+    }
+}
+
+/// A surface on screen, as the shell-wide handlers need to know it: which
+/// panels are on it and where a module's intent for one of them goes.
+#[derive(Clone)]
+struct Owner {
+    depth: usize,
+    draft: ReadSignal<LayoutDraft>,
+    act: Callback<(String, hlin_view::Intent)>,
+}
+
+/// What the shell's components share across every surface on screen: who is
+/// looking, what there is, the one time range, and the full-width page.
+///
+/// Provided by [`App`] as a context. Each surface adds its own beside it, so
+/// [`Bar`] and [`SurfaceView`] read the surface they are drawn in. A component
+/// drawn outside an `App` has no shell to read, and panics saying so.
+#[derive(Clone, Copy)]
+pub struct Shell {
+    catalog: ReadSignal<Vec<CatalogPlatform>>,
+    catalog_known: ReadSignal<bool>,
+    choices: ReadSignal<BTreeMap<(String, String), Vec<Choice>>>,
+    set_choices: WriteSignal<BTreeMap<(String, String), Vec<Choice>>>,
+    mode: ReadSignal<Mode>,
+    set_mode: WriteSignal<Mode>,
+    /// Whether every surface stream on screen is open, and whether there is
+    /// one at all.
+    connected: Memo<Option<bool>>,
+    /// Each surface's stream: open or not, by surface.
+    links: RwSignal<BTreeMap<u64, bool>>,
+    /// The surface Edit composes: the outermost, or, where the outermost is
+    /// the shell, the surface open in its first content component.
+    composed: RwSignal<Option<SurfaceScope>>,
+    /// The front end's own controls, for the end of the shell's bar.
+    chrome: StoredValue<Option<ViewFn>>,
+    grace: ReadSignal<i64>,
+    read_only: ReadSignal<bool>,
+    viewer: ReadSignal<Option<String>>,
+    sign_out: ReadSignal<Option<String>>,
+    brand: ReadSignal<Option<hlin_stream::layout::BrandSummary>>,
+    trouble: ReadSignal<Option<String>>,
+    set_trouble: WriteSignal<Option<String>>,
+    chosen_range: ReadSignal<i64>,
+    set_chosen_range: WriteSignal<i64>,
+    custom: ReadSignal<Option<TimeRange>>,
+    set_custom: WriteSignal<Option<TimeRange>>,
+    asked_range: ReadSignal<Option<(TimeRange, u64)>>,
+    modules: RwSignal<BTreeMap<String, ModuleView>>,
+    open: Memo<Option<PageTarget>>,
+    wants_time: Memo<bool>,
+    views: StoredValue<Views>,
+    /// The outermost surface's id, once it is known: where "back" goes.
+    top: RwSignal<Option<String>>,
+    /// The address's query string, which names what each content component
+    /// shows (D18). Moved by a page selector, and by back and forward.
+    query: RwSignal<String>,
+    /// What each surface is called, by id, as far as this page has heard: a
+    /// page selector's label for a surface nobody renamed.
+    titles: RwSignal<BTreeMap<String, String>>,
+    /// Each surface on screen, by a number of the page's own.
+    owners: StoredValue<BTreeMap<u64, Owner>>,
+    serial: StoredValue<u64>,
+    /// What each surface's modules are told about their panels, by surface.
+    contexts: RwSignal<BTreeMap<u64, BTreeMap<String, crate::frame::PanelContext>>>,
+    /// Whether anything on each surface responds to the time range.
+    wanting: RwSignal<BTreeMap<u64, bool>>,
+    /// The last `changed` handed to the frames, and when, so the same news on
+    /// two surfaces' streams is passed on once.
+    last_changed: StoredValue<Option<(String, f64)>>,
+    reapply: Callback<()>,
+    apply_preset: Callback<i64>,
+    apply_range: Callback<TimeRange>,
+    close_page: Callback<()>,
+}
+
+impl Shell {
+    fn next_key(&self) -> u64 {
+        let mut key = 0;
+        self.serial.update_value(|serial| {
+            *serial += 1;
+            key = *serial;
+        });
+        key
+    }
+
+    /// The surface a panel instance is on, or the outermost one.
+    fn owner_of(&self, instance: &str) -> Option<Owner> {
+        self.owners.with_value(|owners| {
+            owners
+                .values()
+                .find(|owner| {
+                    owner
+                        .draft
+                        .with_untracked(|draft| draft.panel(instance).is_some())
+                })
+                .or_else(|| owners.values().min_by_key(|owner| owner.depth))
+                .cloned()
+        })
+    }
+
+    /// Hand a `changed` frame to the frames, unless the same one was handed on
+    /// a moment ago from another surface's stream.
+    fn changed(&self, changed: hlin_stream::ChangedFrame) {
+        let key = serde_json::to_string(&changed).unwrap_or_default();
+        let now = js_sys::Date::now();
+        let repeat = self.last_changed.with_value(|last| {
+            last.as_ref()
+                .is_some_and(|(seen, at)| *seen == key && now - at < CHANGED_ECHO_MS)
+        });
+        self.last_changed.set_value(Some((key, now)));
+        if !repeat {
+            crate::frame::heard(changed);
+        }
+    }
+}
+
+/// How long the same `changed` arriving on a second surface's stream counts as
+/// the same news.
+const CHANGED_ECHO_MS: f64 = 500.0;
+
+fn shell() -> Shell {
+    use_context::<Shell>()
+        .expect("a shell component is drawn inside `App`, which provides the shell")
+}
+
+/// One surface on screen: its layout, its stream, and what may be done to it.
+///
+/// Provided by each [`SurfaceHost`] for what it draws, so a surface opened in
+/// a content component has its own, and the components inside it read that one.
+#[derive(Clone, Copy)]
+struct SurfaceScope {
+    key: u64,
+    depth: usize,
+    /// Whether this is the shell from `/api/shell`.
+    shell: bool,
+    /// Whether Edit composes this surface.
+    composed: bool,
+    /// The ids of every surface around this one, and its own once known.
+    ancestry: StoredValue<Vec<String>>,
+    state: ReadSignal<SurfaceState>,
+    draft: ReadSignal<LayoutDraft>,
+    set_draft: WriteSignal<LayoutDraft>,
+    writing: ReadSignal<u32>,
+    save: Callback<()>,
+    act: Callback<(String, hlin_view::Intent)>,
+    /// The key, in the address, of the content component this surface is
+    /// open in. `None` for the outermost.
+    around: StoredValue<Option<String>>,
+}
+
+fn scope() -> SurfaceScope {
+    use_context::<SurfaceScope>()
+        .expect("a surface component is drawn inside a surface, which provides its scope")
+}
+
+/// Which surface a [`SurfaceHost`] shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Source {
+    /// The shell at `/`, from `/api/shell`: a surface of shell components
+    /// that is not stored and not edited.
+    Shell,
+    /// The one the address names, `/s/{id}`.
+    Top,
+    /// A surface opened in a content component.
+    Surface(String),
+}
 
 /// The whole thing.
 ///
@@ -79,6 +282,10 @@ pub fn App<P>(
     /// switch. Optional, and nothing in this crate knows what it holds.
     #[prop(optional, into)]
     bar: Option<ViewFn>,
+    /// Views the front end writes in code, which a content component opens
+    /// by id.
+    #[prop(optional)]
+    views: Views,
 ) -> impl IntoView
 where
     P: hlin_view::DesignPack + Send + Sync + 'static,
@@ -86,8 +293,6 @@ where
 {
     let drawer = Drawer::of(pack);
 
-    let (surface, set_surface) = signal(SurfaceState::new());
-    let (draft, set_draft) = signal(LayoutDraft::empty());
     let (catalog, set_catalog) = signal(Vec::<CatalogPlatform>::new());
     // Whether the catalogue has been asked for yet, so a page nobody offers
     // is told apart from one whose platform the browser has not heard of yet.
@@ -98,7 +303,11 @@ where
     // What each control will accept, by panel reference and control id.
     let (choices, set_choices) = signal(BTreeMap::<(String, String), Vec<Choice>>::new());
     let (mode, set_mode) = signal(Mode::Watching);
-    let (connected, set_connected) = signal(false);
+    let links = RwSignal::new(BTreeMap::<u64, bool>::new());
+    let connected = Memo::new(move |_| {
+        links.with(|links| (!links.is_empty()).then(|| links.values().all(|open| *open)))
+    });
+    let composed = RwSignal::new(Option::<SurfaceScope>::None);
     let (grace, set_grace) = signal(GRACE);
 
     // Whether this shell refuses every write. False until `/api/config`
@@ -117,57 +326,6 @@ where
     let (trouble, set_trouble) = signal(Option::<String>::None);
     let (chosen_range, set_chosen_range) = signal(3600i64);
     let (custom, set_custom) = signal(Option::<TimeRange>::None);
-    let (search, set_search) = signal(String::new());
-    let (gesture, set_gesture) = signal(Option::<Gesture>::None);
-
-    // Bumped whenever the surface must be re-subscribed: when the layout is
-    // first known, and after every write, because a write can add or remove
-    // panels and the running stream was built from the panels the layout had.
-    let (revision, set_revision) = signal(0u32);
-    let (cell, set_cell) = signal(0.0f64);
-
-    // How many layout writes have been issued. Only the newest one's answer is
-    // allowed to replace the draft.
-    let (writes, set_writes) = signal(0u32);
-
-    // How many are still in flight.
-    //
-    // A gesture changes the draft at once and writes afterwards, which is what
-    // makes composition feel immediate — and it means that between the two the
-    // surface on screen is a promise rather than a fact. Leave in that gap and
-    // the promise is broken silently: the browser cancels the request on
-    // navigation, the shell never hears about the change, and the panel is back
-    // when the page returns. So the surface says when it is still owed a write.
-    let (writing, set_writing) = signal(0u32);
-
-    let stage: NodeRef<html::Main> = NodeRef::new();
-
-    // The bar wraps when its contents outgrow a line, and the catalogue sticks
-    // below it, so its height is measured rather than assumed. Written to
-    // `<body>`, not `<html>`: an attribute change on `<html>` is how a theme
-    // switch is noticed, and the bar's height is not one.
-    let bar_ref: NodeRef<html::Header> = NodeRef::new();
-    Effect::new(move |_| {
-        let Some(header) = bar_ref.get() else { return };
-        let publish = Closure::<dyn FnMut()>::new(move || {
-            let Some(header) = bar_ref.get_untracked() else {
-                return;
-            };
-            let height = header.get_bounding_client_rect().height();
-            if let Some(body) = web_sys::window()
-                .and_then(|window| window.document())
-                .and_then(|document| document.body())
-            {
-                let _ = body
-                    .style()
-                    .set_property("--hlin-bar-height", &format!("{height}px"));
-            }
-        });
-        if let Ok(observer) = web_sys::ResizeObserver::new(publish.as_ref().unchecked_ref()) {
-            observer.observe(&header);
-        }
-        publish.forget();
-    });
 
     // What each module panel's bridge says about it, by instance. Written by
     // `frame`, which owns the frames; read here to draw the panels around them.
@@ -175,6 +333,7 @@ where
     crate::frame::start(modules);
 
     // What the shell says about itself, and what there is to compose from.
+    // The surfaces fetch their own layouts.
     Effect::new(move |_| {
         leptos::task::spawn_local(async move {
             if let Ok(config) = crate::api::config().await {
@@ -196,43 +355,425 @@ where
                 }
                 set_brand.set(Some(config.brand));
             }
-            // A link to a surface names the layout; a bare visit gets the
-            // principal's own. Either way the address bar ends up naming what
-            // is on screen, so the link can be sent to somebody. A link to a
-            // page is what is on screen, and keeps its address; the surface
-            // behind it is the principal's own.
-            let asked = requested_layout();
-            let fetched = match &asked {
-                Some(id) => crate::api::layout(id).await,
-                None => crate::api::home().await,
-            };
-
-            match fetched {
-                Ok(document) => {
-                    if asked.is_none()
-                        && page.get_untracked().is_none()
-                        && let Some(id) = document.surface_id()
-                    {
-                        show_address(&format!("/s/{id}"));
-                    }
-                    set_draft.set(LayoutDraft::of(document));
-                    set_revision.update(|revision| *revision += 1);
-                }
-                Err(reason) => set_trouble.set(Some(reason)),
-            }
             if let Ok(platforms) = crate::api::catalog().await {
-                // What each control will accept, asked for once. The catalog
-                // says which controls exist; only the shell can reach the
-                // platform that knows their values, so this is the browser
-                // asking it to.
-                //
-                // Options are fetched by their own effect, below, because which
-                // ones are wanted depends on what is on the surface and that
-                // changes while a person composes.
+                // Options are fetched by each surface, for the panels it
+                // holds, because which ones are wanted changes while a person
+                // composes.
                 set_catalog.set(platforms);
             }
             set_catalog_known.set(true);
         });
+    });
+
+    // -- The time picker --------------------------------------------------
+
+    // The range the shell was last asked for, and the generation that asked.
+    // One for the whole page: every surface on screen follows it (D19), and
+    // modules are told it as `context`, so a module and the panels beside it
+    // answer the same question.
+    let (asked_range, set_asked_range) = signal(Option::<(TimeRange, u64)>::None);
+    let generation = StoredValue::new(0u64);
+
+    let apply_range = move |range: TimeRange| {
+        let mut next = 0;
+        generation.update_value(|counted| {
+            *counted += 1;
+            next = *counted;
+        });
+        set_asked_range.set(Some((range, next)));
+    };
+
+    let apply_preset = move |seconds: i64| {
+        set_chosen_range.set(seconds);
+        set_custom.set(None);
+        let to = Utc::now();
+        apply_range(TimeRange {
+            from: to - Duration::seconds(seconds),
+            to,
+        });
+    };
+
+    // A parameter change that keeps whatever range is in force. Used when a
+    // per-panel selection changes, and once when the first surface opens, so
+    // the shell fetches the range the picker is showing rather than whatever a
+    // platform defaults to when asked for no window at all.
+    let reapply = move || match custom.get_untracked() {
+        Some(range) => apply_range(range),
+        None => {
+            let to = Utc::now();
+            apply_range(TimeRange {
+                from: to - Duration::seconds(chosen_range.get_untracked()),
+                to,
+            })
+        }
+    };
+
+    // -- What modules are told --------------------------------------------
+
+    let contexts =
+        RwSignal::new(BTreeMap::<u64, BTreeMap<String, crate::frame::PanelContext>>::new());
+    let wanting = RwSignal::new(BTreeMap::<u64, bool>::new());
+    let owners = StoredValue::new(BTreeMap::<u64, Owner>::new());
+
+    // The range the shell was last asked for, and every panel's own declared
+    // parameters, on every surface. The frame host diffs it per module, so
+    // this may run on every change to a draft — a drag included — and a module
+    // hears only what moved for it.
+    Effect::new(move |_| {
+        let Some((range, generation)) = asked_range.get() else {
+            return;
+        };
+        let panels = contexts.with(|contexts| {
+            contexts
+                .values()
+                .flat_map(|panels| panels.clone())
+                .collect::<BTreeMap<_, _>>()
+        });
+        crate::frame::set_context(
+            Some(hlin_bridge::TimeRange {
+                from_millis: range.from.timestamp_millis(),
+                to_millis: range.to.timestamp_millis(),
+            }),
+            generation,
+            panels,
+        );
+    });
+
+    // -- Pages -------------------------------------------------------------
+
+    let top = RwSignal::new(Option::<String>::None);
+    let query = RwSignal::new(current_search());
+    let titles = RwSignal::new(BTreeMap::<String, String>::new());
+
+    // What the person's own surfaces are called, for the labels of page
+    // selectors. Surfaces of others are named when they are opened.
+    Effect::new(move |_| {
+        leptos::task::spawn_local(async move {
+            if let Ok(owned) = crate::api::layouts().await {
+                titles.update(|titles| {
+                    for layout in owned {
+                        titles.entry(layout.id).or_insert(layout.title);
+                    }
+                });
+            }
+        });
+    });
+
+    // Open a platform's page, and say so in the address bar, as a new entry in
+    // the history: a page is somewhere a person went, and the browser's back
+    // button should bring them back from it.
+    let open_page = move |target: PageTarget| {
+        if page.with_untracked(|open| open.as_ref() == Some(&target)) {
+            return;
+        }
+        push_address(&route::page_address(&target));
+        set_mode.set(Mode::Watching);
+        set_page.set(Some(target));
+    };
+
+    // Back to the surface, which was only ever hidden.
+    let close_page = move || {
+        if page.with_untracked(Option::is_none) {
+            return;
+        }
+        let surface = top.get_untracked();
+        let path = surface.map_or_else(|| "/".to_string(), |id| format!("/s/{id}"));
+        push_address(&format!("{path}{}", query.get_untracked()));
+        set_page.set(None);
+    };
+
+    // The browser's back and forward move between the surface and pages, and
+    // the address is the only record of which.
+    Effect::new(move |_| {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let popped = Closure::<dyn Fn()>::new(move || {
+            set_page.set(route::page_of(&current_path()));
+            query.set(current_search());
+        });
+        let _ =
+            window.add_event_listener_with_callback("popstate", popped.as_ref().unchecked_ref());
+        popped.forget();
+    });
+
+    // Only a change of page redraws one: setting the same page again must not
+    // reload its module.
+    let open = Memo::new(move |_| page.get());
+
+    // Whether the bar carries the time controls (HLIN-T-0078): only while the
+    // surfaces are on screen and something on one of them declares
+    // `time_range`. Absent rather than disabled otherwise, for the same reason
+    // Edit is on a read-only shell. The range itself is kept while they are
+    // gone — the picker's signals are not touched, and modules are still told
+    // it — so a time-driven panel added back resumes the range that was in
+    // force.
+    //
+    // A page counts as wanting none. A navigation entry declares nothing about
+    // time, and the module it opens is told the surface's range as `context`
+    // either way; controls the page cannot be shown to use are the same noise
+    // on a page as on a surface of lists.
+    let wants_time = Memo::new(move |_| {
+        open.with(Option::is_none) && wanting.with(|wanting| wanting.values().any(|wants| *wants))
+    });
+
+    let shell = Shell {
+        catalog,
+        catalog_known,
+        choices,
+        set_choices,
+        mode,
+        set_mode,
+        connected,
+        links,
+        composed,
+        chrome: StoredValue::new(None),
+        grace,
+        read_only,
+        viewer,
+        sign_out,
+        brand,
+        trouble,
+        set_trouble,
+        chosen_range,
+        set_chosen_range,
+        custom,
+        set_custom,
+        asked_range,
+        modules,
+        open,
+        wants_time,
+        views: StoredValue::new(views),
+        top,
+        query,
+        titles,
+        owners,
+        serial: StoredValue::new(0),
+        contexts,
+        wanting,
+        last_changed: StoredValue::new(None),
+        reapply: Callback::new(move |()| reapply()),
+        apply_preset: Callback::new(apply_preset),
+        apply_range: Callback::new(apply_range),
+        close_page: Callback::new(move |()| close_page()),
+    };
+    provide_context(shell);
+
+    // What a module asks of the shell, sent to the surface its panel is on.
+    crate::frame::on_asked(move |asked| match asked {
+        crate::frame::Asked::Intent { instance, intent } => {
+            if let Some(owner) = shell.owner_of(&instance) {
+                owner.act.run((instance, intent));
+            }
+        }
+        crate::frame::Asked::Navigate { instance, to } => {
+            if let Some(path) = &to.page {
+                let target = PageTarget {
+                    platform: to.platform.clone(),
+                    path: path.clone(),
+                };
+                if catalog.with_untracked(|catalog| route::page_entry(catalog, &target).is_some()) {
+                    open_page(target);
+                } else {
+                    leptos::logging::warn!(
+                        "a module asked to open page `{path}` of `{}`, which is not a page this shell can open; ignored",
+                        to.platform
+                    );
+                }
+                return;
+            }
+            let Some(owner) = shell.owner_of(&instance) else {
+                return;
+            };
+            let Some(target) = panel_to_open(
+                &owner.draft.get_untracked(),
+                &catalog.get_untracked(),
+                &instance,
+                &to,
+            ) else {
+                return;
+            };
+            if page.with_untracked(Option::is_none) {
+                bring_into_view(&target);
+                return;
+            }
+            // Asked from a page: back to the surface, and to the panel once it
+            // is drawn again.
+            close_page();
+            leptos::task::spawn_local(async move {
+                gloo_timers::future::TimeoutFuture::new(0).await;
+                bring_into_view(&target);
+            });
+        }
+    });
+
+    let styling = drawer.stylesheet();
+    let page_drawer = drawer.clone();
+
+    // A link to a surface opens that surface; anything else opens the shell
+    // (D13), with a full-width page over it where the address names one.
+    let outermost = if requested_layout().is_some() {
+        Source::Top
+    } else {
+        Source::Shell
+    };
+    let composes_outermost = outermost == Source::Top;
+
+    view! {
+        // This crate's own chrome: the grid, the panel frames, the toolbar.
+        // Injected rather than left for the consumer to link, because the file
+        // lives in their registry cache and they have no path to it — the
+        // examples here linked it relative to the source tree, which works
+        // nowhere else. A front end built by following the documentation
+        // rendered every panel unstyled and stacked in a column.
+        <style>{crate::APP_CSS}</style>
+
+        // The pack's own styling, put on the page by the app that mounted it.
+        // Nothing else has to know a design system was chosen.
+        <style>{styling}</style>
+
+        // The operator's, after the pack's so it wins: it may set the
+        // chrome's roles, the pack's own tokens, or anything else. Always
+        // linked, because the shell answers an empty sheet where there is no
+        // brand. When it arrives the page's colours may have moved, so every
+        // module is told them again.
+        <link
+            rel="stylesheet"
+            href=crate::brand::STYLESHEET_PATH
+            on:load=move |_| crate::frame::retheme()
+        />
+
+        <SurfaceHost
+            source=outermost
+            depth=0
+            ancestry=Vec::new()
+            drawer=drawer
+            chrome=bar
+            composed=composes_outermost
+        />
+
+        {move || open.get().map(|target| view! {
+            <PageView
+                drawer=page_drawer.clone()
+                target=target
+                catalog=catalog
+                catalog_known=catalog_known
+                modules=modules
+                full_width=true
+            />
+        })}
+    }
+}
+
+/// One surface on screen, from fetching its layout to drawing it.
+///
+/// The outermost also draws the bar, the page links and any trouble above it,
+/// as the shell's chrome. A surface opened in a content component draws only
+/// itself, one level deeper, and says so in its own cells if it cannot be
+/// fetched.
+#[component]
+fn SurfaceHost(
+    source: Source,
+    depth: usize,
+    /// The ids of every surface around this one.
+    ancestry: Vec<String>,
+    drawer: Drawer,
+    /// The front end's own controls for the outermost bar.
+    #[prop(default = None)]
+    chrome: Option<ViewFn>,
+    /// The key of the content component this surface is open in.
+    #[prop(default = None)]
+    around: Option<String>,
+    /// Whether Edit composes this surface.
+    #[prop(default = false)]
+    composed: bool,
+) -> AnyView {
+    let shell = shell();
+    let key = shell.next_key();
+    let top = depth == 0;
+    let is_shell = source == Source::Shell;
+
+    let (state, set_state) = signal(SurfaceState::new());
+    let (draft, set_draft) = signal(LayoutDraft::empty());
+    // Why this surface could not be fetched, where it is not the outermost:
+    // the outermost says so in the shell's own trouble line.
+    let (missing, set_missing) = signal(Option::<String>::None);
+
+    let ancestry = StoredValue::new({
+        let mut around = ancestry;
+        if let Source::Surface(id) = &source {
+            around.push(id.clone());
+        }
+        around
+    });
+
+    // Bumped whenever the surface must be re-subscribed: when the layout is
+    // first known. A write does not bump it; the shell reconciles a running
+    // surface against what was written.
+    let (revision, set_revision) = signal(0u32);
+
+    // How many layout writes have been issued. Only the newest one's answer is
+    // allowed to replace the draft.
+    let (writes, set_writes) = signal(0u32);
+
+    // How many are still in flight.
+    //
+    // A gesture changes the draft at once and writes afterwards, which is what
+    // makes composition feel immediate — and it means that between the two the
+    // surface on screen is a promise rather than a fact. Leave in that gap and
+    // the promise is broken silently: the browser cancels the request on
+    // navigation, the shell never hears about the change, and the panel is back
+    // when the page returns. So the surface says when it is still owed a write.
+    let (writing, set_writing) = signal(0u32);
+
+    // Gone from the screen: its loops stop and its stream closes.
+    let alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+
+    // The layout. A link to a surface names it; a bare visit gets the
+    // principal's own. Either way the address bar ends up naming what is on
+    // screen, so the link can be sent to somebody. A link to a page is what is
+    // on screen, and keeps its address; the surface behind it is the
+    // principal's own.
+    Effect::new({
+        let source = source.clone();
+        move |_| {
+            let source = source.clone();
+            leptos::task::spawn_local(async move {
+                let asked = match &source {
+                    Source::Shell => None,
+                    Source::Top => requested_layout(),
+                    Source::Surface(id) => Some(id.clone()),
+                };
+                let fetched = match (&source, &asked) {
+                    (Source::Shell, _) => crate::api::shell().await,
+                    (_, Some(id)) => crate::api::layout(id).await,
+                    (_, None) => crate::api::home().await,
+                };
+                match fetched {
+                    Ok(document) => {
+                        if source == Source::Top
+                            && let Some(id) = document.surface_id()
+                        {
+                            if asked.is_none() && shell.open.get_untracked().is_none() {
+                                show_address(&format!("/s/{id}{}", shell.query.get_untracked()));
+                            }
+                            shell.top.set(Some(id.to_string()));
+                            ancestry.update_value(|around| around.push(id.to_string()));
+                        }
+                        if let Some(id) = document.surface_id() {
+                            let (id, title) = (id.to_string(), document.title.clone());
+                            shell.titles.update(|titles| {
+                                titles.insert(id, title);
+                            });
+                        }
+                        set_draft.set(LayoutDraft::of(document));
+                        set_revision.update(|revision| *revision += 1);
+                    }
+                    Err(reason) if depth == 0 => shell.set_trouble.set(Some(reason)),
+                    Err(reason) => set_missing.set(Some(reason)),
+                }
+            });
+        }
     });
 
     // What a control will accept, for the panels this surface actually holds.
@@ -262,14 +803,14 @@ where
 
     Effect::new(move |_| {
         let wanted_for = references.get();
-        let platforms = catalog.get();
+        let platforms = shell.catalog.get();
         if wanted_for.is_empty() || platforms.is_empty() {
             return;
         }
 
         // Only what is not already known. A person adding a second panel from a
         // platform should not re-ask for the choices the first one fetched.
-        let known = choices.with_untracked(|listed| {
+        let known = shell.choices.with_untracked(|listed| {
             listed
                 .keys()
                 .cloned()
@@ -322,7 +863,7 @@ where
             ))
             .await;
 
-            set_choices.update(|listed| listed.extend(fetched));
+            shell.set_choices.update(|listed| listed.extend(fetched));
         });
     });
 
@@ -335,7 +876,8 @@ where
         // draft changes on every pointer move of a drag — which closed and
         // reopened the stream tens of times per gesture, and left the browser
         // holding a connection it had just closed. The revision moves once per
-        // write, which is exactly when the surface's panels can have changed.
+        // layout fetched, which is exactly when the surface's panels can have
+        // changed.
         let _ = revision.get();
         let Some(surface_id) = draft.with_untracked(|draft| draft.surface_id().map(str::to_string))
         else {
@@ -348,27 +890,34 @@ where
             }
         });
 
-        // A module's `changed` is relayed through this surface's stream.
-        crate::frame::set_surface(Some(surface_id.clone()));
+        // A module's `changed` is relayed through the composed surface's
+        // stream; the shell passes it to every surface it serves.
+        if composed {
+            crate::frame::set_surface(Some(surface_id.clone()));
+        }
 
         let applied = move |frame: Frame| {
             // News for the modules, not a panel's state: handed to the frames,
             // and the surface is not redrawn for it.
             if let Frame::Changed(changed) = frame {
-                crate::frame::heard(changed);
+                shell.changed(changed);
                 return;
             }
-            set_surface.update(|state| {
+            set_state.update(|state| {
                 state.apply(&frame);
             });
         };
         let lost = move || {
-            set_connected.set(false);
-            set_surface.update(|state| state.on_stream_lost(Utc::now()));
+            shell.links.update(|links| {
+                links.insert(key, false);
+            });
+            set_state.update(|state| state.on_stream_lost(Utc::now()));
         };
         let opened = move || {
-            set_connected.set(true);
-            set_surface.update(|state| state.on_stream_restored());
+            shell.links.update(|links| {
+                links.insert(key, true);
+            });
+            set_state.update(|state| state.on_stream_restored());
         };
 
         if let Ok(source) =
@@ -380,22 +929,97 @@ where
 
     // While the stream is gone, the browser decides for itself when "not
     // current" becomes "not coming".
+    Effect::new({
+        let alive = alive.clone();
+        move |_| {
+            let alive = alive.clone();
+            leptos::task::spawn_local(async move {
+                while alive.load(std::sync::atomic::Ordering::Relaxed) {
+                    gloo_timers::future::TimeoutFuture::new(1_000).await;
+                    let grace = shell.grace.get_untracked();
+                    set_state.update(|state| {
+                        state.on_tick(Utc::now(), Duration::seconds(grace));
+                    });
+                }
+            });
+        }
+    });
+
+    // The range in force, sent to this surface's stream: once the layout is
+    // known, and again whenever the range or a selection moves it.
     Effect::new(move |_| {
+        let revision = revision.get();
+        let asked = shell.asked_range.get();
+        if revision == 0 {
+            return;
+        }
+        let Some((range, generation)) = asked else {
+            // The first surface to open asks for the range the picker shows.
+            shell.reapply.run(());
+            return;
+        };
+        set_state.update(|state| state.adopt_generation(generation));
+        let request = ParamsRequest {
+            protocol_version: hlin_stream::PROTOCOL_VERSION,
+            generation,
+            time_range: Some(range),
+            selections: draft.with_untracked(|draft| draft.selections()),
+        };
+        let surface_id = draft.with_untracked(|draft| draft.surface_id().map(str::to_string));
         leptos::task::spawn_local(async move {
-            loop {
-                gloo_timers::future::TimeoutFuture::new(1_000).await;
-                set_surface.update(|state| {
-                    state.on_tick(Utc::now(), Duration::seconds(grace.get_untracked()));
-                });
+            if let Some(surface_id) = surface_id {
+                let _ = crate::stream::set_params(&surface_id, &request).await;
             }
         });
+    });
+
+    // What this surface's modules are told about their own panels, and whether
+    // it wants the time controls.
+    Effect::new(move |_| {
+        let panels = draft.with(|draft| {
+            shell.catalog.with(|catalog| {
+                draft
+                    .panels()
+                    .iter()
+                    .filter_map(|panel| {
+                        let declared = catalogued(catalog, &panel.platform_id, &panel.panel_key)
+                            .map(|entry| {
+                                entry
+                                    .controls
+                                    .into_iter()
+                                    .map(|control| control.id)
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        Some((
+                            panel.id.clone()?,
+                            crate::frame::PanelContext {
+                                selections: panel.selections.clone(),
+                                declared,
+                            },
+                        ))
+                    })
+                    .collect()
+            })
+        });
+        shell.contexts.update(|contexts| {
+            contexts.insert(key, panels);
+        });
+        let wants = draft.with(|draft| shell.catalog.with(|catalog| draft.wants_time(catalog)));
+        if shell
+            .wanting
+            .with_untracked(|wanting| wanting.get(&key) != Some(&wants))
+        {
+            shell.wanting.update(|wanting| {
+                wanting.insert(key, wants);
+            });
+        }
     });
 
     // -- Writing ---------------------------------------------------------
 
     // One write, carrying the whole layout, issued when a gesture ends rather
-    // than while it is in progress. The surface re-subscribes once the shell
-    // has answered, so the stream is always built from what was stored.
+    // than while it is in progress.
     let save = move || {
         if !draft.with_untracked(|draft| draft.dirty() && draft.editable()) {
             return;
@@ -423,133 +1047,18 @@ where
                         return;
                     }
                     set_draft.update(|draft| draft.written(stored));
-                    set_trouble.set(None);
+                    shell.set_trouble.set(None);
 
-                    // Deliberately no `set_revision` here any more. The shell
-                    // reconciles a running surface against what was written
-                    // rather than dropping it, so the stream already carries
-                    // the new arrangement — and re-subscribing would throw away
-                    // every panel's data to fetch the same values again, which
-                    // is exactly the blink this pair of changes removes.
-                    //
-                    // The revision still moves when the *layout being watched*
-                    // changes, which is the only thing it was ever really for.
+                    // Deliberately no `set_revision` here. The shell reconciles
+                    // a running surface against what was written rather than
+                    // dropping it, so the stream already carries the new
+                    // arrangement — and re-subscribing would throw away every
+                    // panel's data to fetch the same values again.
                 }
-                Err(reason) => set_trouble.set(Some(reason)),
+                Err(reason) => shell.set_trouble.set(Some(reason)),
             }
         });
     };
-
-    // -- The time picker --------------------------------------------------
-
-    // The range the shell was last asked for, and the generation that asked.
-    // What modules are told as `context`: one place, moved exactly when the
-    // shell is asked, so a module and the panels beside it answer the same
-    // question.
-    let (asked_range, set_asked_range) = signal(Option::<(TimeRange, u64)>::None);
-
-    let apply_range = move |range: TimeRange| {
-        let generation = {
-            let mut next = 0;
-            set_surface.update(|state| next = state.next_generation());
-            next
-        };
-        set_asked_range.set(Some((range, generation)));
-        let selections = draft.with_untracked(|draft| draft.selections());
-
-        let request = ParamsRequest {
-            protocol_version: hlin_stream::PROTOCOL_VERSION,
-            generation,
-            time_range: Some(range),
-            selections,
-        };
-        let surface_id = draft.with_untracked(|draft| draft.surface_id().map(str::to_string));
-
-        leptos::task::spawn_local(async move {
-            if let Some(surface_id) = surface_id {
-                let _ = crate::stream::set_params(&surface_id, &request).await;
-            }
-        });
-    };
-
-    let apply_preset = move |seconds: i64| {
-        set_chosen_range.set(seconds);
-        set_custom.set(None);
-        let to = Utc::now();
-        apply_range(TimeRange {
-            from: to - Duration::seconds(seconds),
-            to,
-        });
-    };
-
-    // A parameter change that keeps whatever range is in force. Used when a
-    // per-panel selection changes, and once when the surface first opens, so
-    // the shell fetches the range the picker is showing rather than whatever a
-    // platform defaults to when asked for no window at all.
-    let reapply = move || match custom.get_untracked() {
-        Some(range) => apply_range(range),
-        None => {
-            let to = Utc::now();
-            apply_range(TimeRange {
-                from: to - Duration::seconds(chosen_range.get_untracked()),
-                to,
-            })
-        }
-    };
-
-    Effect::new(move |applied_for: Option<u32>| {
-        let revision = revision.get();
-        // Nothing to ask for until the layout is known, and asking again on
-        // every write would restart the fan-out for a panel that just moved.
-        if revision > 0 && applied_for != Some(revision) {
-            reapply();
-        }
-        revision
-    });
-
-    // What a module is told about where it is: the range the shell was last
-    // asked for, and its panel's own parameters, only the declared ones. The
-    // frame host diffs it per module, so this may run on every change to the
-    // draft — a drag included — and a module hears only what moved for it.
-    Effect::new(move |_| {
-        let Some((range, generation)) = asked_range.get() else {
-            return;
-        };
-        let panels = draft.with(|draft| {
-            catalog.with(|catalog| {
-                draft
-                    .panels()
-                    .iter()
-                    .filter_map(|panel| {
-                        let declared = catalogued(catalog, &panel.platform_id, &panel.panel_key)
-                            .map(|entry| {
-                                entry
-                                    .controls
-                                    .into_iter()
-                                    .map(|control| control.id)
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        Some((
-                            panel.id.clone()?,
-                            crate::frame::PanelContext {
-                                selections: panel.selections.clone(),
-                                declared,
-                            },
-                        ))
-                    })
-                    .collect()
-            })
-        });
-        crate::frame::set_context(
-            Some(hlin_bridge::TimeRange {
-                from_millis: range.from.timestamp_millis(),
-                to_millis: range.to.timestamp_millis(),
-            }),
-            generation,
-            panels,
-        );
-    });
 
     // What a person does to a panel, whoever drew the thing they did it to:
     // the chrome's own control, a component a pack drew, or the platform's
@@ -563,7 +1072,7 @@ where
             }
             set_draft.update(|draft| draft.set_selection(&who, &param, values));
             save();
-            reapply();
+            shell.reapply.run(());
         }
         hlin_view::Intent::Range {
             from_millis,
@@ -575,93 +1084,813 @@ where
             // The picker is told as well as the shell. A chart brushed to an
             // hour that left the bar still saying "24h" would be the chrome
             // lying about what is on screen.
-            set_custom.set(Some(range));
-            set_chosen_range.set(0);
-            apply_range(range);
+            shell.set_custom.set(Some(range));
+            shell.set_chosen_range.set(0);
+            shell.apply_range.run(range);
+        }
+    };
+    let act = Callback::new(move |(who, intent)| act(who, intent));
+
+    shell.owners.update_value(|owners| {
+        owners.insert(key, Owner { depth, draft, act });
+    });
+    on_cleanup({
+        let alive = alive.clone();
+        move || {
+            alive.store(false, std::sync::atomic::Ordering::Relaxed);
+            let _ = held.try_update_value(|existing| {
+                if let Some(source) = existing.take() {
+                    source.close();
+                }
+            });
+            let _ = shell.owners.try_update_value(|owners| {
+                owners.remove(&key);
+            });
+            let _ = shell.contexts.try_update(|contexts| {
+                contexts.remove(&key);
+            });
+            let _ = shell.wanting.try_update(|wanting| {
+                wanting.remove(&key);
+            });
+            let _ = shell.links.try_update(|links| {
+                links.remove(&key);
+            });
+            if shell
+                .composed
+                .try_with_untracked(|scope| scope.is_some_and(|scope| scope.key == key))
+                == Some(true)
+            {
+                let _ = shell.composed.try_set(None);
+            }
+        }
+    });
+
+    let scope = SurfaceScope {
+        key,
+        depth,
+        shell: is_shell,
+        composed,
+        ancestry,
+        state,
+        draft,
+        set_draft,
+        writing,
+        save: Callback::new(move |()| save()),
+        act,
+        around: StoredValue::new(around),
+    };
+    provide_context(scope);
+    if composed {
+        shell.composed.set(Some(scope));
+    }
+
+    if !top {
+        return view! {
+            {move || match missing.get() {
+                Some(reason) => view! {
+                    <p class="content-missing" data-cause="unreachable">{reason}</p>
+                }
+                .into_any(),
+                None => view! { <SurfaceView drawer=drawer.clone() /> }.into_any(),
+            }}
+        }
+        .into_any();
+    }
+
+    // The shell from `/api/shell` holds its own bar; a surface opened by its
+    // address gets the shell's bar above it.
+    shell.chrome.set_value(chrome);
+    view! {
+        {(!is_shell).then(|| view! { <Bar /> })}
+
+        // The shell's own bar is one of its items, hidden with it while a
+        // full-width page is open; the page gets one of its own above it.
+        {move || (is_shell && shell.open.with(Option::is_some)).then(|| view! { <Bar /> })}
+
+        {move || shell.trouble.get().map(|reason| view! {
+            <p class="trouble">{reason}</p>
+        })}
+
+        <SurfaceView drawer=drawer />
+    }
+    .into_any()
+}
+
+/// A content component: one page, in its cells (decision HLIN-A-0015, D9).
+///
+/// It shows its `initial` page until a page selector chooses another. What it
+/// may open is decided by [`crate::content::open`]; anything it cannot open is
+/// a placeholder saying why.
+#[component]
+fn Content(
+    /// Its id on the surface, which a page selector names as its target.
+    id: String,
+    /// The page it shows first.
+    initial: Option<Page>,
+    drawer: Drawer,
+    /// Whether Edit composes the surface it opens: the shell's first content
+    /// component does.
+    #[prop(default = false)]
+    composes: bool,
+) -> AnyView {
+    let shell = shell();
+    let scope = scope();
+
+    // What the address says it shows, or its own first page.
+    let key = scope
+        .around
+        .with_value(|around| route::content_key(around.as_deref(), &id));
+    let shown = Memo::new({
+        let key = key.clone();
+        move |_| {
+            shell
+                .query
+                .with(|query| route::shown_in(query).remove(&key))
+                .or_else(|| initial.clone())
+        }
+    });
+
+    let views = shell.views;
+    let opened = Memo::new(move |_| {
+        let page = shown.get();
+        let ancestry = scope.ancestry.get_value();
+        let known = shell.catalog_known.get();
+        let ids = views.with_value(Views::ids);
+        shell.catalog.with(|catalog| {
+            crate::content::open(page.as_ref(), scope.depth, &ancestry, catalog, known, &ids)
+        })
+    });
+
+    (move || match opened.get() {
+        Opened::Surface(surface) => view! {
+            <SurfaceHost
+                source=Source::Surface(surface)
+                depth=scope.depth + 1
+                ancestry=scope.ancestry.get_value()
+                drawer=drawer.clone()
+                around=Some(key.clone())
+                composed=composes
+            />
+        }
+        .into_any(),
+        Opened::Platform(target) => view! {
+            <PageView
+                drawer=drawer.clone()
+                target=target
+                catalog=shell.catalog
+                catalog_known=shell.catalog_known
+                modules=shell.modules
+            />
+        }
+        .into_any(),
+        Opened::View(view) => views
+            .with_value(|views| views.get(&view))
+            .map(|drawn| drawn.run())
+            .unwrap_or_else(|| ().into_any()),
+        Opened::Waiting => ().into_any(),
+        Opened::Missing(missing) => view! {
+            <p class="content-missing" data-cause=missing.cause()>{missing.to_string()}</p>
+        }
+        .into_any(),
+    })
+    .into_any()
+}
+
+/// A page selector: the pages of a surface, in groups, as tabs or a rail
+/// (decision HLIN-A-0015).
+///
+/// Choosing a page opens it in the content component the selector names as its
+/// target, and says so in the address as a new history entry, so a reload or a
+/// link sent to somebody opens the same page, and back goes back.
+#[component]
+fn PageSelector(selector: PageSelectorItem) -> impl IntoView {
+    let shell = shell();
+    let scope = scope();
+    let key = scope
+        .around
+        .with_value(|around| route::content_key(around.as_deref(), &selector.target));
+
+    // The page the target shows when the address names none: its own first.
+    let initial = Memo::new({
+        let target = selector.target.clone();
+        move |_| {
+            scope.draft.with(|draft| {
+                draft.document().items.iter().find_map(|item| match item {
+                    LayoutItem::Content(content) if content.id.as_deref() == Some(&target) => {
+                        content.initial.clone()
+                    }
+                    _ => None,
+                })
+            })
+        }
+    });
+    let current = Memo::new({
+        let key = key.clone();
+        move |_| {
+            shell
+                .query
+                .with(|query| route::shown_in(query).remove(&key))
+                .or_else(|| initial.get())
+        }
+    });
+
+    let style = match selector.style {
+        SelectorStyle::Tabs => "tabs",
+        SelectorStyle::Rail => "rail",
+    };
+
+    let groups = selector
+        .groups
+        .into_iter()
+        .map(|group| {
+            let pages = group
+                .pages
+                .into_iter()
+                .map(|entry| {
+                    let page = entry.page;
+                    let key = key.clone();
+                    let label = {
+                        let page = page.clone();
+                        let renamed = entry.label.clone();
+                        move || renamed.clone().unwrap_or_else(|| label_of(&shell, &page))
+                    };
+                    let href = {
+                        let (page, key) = (page.clone(), key.clone());
+                        move || {
+                            let next = shell.query.with(|query| route::showing(query, &key, &page));
+                            format!("{}{next}", current_path())
+                        }
+                    };
+                    let chosen = {
+                        let page = page.clone();
+                        move || current.with(|current| current.as_ref() == Some(&page)).then_some("page")
+                    };
+                    let address = route::address_of(&page);
+                    view! {
+                        <a
+                            class="selector-page"
+                            href=href.clone()
+                            data-address=address
+                            aria-current=chosen
+                            on:click=move |event: leptos::ev::MouseEvent| {
+                                if plain_click(&event) {
+                                    event.prevent_default();
+                                    let next = shell.query.with_untracked(|query| route::showing(query, &key, &page));
+                                    push_address(&format!("{}{next}", current_path()));
+                                    shell.query.set(next);
+                                }
+                            }
+                        >
+                            {label}
+                        </a>
+                    }
+                })
+                .collect_view();
+            view! {
+                <div class="selector-group" role="group" aria-label=group.label.clone()>
+                    <span class="selector-group-label">{group.label.clone()}</span>
+                    {pages}
+                </div>
+            }
+        })
+        .collect_view();
+
+    view! {
+        <nav class="page-selector" data-style=style data-target=selector.target.clone() aria-label="Pages">
+            {groups}
+        </nav>
+    }
+}
+
+/// A page selector while its surface is composed: its groups and pages as
+/// controls, to add, rename, reorder and remove (HLIN-T-0116).
+///
+/// Every change goes through the draft and is written at once, as a panel's
+/// rename is.
+#[component]
+fn SelectorEditor(selector: PageSelectorItem) -> impl IntoView {
+    let shell = shell();
+    let scope = scope();
+    let id = selector.id.clone().unwrap_or_default();
+    let named = StoredValue::new(id.clone());
+    let edit = move |apply: Box<dyn FnOnce(&mut LayoutDraft, &str)>| {
+        let id = named.get_value();
+        scope.set_draft.update(|draft| apply(draft, &id));
+        scope.save.run(());
+    };
+
+    // What a page may be added from: the person's surfaces, the platforms'
+    // pages, and the front end's views.
+    let offered = move || {
+        let mut offered: Vec<(&'static str, Page, String)> = shell.titles.with(|titles| {
+            titles
+                .iter()
+                .map(|(id, title)| ("Surfaces", Page::Surface(id.clone()), title.clone()))
+                .collect()
+        });
+        offered.extend(shell.catalog.with(|catalog| {
+            route::pages(catalog).into_iter().map(|entry| {
+                (
+                    "Platform pages",
+                    Page::Page(PlatformPage {
+                        platform: entry.platform.clone(),
+                        path: entry.path.clone(),
+                    }),
+                    format!("{} — {}", entry.label, entry.platform_name),
+                )
+            })
+        }));
+        offered.extend(shell.views.with_value(Views::ids).into_iter().map(|view| {
+            let label = readable(&view);
+            ("Views", Page::View(view), label)
+        }));
+        offered
+    };
+
+    let groups = selector.groups.len();
+    let edited = selector
+        .groups
+        .into_iter()
+        .enumerate()
+        .map(|(g, group)| {
+            let count = group.pages.len();
+            let pages = group
+                .pages
+                .into_iter()
+                .enumerate()
+                .map(|(i, entry)| {
+                    let own = label_of(&shell, &entry.page);
+                    view! {
+                        <li class="page-edit" data-address=route::address_of(&entry.page)>
+                            <input
+                                class="page-label"
+                                placeholder=own
+                                prop:value=entry.label.clone().unwrap_or_default()
+                                on:change=move |event| {
+                                    let label = event_value(&event);
+                                    edit(Box::new(move |draft, id| draft.rename_page(id, g, i, &label)));
+                                }
+                            />
+                            <button class="page-up" title="Move up" disabled=i == 0
+                                on:click=move |_| edit(Box::new(move |draft, id| draft.move_page(id, (g, i), (g, i - 1))))
+                            >"↑"</button>
+                            <button class="page-down" title="Move down" disabled=i + 1 == count
+                                on:click=move |_| edit(Box::new(move |draft, id| draft.move_page(id, (g, i), (g, i + 1))))
+                            >"↓"</button>
+                            <button class="page-remove" title="Remove"
+                                on:click=move |_| edit(Box::new(move |draft, id| draft.remove_page(id, g, i)))
+                            >"✕"</button>
+                        </li>
+                    }
+                })
+                .collect_view();
+            view! {
+                <fieldset class="group-edit" data-group=g>
+                    <div class="group-edit-head">
+                        <input
+                            class="group-label"
+                            prop:value=group.label.clone()
+                            on:change=move |event| {
+                                let label = event_value(&event);
+                                edit(Box::new(move |draft, id| draft.rename_group(id, g, &label)));
+                            }
+                        />
+                        <button class="group-up" title="Move up" disabled=g == 0
+                            on:click=move |_| edit(Box::new(move |draft, id| draft.move_group(id, g, g - 1)))
+                        >"↑"</button>
+                        <button class="group-down" title="Move down" disabled=g + 1 == groups
+                            on:click=move |_| edit(Box::new(move |draft, id| draft.move_group(id, g, g + 1)))
+                        >"↓"</button>
+                        <button class="group-remove" title="Remove the group"
+                            on:click=move |_| edit(Box::new(move |draft, id| draft.remove_group(id, g)))
+                        >"✕"</button>
+                    </div>
+                    <ol class="pages-edit">{pages}</ol>
+                    <select
+                        class="add-page"
+                        on:change=move |event| {
+                            let Some(page) = route::page_at(&event_value(&event)) else {
+                                return;
+                            };
+                            edit(Box::new(move |draft, id| draft.add_page(id, g, page)));
+                        }
+                    >
+                        <option value="" selected>"Add a page…"</option>
+                        {move || {
+                            let mut heading = "";
+                            let mut sections: Vec<(&'static str, Vec<(Page, String)>)> = Vec::new();
+                            for (section, page, label) in offered() {
+                                if section != heading {
+                                    sections.push((section, Vec::new()));
+                                    heading = section;
+                                }
+                                if let Some((_, list)) = sections.last_mut() {
+                                    list.push((page, label));
+                                }
+                            }
+                            sections
+                                .into_iter()
+                                .map(|(section, list)| view! {
+                                    <optgroup label=section>
+                                        {list
+                                            .into_iter()
+                                            .map(|(page, label)| view! {
+                                                <option value=route::address_of(&page)>{label}</option>
+                                            })
+                                            .collect_view()}
+                                    </optgroup>
+                                })
+                                .collect_view()
+                        }}
+                    </select>
+                </fieldset>
+            }
+        })
+        .collect_view();
+
+    let (new_group, set_new_group) = signal(String::new());
+    view! {
+        <div class="selector-editor" data-selector=id.clone() data-style=match selector.style {
+            SelectorStyle::Tabs => "tabs",
+            SelectorStyle::Rail => "rail",
+        }>
+            {edited}
+            <form
+                class="add-group"
+                on:submit=move |event: leptos::ev::SubmitEvent| {
+                    event.prevent_default();
+                    let label = new_group.get_untracked();
+                    set_new_group.set(String::new());
+                    edit(Box::new(move |draft, id| draft.add_group(id, &label)));
+                }
+            >
+                <input
+                    class="new-group"
+                    placeholder="New group"
+                    prop:value=move || new_group.get()
+                    on:input=move |event| set_new_group.set(event_value(&event))
+                />
+                <button type="submit">"Add group"</button>
+            </form>
+        </div>
+    }
+}
+
+/// The composed surface as JSON text: shown, edited, applied, downloaded, or
+/// loaded from a file (HLIN-T-0116, D11). Text that is not a surface is
+/// refused with the reason, and the surface stays as it was.
+#[component]
+fn SurfaceJson() -> impl IntoView {
+    let scope = scope();
+    let (text, set_text) = signal(scope.draft.with_untracked(LayoutDraft::export));
+    let (refused, set_refused) = signal(Option::<String>::None);
+
+    let apply = move |_| {
+        let written = text.get_untracked();
+        let mut outcome = Ok(());
+        scope
+            .set_draft
+            .update(|draft| outcome = draft.import(&written));
+        match outcome {
+            Ok(()) => {
+                set_refused.set(None);
+                scope.save.run(());
+            }
+            Err(reason) => set_refused.set(Some(reason)),
         }
     };
 
-    // -- Pages -------------------------------------------------------------
-
-    // Open a platform's page, and say so in the address bar, as a new entry in
-    // the history: a page is somewhere a person went, and the browser's back
-    // button should bring them back from it.
-    let open_page = move |target: PageTarget| {
-        if page.with_untracked(|open| open.as_ref() == Some(&target)) {
-            return;
-        }
-        push_address(&route::page_address(&target));
-        set_mode.set(Mode::Watching);
-        set_page.set(Some(target));
+    let download = move || {
+        format!(
+            "data:application/json;charset=utf-8,{}",
+            js_sys::encode_uri_component(&text.get())
+        )
     };
 
-    // Back to the surface, which was only ever hidden.
-    let close_page = move || {
-        if page.with_untracked(Option::is_none) {
-            return;
-        }
-        let surface = draft.with_untracked(|draft| draft.surface_id().map(str::to_string));
-        push_address(&surface.map_or_else(|| "/".to_string(), |id| format!("/s/{id}")));
-        set_page.set(None);
-    };
-
-    // The browser's back and forward move between the surface and pages, and
-    // the address is the only record of which.
-    Effect::new(move |_| {
-        let Some(window) = web_sys::window() else {
+    let load = move |event: leptos::ev::Event| {
+        let Some(file) = event
+            .target()
+            .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
+            .and_then(|input| input.files())
+            .and_then(|files| files.get(0))
+        else {
             return;
         };
-        let popped = Closure::<dyn Fn()>::new(move || {
-            set_page.set(route::page_of(&current_path()));
-        });
-        let _ =
-            window.add_event_listener_with_callback("popstate", popped.as_ref().unchecked_ref());
-        popped.forget();
-    });
-
-    // Only a change of page redraws one: setting the same page again must not
-    // reload its module.
-    let open = Memo::new(move |_| page.get());
-
-    crate::frame::on_asked(move |asked| match asked {
-        crate::frame::Asked::Intent { instance, intent } => act(instance, intent),
-        crate::frame::Asked::Navigate { instance, to } => {
-            if let Some(path) = &to.page {
-                let target = PageTarget {
-                    platform: to.platform.clone(),
-                    path: path.clone(),
-                };
-                if catalog.with_untracked(|catalog| route::page_entry(catalog, &target).is_some()) {
-                    open_page(target);
-                } else {
-                    leptos::logging::warn!(
-                        "a module asked to open page `{path}` of `{}`, which is not a page this shell can open; ignored",
-                        to.platform
-                    );
+        leptos::task::spawn_local(async move {
+            match wasm_bindgen_futures::JsFuture::from(file.text()).await {
+                Ok(read) => {
+                    set_text.set(read.as_string().unwrap_or_default());
+                    set_refused.set(None);
                 }
-                return;
+                Err(_) => set_refused.set(Some("The file could not be read.".to_string())),
             }
-            let Some(target) = panel_to_open(
-                &draft.get_untracked(),
-                &catalog.get_untracked(),
-                &instance,
-                &to,
-            ) else {
+        });
+    };
+
+    view! {
+        <section class="surface-json">
+            <h3>"Surface as JSON"</h3>
+            <textarea
+                class="json-text"
+                spellcheck="false"
+                prop:value=move || text.get()
+                on:input=move |event| {
+                    let value = event
+                        .target()
+                        .and_then(|target| target.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+                        .map(|area| area.value())
+                        .unwrap_or_default();
+                    set_text.set(value);
+                }
+            />
+            <div class="json-actions">
+                <button class="json-show" on:click=move |_| {
+                    set_text.set(scope.draft.with_untracked(LayoutDraft::export));
+                    set_refused.set(None);
+                }>"Show current"</button>
+                <button class="json-apply" on:click=apply>"Apply"</button>
+                <a class="json-download" download="surface.json" href=download>"Download"</a>
+                <label class="json-load">
+                    "Load a file"
+                    <input class="json-file" type="file" accept=".json,application/json" on:change=load />
+                </label>
+            </div>
+            {move || refused.get().map(|reason| view! {
+                <p class="json-refused" role="alert">{reason}</p>
+            })}
+        </section>
+    }
+}
+
+/// What a page selector calls a page nobody renamed: its surface's title, its
+/// platform's label for it, or its view's id, made readable.
+fn label_of(shell: &Shell, page: &Page) -> String {
+    match page {
+        Page::Surface(id) => shell
+            .titles
+            .with(|titles| titles.get(id).cloned())
+            .unwrap_or_else(|| "Surface".to_string()),
+        Page::Page(platform_page) => {
+            let target = PageTarget {
+                platform: platform_page.platform.clone(),
+                path: platform_page.path.clone(),
+            };
+            shell
+                .catalog
+                .with(|catalog| route::page_entry(catalog, &target).map(|entry| entry.label))
+                .unwrap_or_else(|| platform_page.path.clone())
+        }
+        Page::View(id) => readable(id),
+    }
+}
+
+/// The bar across the top: whose shell this is, the time controls, whether the
+/// surface is live and saved, Edit, who is signed in, and the front end's own
+/// controls at the end.
+///
+/// Drawn inside [`App`], which provides the [`Shell`] it reads.
+#[component]
+pub fn Bar(
+    /// The front end's own controls, at the end of the bar: whatever its
+    /// design system offers a person beyond the panels, such as a theme
+    /// switch. Optional, and nothing in this crate knows what it holds.
+    #[prop(optional, into)]
+    extra: Option<ViewFn>,
+    /// A bar placed on a surface rather than the shell's own: drawn without
+    /// the time picker, because the outermost picker sets the range for every
+    /// surface on screen (D19, D21), and without measuring itself for the
+    /// catalogue, which sticks below the shell's bar only.
+    #[prop(optional)]
+    placed: bool,
+) -> impl IntoView {
+    let Shell {
+        mode,
+        set_mode,
+        connected,
+        read_only,
+        viewer,
+        sign_out,
+        brand,
+        set_trouble,
+        chosen_range,
+        custom,
+        set_custom,
+        open,
+        wants_time,
+        apply_preset,
+        apply_range,
+        ..
+    } = shell();
+    let own = scope();
+    let composed = shell().composed;
+    // The shell's bar carries the front end's own controls at its end.
+    let extra = extra.or_else(|| (!placed).then(|| shell().chrome.get_value()).flatten());
+    // What the bar speaks for: a placed bar, its own surface; the shell's bar,
+    // the surface Edit composes, where there is one.
+    let about = move || {
+        if placed {
+            own
+        } else {
+            composed.get().unwrap_or(own)
+        }
+    };
+    let draft = Signal::derive(move || about().draft.get());
+    let surface = Signal::derive(move || about().state.get());
+    let writing = Signal::derive(move || about().writing.get());
+    let apply_preset = move |seconds: i64| apply_preset.run(seconds);
+    let apply_range = move |range: TimeRange| apply_range.run(range);
+    let composing = move || mode.get() == Mode::Composing;
+    let editable = move || draft.with(|draft| draft.editable());
+    // Edit is the shell's bar's, and only while there is a surface to compose.
+    let offers_edit = move || !placed && composed.with(Option::is_some);
+    let wants_time = move || !placed && wants_time.get();
+
+    // The bar wraps when its contents outgrow a line, and the catalogue sticks
+    // below it, so its height is measured rather than assumed. Written to
+    // `<body>`, not `<html>`: an attribute change on `<html>` is how a theme
+    // switch is noticed, and the bar's height is not one.
+    let bar_ref: NodeRef<html::Header> = NodeRef::new();
+    Effect::new(move |_| {
+        if placed {
+            return;
+        }
+        let Some(header) = bar_ref.get() else { return };
+        let publish = Closure::<dyn FnMut()>::new(move || {
+            let Some(header) = bar_ref.get_untracked() else {
                 return;
             };
-            if page.with_untracked(Option::is_none) {
-                bring_into_view(&target);
-                return;
+            let height = header.get_bounding_client_rect().height();
+            if let Some(body) = web_sys::window()
+                .and_then(|window| window.document())
+                .and_then(|document| document.body())
+            {
+                let _ = body
+                    .style()
+                    .set_property("--hlin-bar-height", &format!("{height}px"));
             }
-            // Asked from a page: back to the surface, and to the panel once it
-            // is drawn again.
-            close_page();
-            leptos::task::spawn_local(async move {
-                gloo_timers::future::TimeoutFuture::new(0).await;
-                bring_into_view(&target);
-            });
+        });
+        if let Ok(observer) = web_sys::ResizeObserver::new(publish.as_ref().unchecked_ref()) {
+            observer.observe(&header);
         }
+        publish.forget();
     });
+
+    view! {
+        <header class="bar" node_ref=bar_ref>
+            {move || brand.get().map(|brand| view! {
+                <span class="brand">
+                    {brand.logo.then(|| view! {
+                        <img class="brand-logo" src=crate::brand::LOGO_PATH alt="" />
+                    })}
+                    <strong class="brand-name">{brand.name}</strong>
+                </span>
+            })}
+            <span class="tagline">{move || draft.with(|draft| draft.title().to_string())}</span>
+
+            <Show when=wants_time>
+                <div class="picker">
+                    {PRESETS.into_iter().map(|(label, seconds)| {
+                        let active = move || custom.get().is_none() && chosen_range.get() == seconds;
+                        view! {
+                            <button class:active=active on:click=move |_| apply_preset(seconds)>
+                                {label}
+                            </button>
+                        }
+                    }).collect_view()}
+                    <CustomRange on_apply=move |range| {
+                        set_custom.set(Some(range));
+                        apply_range(range);
+                    } />
+                </div>
+            </Show>
+
+            <span class="applied" class:pending=move || !surface.with(SurfaceState::applied)>
+                {move || if surface.with(SurfaceState::applied) { "applied" } else { "applying…" }}
+            </span>
+
+            // Only while there is something outstanding. A surface with nothing
+            // owed should not carry a permanent badge saying so.
+            <Show when=move || writing.get() != 0>
+                <span class="saving">"saving…"</span>
+            </Show>
+
+            // Only while there is a stream to speak of: a shell showing a view
+            // has none.
+            {move || connected.get().map(|connected| view! {
+                <span class="link" class:down=!connected>
+                    {if connected { "live" } else { "reconnecting" }}
+                </span>
+            })}
+
+            // Absent rather than disabled where the shell writes nothing.
+            // A disabled control says "not for you, not now"; there is no
+            // later here, and no explanation that would make one appear.
+            // Composing is the surface's, and there is none on screen while a
+            // page is open.
+            <Show when=move || offers_edit() && !read_only.get() && open.with(Option::is_none)>
+                <button
+                    class="mode"
+                    class:active=composing
+                    disabled=move || !editable()
+                    title=move || if editable() {
+                        String::new()
+                    } else {
+                        "This layout belongs to someone else. Fork it to make changes".to_string()
+                    }
+                    on:click=move |_| set_mode.update(|mode| {
+                        *mode = if *mode == Mode::Composing {
+                            Mode::Watching
+                        } else {
+                            Mode::Composing
+                        };
+                    })
+                >
+                    {move || if composing() { "Done" } else { "Edit" }}
+                </button>
+            </Show>
+
+            {move || viewer.get().map(|who| view! { <span class="viewer">{who}</span> })}
+
+            {move || sign_out.get().map(|path| view! {
+                <button
+                    class="mode sign-out"
+                    on:click=move |_| {
+                        let path = path.clone();
+                        leptos::task::spawn_local(async move {
+                            if let Err(reason) = crate::api::sign_out(&path).await {
+                                set_trouble.set(Some(reason));
+                            }
+                        });
+                    }
+                >
+                    "Sign out"
+                </button>
+            })}
+
+            // The front end's own, if it brought any: a theme switch, say.
+            // Drawn as given; the shell neither reads nor styles it.
+            {extra.map(|extra| view! { <div class="extra">{extra.run()}</div> })}
+        </header>
+    }
+}
+
+/// One surface: its panels on the grid, and, while composing, the catalogue to
+/// add from.
+///
+/// Its panels and shell components each sit in their own cells: a bar, a
+/// content component showing a page, a page selector. Only the outermost
+/// surface is composed; a surface opened in a content component is watched.
+///
+/// Drawn inside [`App`], which provides the [`Shell`] it reads, and inside a
+/// surface, which provides the layout it draws.
+#[component]
+pub fn SurfaceView(
+    /// What draws the panels.
+    drawer: Drawer,
+) -> impl IntoView {
+    let Shell {
+        catalog,
+        choices,
+        mode,
+        grace,
+        read_only,
+        modules,
+        open,
+        reapply,
+        ..
+    } = shell();
+    let SurfaceScope {
+        depth,
+        state: surface,
+        draft,
+        set_draft,
+        save,
+        act,
+        ..
+    } = scope();
+    let save = move || save.run(());
+    let reapply = move || reapply.run(());
+    let act = move |who: String, intent: hlin_view::Intent| act.run((who, intent));
+    let SurfaceScope {
+        composed,
+        shell: is_shell,
+        ..
+    } = scope();
+    let composing = move || composed && mode.get() == Mode::Composing;
+    // Hidden rather than dropped while a page is open, so its panels, and what
+    // their modules hold, are there to go back to. A surface inside another
+    // is hidden with it.
+    let hidden = move || depth == 0 && open.with(Option::is_some);
+
+    let (search, set_search) = signal(String::new());
+    let (gesture, set_gesture) = signal(Option::<Gesture>::None);
+    let (cell, set_cell) = signal(0.0f64);
+    let stage: NodeRef<html::Main> = NodeRef::new();
+
+    // What the mounted pack answers to. Taken before the pack is moved into
+    // the closures that draw with it.
+    let offered = drawer.offers().join(" ");
+    let item_drawer = drawer.clone();
 
     // -- Gestures ---------------------------------------------------------
 
@@ -675,7 +1904,7 @@ where
     };
 
     let begin = move |event: PointerEvent, instance: String, kind: GestureKind| {
-        if mode.get_untracked() != Mode::Composing {
+        if !composed || mode.get_untracked() != Mode::Composing {
             return;
         }
         event.prevent_default();
@@ -765,224 +1994,11 @@ where
         cancelled.forget();
     });
 
-    // -- The view ---------------------------------------------------------
-
-    let composing = move || mode.get() == Mode::Composing;
-    let editable = move || draft.with(|draft| draft.editable());
-
-    // Whether the bar carries the time controls (HLIN-T-0078): only while the
-    // surface is on screen and something on it declares `time_range`. Absent
-    // rather than disabled otherwise, for the same reason Edit is on a
-    // read-only shell. The range itself is kept while they are gone — the
-    // picker's signals are not touched, and modules are still told it — so a
-    // time-driven panel added back resumes the range that was in force.
-    //
-    // A page counts as wanting none. A navigation entry declares nothing about
-    // time, and the module it opens is told the surface's range as `context`
-    // either way; controls the page cannot be shown to use are the same noise
-    // on a page as on a surface of lists.
-    let wants_time = Memo::new(move |_| {
-        open.with(Option::is_none)
-            && draft.with(|draft| catalog.with(|catalog| draft.wants_time(catalog)))
-    });
-
-    let styling = drawer.stylesheet();
-
-    // Taken here, before the pack is moved into the closures that draw with it,
-    // for the same reason the stylesheet is.
-    let offered = drawer.offers().join(" ");
-    let page_drawer = drawer.clone();
-
     view! {
-        // This crate's own chrome: the grid, the panel frames, the toolbar.
-        // Injected rather than left for the consumer to link, because the file
-        // lives in their registry cache and they have no path to it — the
-        // examples here linked it relative to the source tree, which works
-        // nowhere else. A front end built by following the documentation
-        // rendered every panel unstyled and stacked in a column.
-        <style>{crate::APP_CSS}</style>
-
-        // The pack's own styling, put on the page by the app that mounted it.
-        // Nothing else has to know a design system was chosen.
-        <style>{styling}</style>
-
-        // The operator's, after the pack's so it wins: it may set the
-        // chrome's roles, the pack's own tokens, or anything else. Always
-        // linked, because the shell answers an empty sheet where there is no
-        // brand. When it arrives the page's colours may have moved, so every
-        // module is told them again.
-        <link
-            rel="stylesheet"
-            href=crate::brand::STYLESHEET_PATH
-            on:load=move |_| crate::frame::retheme()
-        />
-
-        <header class="bar" node_ref=bar_ref>
-            {move || brand.get().map(|brand| view! {
-                <span class="brand">
-                    {brand.logo.then(|| view! {
-                        <img class="brand-logo" src=crate::brand::LOGO_PATH alt="" />
-                    })}
-                    <strong class="brand-name">{brand.name}</strong>
-                </span>
-            })}
-            <span class="tagline">{move || draft.with(|draft| draft.title().to_string())}</span>
-
-            <Show when=move || wants_time.get()>
-                <div class="picker">
-                    {PRESETS.into_iter().map(|(label, seconds)| {
-                        let active = move || custom.get().is_none() && chosen_range.get() == seconds;
-                        view! {
-                            <button class:active=active on:click=move |_| apply_preset(seconds)>
-                                {label}
-                            </button>
-                        }
-                    }).collect_view()}
-                    <CustomRange on_apply=move |range| {
-                        set_custom.set(Some(range));
-                        apply_range(range);
-                    } />
-                </div>
-            </Show>
-
-            <span class="applied" class:pending=move || !surface.with(SurfaceState::applied)>
-                {move || if surface.with(SurfaceState::applied) { "applied" } else { "applying…" }}
-            </span>
-
-            // Only while there is something outstanding. A surface with nothing
-            // owed should not carry a permanent badge saying so.
-            <Show when=move || writing.get() != 0>
-                <span class="saving">"saving…"</span>
-            </Show>
-
-            <span class="link" class:down=move || !connected.get()>
-                {move || if connected.get() { "live" } else { "reconnecting" }}
-            </span>
-
-            // Absent rather than disabled where the shell writes nothing.
-            // A disabled control says "not for you, not now"; there is no
-            // later here, and no explanation that would make one appear.
-            // Composing is the surface's, and there is none on screen while a
-            // page is open.
-            <Show when=move || !read_only.get() && open.with(Option::is_none)>
-                <button
-                    class="mode"
-                    class:active=composing
-                    disabled=move || !editable()
-                    title=move || if editable() {
-                        String::new()
-                    } else {
-                        "This layout belongs to someone else. Fork it to make changes".to_string()
-                    }
-                    on:click=move |_| set_mode.update(|mode| {
-                        *mode = if *mode == Mode::Composing {
-                            Mode::Watching
-                        } else {
-                            Mode::Composing
-                        };
-                    })
-                >
-                    {move || if composing() { "Done" } else { "Edit" }}
-                </button>
-            </Show>
-
-            {move || viewer.get().map(|who| view! { <span class="viewer">{who}</span> })}
-
-            {move || sign_out.get().map(|path| view! {
-                <button
-                    class="mode sign-out"
-                    on:click=move |_| {
-                        let path = path.clone();
-                        leptos::task::spawn_local(async move {
-                            if let Err(reason) = crate::api::sign_out(&path).await {
-                                set_trouble.set(Some(reason));
-                            }
-                        });
-                    }
-                >
-                    "Sign out"
-                </button>
-            })}
-
-            // The front end's own, if it brought any: a theme switch, say.
-            // Drawn as given; the shell neither reads nor styles it.
-            {bar.map(|bar| view! { <div class="extra">{bar.run()}</div> })}
-        </header>
-
-        // The platforms' pages (HLIN-S-0007, *Pages*), and the way back to the
-        // surface, whenever there is a page to open or one is open. Only a
-        // navigation entry with a module is a page; the others were never
-        // drawn by the shell and are not now.
-        {move || {
-            let offered = catalog.with(|catalog| route::pages(catalog));
-            if offered.is_empty() && open.with(Option::is_none) {
-                return None;
-            }
-            let surface = draft
-                .with(|draft| draft.surface_id().map(|id| format!("/s/{id}")))
-                .unwrap_or_else(|| "/".to_string());
-            let mut previous: Option<String> = None;
-            let links = offered
-                .into_iter()
-                .map(|entry| {
-                    // Each platform's name once, before its first page.
-                    let heading = (previous.as_deref() != Some(entry.platform.as_str())).then(|| {
-                        previous = Some(entry.platform.clone());
-                        view! { <span class="pages-platform">{entry.platform_name.clone()}</span> }
-                    });
-                    let target = entry.target();
-                    let href = route::page_address(&target);
-                    let current = {
-                        let target = target.clone();
-                        move || open.with(|open| open.as_ref() == Some(&target)).then_some("page")
-                    };
-                    view! {
-                        {heading}
-                        <a
-                            class="page-link"
-                            href=href
-                            data-page=format!("{}/{}", entry.platform, entry.path)
-                            title=format!("{} — {}", entry.label, entry.platform_name)
-                            aria-current=current
-                            on:click=move |event: leptos::ev::MouseEvent| {
-                                if plain_click(&event) {
-                                    event.prevent_default();
-                                    open_page(target.clone());
-                                }
-                            }
-                        >
-                            {entry.label.clone()}
-                        </a>
-                    }
-                })
-                .collect_view();
-            Some(view! {
-                <nav class="pages" aria-label="Pages">
-                    <a
-                        class="page-link surface-link"
-                        href=surface
-                        aria-current=move || open.with(Option::is_none).then_some("page")
-                        on:click=move |event: leptos::ev::MouseEvent| {
-                            if plain_click(&event) {
-                                event.prevent_default();
-                                close_page();
-                            }
-                        }
-                    >
-                        "Surface"
-                    </a>
-                    {links}
-                </nav>
-            })
-        }}
-
-        {move || trouble.get().map(|reason| view! {
-            <p class="trouble">{reason}</p>
-        })}
 
         // Hidden rather than dropped while a page is open, so its panels, and
         // what their modules hold, are there to go back to.
-        <div class="stage" class:composing=composing hidden=move || open.with(Option::is_some)>
+        <div class="stage" class:composing=composing hidden=hidden>
             <Show when=composing>
                 <aside class="catalog">
                     <input
@@ -1036,6 +2052,7 @@ where
                             }.into_any()
                         }).collect_view()
                     }}
+                    <SurfaceJson />
                 </aside>
             </Show>
 
@@ -1055,8 +2072,8 @@ where
                 // The gesture listeners are on the window, not here. See the
                 // effect above.
             >
-                <Show when=move || draft.with(|draft| draft.panels().is_empty())>
-                    {move || view! { <Empty composing=composing() read_only=read_only.get() /> }}
+                <Show when=move || draft.with(|draft| draft.document().items.is_empty())>
+                    {move || view! { <Empty composing=composing() read_only=read_only.get() || !composed /> }}
                 </Show>
 
                 // One entry per panel, keyed, so a panel is created once and
@@ -1067,7 +2084,7 @@ where
                 // recreated is a module reloaded, and would never get as far as
                 // saying `ready`.
                 <For
-                    each=move || draft.with(|draft| panel_keys(draft.panels()))
+                    each=move || draft.with(|draft| panel_keys(&draft.panels()))
                     key=|key| key.clone()
                     children=move |key: String| {
                         let drawer = drawer.clone();
@@ -1075,7 +2092,7 @@ where
                         // This panel, as the draft has it now.
                         let instance = Memo::new({
                             let key = key.clone();
-                            move |_| draft.with(|draft| find_panel(draft.panels(), &key))
+                            move |_| draft.with(|draft| find_panel(&draft.panels(), &key))
                         });
                         // The same with its position set aside, which is what
                         // the heading and body are drawn from: a panel being
@@ -1391,6 +2408,68 @@ where
                     }
                 />
 
+                // The shell's own components on this surface, each in its
+                // cells: a bar, a content component, a page selector. Keyed
+                // like the panels, so each is created once and a content
+                // component keeps the page it shows while the draft moves.
+                <For
+                    each=move || draft.with(|draft| component_keys(draft.document()))
+                    key=|key| key.clone()
+                    children=move |key: String| {
+                        let drawer = item_drawer.clone();
+                        let item = Memo::new({
+                            let key = key.clone();
+                            move |_| draft.with(|draft| find_component(draft.document(), &key))
+                        });
+                        // What it is, with its position set aside: moving it
+                        // does not redraw it.
+                        let what = Memo::new(move |_| {
+                            item.get().map(|mut item| {
+                                *item.position_mut() = Placement::default();
+                                item
+                            })
+                        });
+                        let placed = move || item.with(|item| item.as_ref().map(LayoutItem::position).unwrap_or_default());
+                        view! {
+                            <section
+                                class="item"
+                                data-item=key.clone()
+                                data-type=move || what.with(|item| item.as_ref().map(LayoutItem::type_name).unwrap_or_default())
+                                data-x=move || placed().x.to_string()
+                                data-y=move || placed().y.to_string()
+                                data-w=move || placed().w.to_string()
+                                data-h=move || placed().h.to_string()
+                                style:grid-column=move || { let at = placed(); format!("{} / span {}", at.x + 1, at.w) }
+                                style:grid-row=move || { let at = placed(); format!("{} / span {}", at.y + 1, at.h) }
+                            >
+                                {move || match what.get() {
+                                    // On the shell, its bar is the shell's bar.
+                                    Some(LayoutItem::Bar(_)) => view! { <Bar placed=!is_shell /> }.into_any(),
+                                    Some(LayoutItem::Content(content)) => view! {
+                                        <Content
+                                            composes=is_shell && content.id == first_content(&draft.get_untracked())
+                                            id=content.id.clone().unwrap_or_default()
+                                            initial=content.initial.clone()
+                                            drawer=drawer.clone()
+                                        />
+                                    }
+                                    .into_any(),
+                                    // Its pages as controls while the surface is composed.
+                                    Some(LayoutItem::PageSelector(selector)) if composing() => view! {
+                                        <SelectorEditor selector=selector />
+                                    }
+                                    .into_any(),
+                                    Some(LayoutItem::PageSelector(selector)) => view! {
+                                        <PageSelector selector=selector />
+                                    }
+                                    .into_any(),
+                                    _ => ().into_any(),
+                                }}
+                            </section>
+                        }
+                    }
+                />
+
                 // While a panel is dragged or resized, a transparent sheet
                 // over the whole grid. A frame is another document: a pointer
                 // crossing one stops reaching this page, the window listeners
@@ -1401,16 +2480,6 @@ where
                 </Show>
             </main>
         </div>
-
-        {move || open.get().map(|target| view! {
-            <PageView
-                drawer=page_drawer.clone()
-                target=target
-                catalog=catalog
-                catalog_known=catalog_known
-                modules=modules
-            />
-        })}
     }
 }
 
@@ -1427,6 +2496,10 @@ fn PageView(
     catalog: ReadSignal<Vec<CatalogPlatform>>,
     catalog_known: ReadSignal<bool>,
     modules: RwSignal<BTreeMap<String, ModuleView>>,
+    /// Open over the whole shell, from its own address, rather than in a
+    /// content component: it carries the way back.
+    #[prop(default = false)]
+    full_width: bool,
 ) -> impl IntoView {
     // This opening's own instance: a page opened again is a new frame, and a
     // new instance, like a panel put on a surface twice.
@@ -1529,6 +2602,23 @@ fn PageView(
             data-module-cause=cause
         >
             <header class="page-head">
+                {full_width.then(|| {
+                    let close_page = shell().close_page;
+                    view! {
+                        <a
+                            class="page-back"
+                            href="/"
+                            on:click=move |event: leptos::ev::MouseEvent| {
+                                if plain_click(&event) {
+                                    event.prevent_default();
+                                    close_page.run(());
+                                }
+                            }
+                        >
+                            "← Back"
+                        </a>
+                    }
+                })}
                 <h2>{label}</h2>
                 <span class="page-platform">{platform}</span>
             </header>
@@ -1607,8 +2697,8 @@ fn Empty(composing: bool, read_only: bool) -> impl IntoView {
                 "Pick a panel on the left to put it here."
             } else if read_only {
                 // Telling somebody to press a button that is not there is
-                // worse than saying nothing, and this is the one screen where
-                // the difference between the two shells is visible.
+                // worse than saying nothing: on a read-only shell, and on a
+                // surface open inside another, which Edit does not compose.
                 "Nothing on this surface yet."
             } else {
                 "Nothing on this surface yet. Press Edit to compose one."
@@ -1982,6 +3072,13 @@ fn current_path() -> String {
         .unwrap_or_default()
 }
 
+/// The query string the address bar holds now, with its `?`, or nothing.
+fn current_search() -> String {
+    web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .unwrap_or_default()
+}
+
 /// Put an address in the address bar as a new history entry, without
 /// navigating: somewhere a person went, so back brings them back. Ignored on
 /// failure for the same reason as [`show_address`].
@@ -2036,6 +3133,42 @@ fn panel_key(index: usize, panel: &hlin_stream::layout::PanelInstanceDocument) -
         .id
         .clone()
         .unwrap_or_else(|| format!("unsaved:{index}"))
+}
+
+/// The id of a surface's first content component, where Edit composes the
+/// surface it opens when the surface is the shell.
+fn first_content(draft: &LayoutDraft) -> Option<String> {
+    draft.document().items.iter().find_map(|item| match item {
+        LayoutItem::Content(content) => content.id.clone(),
+        _ => None,
+    })
+}
+
+/// The key each shell component on the surface is drawn under: its id, or,
+/// for one with none yet, its place among the items.
+fn component_keys(document: &LayoutDocument) -> Vec<String> {
+    document
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.as_panel().is_none())
+        .map(|(index, item)| component_key(index, item))
+        .collect()
+}
+
+fn component_key(index: usize, item: &LayoutItem) -> String {
+    item.id()
+        .map_or_else(|| format!("unsaved-item:{index}"), str::to_string)
+}
+
+/// The shell component drawn under a key, if it is still on the surface.
+fn find_component(document: &LayoutDocument, key: &str) -> Option<LayoutItem> {
+    document
+        .items
+        .iter()
+        .enumerate()
+        .find(|(index, item)| item.as_panel().is_none() && component_key(*index, item) == key)
+        .map(|(_, item)| item.clone())
 }
 
 /// The panel drawn under a key, if it is still on the surface.

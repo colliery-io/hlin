@@ -91,6 +91,24 @@ fn asking_for_new_parameters_moves_the_generation_forward_at_once() {
 }
 
 #[test]
+fn a_generation_counted_for_the_page_is_adopted_and_never_moves_back() {
+    // Every surface on screen follows one time range, numbered by one counter.
+    let mut state = SurfaceState::new();
+    state.apply(&ready("p1", 1));
+
+    state.adopt_generation(7);
+    assert_eq!(state.generation(), 7);
+    assert!(!state.applied(), "the shell has not taken 7 yet");
+    assert!(
+        !state.apply(&ready("p1", 6)),
+        "an answer to an earlier ask is stale"
+    );
+
+    state.adopt_generation(3);
+    assert_eq!(state.generation(), 7, "a lower number is ignored");
+}
+
+#[test]
 fn an_acknowledgement_moves_the_generation_but_not_backwards() {
     let mut state = SurfaceState::new();
 

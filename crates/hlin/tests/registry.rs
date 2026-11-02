@@ -84,9 +84,11 @@ fn config(debounce: i32) -> Config {
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
         ca_bundle: None,
+        default_surface: None,
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::default(),
         timings: Timings {

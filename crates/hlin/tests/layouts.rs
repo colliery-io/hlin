@@ -25,6 +25,16 @@ use hlin_stream::layout::{
 };
 use tower::ServiceExt;
 
+/// Panels as items.
+fn items(panels: Vec<PanelInstanceDocument>) -> Vec<hlin_stream::layout::LayoutItem> {
+    panels.into_iter().map(Into::into).collect()
+}
+
+/// The panels on a layout, in order.
+fn panels(layout: &LayoutDocument) -> Vec<PanelInstanceDocument> {
+    layout.panels().cloned().collect()
+}
+
 const PLATFORM: &str = "orebank";
 const OTHER: &str = "smelter";
 
@@ -103,9 +113,11 @@ fn config() -> Config {
         issuer: "hlin".to_string(),
         key_path: "/tmp/unused.key".into(),
         ca_bundle: None,
+        default_surface: None,
         brand: Default::default(),
         database_url: None,
         database_url_env: None,
+        admin: Default::default(),
         frontend: "unused".into(),
         auth: AuthConfig::default(),
         timings: Timings {
@@ -349,7 +361,7 @@ async fn a_module_only_panel_sits_on_a_surface_without_the_shell_fetching_for_it
     let (_, home) = call(&app, get("/api/layouts/home")).await;
     let mut layout: LayoutDocument = serde_json::from_value(home).expect("a layout");
     let id = layout.id.clone().expect("an identity");
-    layout.panels = vec![
+    layout.items = items(vec![
         PanelInstanceDocument::new(OTHER, "board", Placement::default()),
         PanelInstanceDocument::new(
             PLATFORM,
@@ -359,7 +371,7 @@ async fn a_module_only_panel_sits_on_a_surface_without_the_shell_fetching_for_it
                 ..Placement::default()
             },
         ),
-    ];
+    ]);
     let (status, body) = call(
         &app,
         send(
@@ -371,8 +383,8 @@ async fn a_module_only_panel_sits_on_a_surface_without_the_shell_fetching_for_it
     .await;
     assert_eq!(status, StatusCode::OK, "a module panel can be placed");
     let written: LayoutDocument = serde_json::from_value(body).expect("a layout");
-    let board = written.panels[0].id.clone().expect("an identity");
-    let throughput = written.panels[1].id.clone().expect("an identity");
+    let board = panels(&written)[0].id.clone().expect("an identity");
+    let throughput = panels(&written)[1].id.clone().expect("an identity");
 
     let headers = axum::http::HeaderMap::new();
     let principal = config
@@ -414,7 +426,7 @@ async fn a_first_visit_lands_on_a_layout_that_did_not_exist_yet() {
 
     let layout: LayoutDocument = serde_json::from_value(body).expect("a layout");
     assert!(layout.id.is_some(), "it was stored, so it has an identity");
-    assert!(layout.panels.is_empty(), "and nothing on it yet");
+    assert!(panels(&layout).is_empty(), "and nothing on it yet");
     assert!(layout.editable, "the principal who got it owns it");
 
     // Asking again returns the same one rather than making a second.
@@ -435,7 +447,7 @@ async fn panels_added_by_the_browser_are_given_identities_and_survive_a_reload()
     let mut layout: LayoutDocument = serde_json::from_value(home).expect("a layout");
     let id = layout.id.clone().expect("an identity");
 
-    layout.panels = vec![
+    layout.items = items(vec![
         PanelInstanceDocument::new(
             PLATFORM,
             "throughput",
@@ -456,7 +468,7 @@ async fn panels_added_by_the_browser_are_given_identities_and_survive_a_reload()
                 h: 4,
             },
         ),
-    ];
+    ]);
 
     let (status, body) = call(
         &app,
@@ -470,8 +482,8 @@ async fn panels_added_by_the_browser_are_given_identities_and_survive_a_reload()
     assert_eq!(status, StatusCode::OK);
 
     let written: LayoutDocument = serde_json::from_value(body).expect("a layout");
-    assert_eq!(written.panels.len(), 2);
-    for panel in &written.panels {
+    assert_eq!(panels(&written).len(), 2);
+    for panel in &panels(&written) {
         assert!(
             panel.id.is_some(),
             "the shell assigns identity, so the stream has something to name"
@@ -481,17 +493,15 @@ async fn panels_added_by_the_browser_are_given_identities_and_survive_a_reload()
     // A reload is a fresh GET, and it must show the same arrangement.
     let (_, reloaded) = call(&app, get(&format!("/api/layouts/{id}"))).await;
     let reloaded: LayoutDocument = serde_json::from_value(reloaded).expect("a layout");
-    assert_eq!(reloaded.panels.len(), 2);
-    assert_eq!(reloaded.panels[0].position.w, 6);
-    assert_eq!(reloaded.panels[1].position.x, 6);
+    assert_eq!(panels(&reloaded).len(), 2);
+    assert_eq!(panels(&reloaded)[0].position.w, 6);
+    assert_eq!(panels(&reloaded)[1].position.x, 6);
     assert_eq!(
-        reloaded
-            .panels
+        panels(&reloaded)
             .iter()
             .map(|p| p.id.clone())
             .collect::<Vec<_>>(),
-        written
-            .panels
+        panels(&written)
             .iter()
             .map(|p| p.id.clone())
             .collect::<Vec<_>>(),
@@ -507,11 +517,11 @@ async fn a_second_write_keeps_the_identities_the_first_one_assigned() {
     let mut layout: LayoutDocument = serde_json::from_value(home).expect("a layout");
     let id = layout.id.clone().expect("an identity");
 
-    layout.panels = vec![PanelInstanceDocument::new(
+    layout.items = items(vec![PanelInstanceDocument::new(
         PLATFORM,
         "throughput",
         Placement::default(),
-    )];
+    )]);
     let (_, first) = call(
         &app,
         send(
@@ -522,10 +532,10 @@ async fn a_second_write_keeps_the_identities_the_first_one_assigned() {
     )
     .await;
     let mut first: LayoutDocument = serde_json::from_value(first).expect("a layout");
-    let assigned = first.panels[0].id.clone().expect("an identity");
+    let assigned = panels(&first)[0].id.clone().expect("an identity");
 
     // The viewer drags it. Same panel, new position.
-    first.panels[0].position = Placement {
+    *first.items[0].position_mut() = Placement {
         x: 3,
         y: 2,
         w: 5,
@@ -543,12 +553,77 @@ async fn a_second_write_keeps_the_identities_the_first_one_assigned() {
     let second: LayoutDocument = serde_json::from_value(second).expect("a layout");
 
     assert_eq!(
-        second.panels[0].id.as_deref(),
+        panels(&second)[0].id.as_deref(),
         Some(assigned.as_str()),
         "moving a panel does not make it a different panel, or the open stream \
          would stop naming it"
     );
-    assert_eq!(second.panels[0].position.x, 3);
+    assert_eq!(panels(&second)[0].position.x, 3);
+}
+
+#[tokio::test]
+async fn a_layout_of_every_item_type_is_stored_and_read_back() {
+    let (app, _, _) = shell().await;
+
+    let (_, home) = call(&app, get("/api/layouts/home")).await;
+    let layout: LayoutDocument = serde_json::from_value(home).expect("a layout");
+    let id = layout.id.clone().expect("an identity");
+
+    let body = serde_json::json!({
+        "title": "Shell",
+        "visibility": "personal",
+        "items": [
+            { "type": "bar", "id": "top", "position": { "x": 0, "y": 0, "w": 12, "h": 1 } },
+            { "type": "page-selector", "id": "nav", "style": "tabs", "target": "main",
+              "position": { "x": 0, "y": 1, "w": 12, "h": 1 },
+              "groups": [ { "label": "Work", "pages": [
+                  { "page": { "platform": PLATFORM, "path": "/board" }, "label": "Board" },
+                  { "view": "settings" }
+              ] } ] },
+            { "type": "content", "id": "main", "initial": { "view": "settings" },
+              "position": { "x": 0, "y": 2, "w": 12, "h": 6 } },
+            { "type": "panel", "platform_id": PLATFORM, "panel_key": "throughput",
+              "position": { "x": 0, "y": 8, "w": 6, "h": 4 } }
+        ]
+    });
+    let (status, written) = call(&app, send("PUT", &format!("/api/layouts/{id}"), &body)).await;
+    assert_eq!(status, StatusCode::OK, "{written}");
+
+    let (_, reloaded) = call(&app, get(&format!("/api/layouts/{id}"))).await;
+    let reloaded: LayoutDocument = serde_json::from_value(reloaded).expect("a layout");
+    let kinds: Vec<&str> = reloaded.items.iter().map(|item| item.type_name()).collect();
+    assert_eq!(kinds, ["bar", "page-selector", "content", "panel"]);
+    let ids: Vec<Option<&str>> = reloaded.items.iter().map(|item| item.id()).collect();
+    assert_eq!(&ids[..3], [Some("top"), Some("nav"), Some("main")]);
+    assert!(ids[3].is_some(), "the panel was given an identity");
+    assert_eq!(
+        serde_json::to_value(&reloaded.items[1]).expect("serialises"),
+        body["items"][1],
+        "the selector comes back as it was sent"
+    );
+}
+
+#[tokio::test]
+async fn an_item_of_an_unknown_type_is_refused_with_a_reason() {
+    let (app, _, _) = shell().await;
+
+    let (_, home) = call(&app, get("/api/layouts/home")).await;
+    let layout: LayoutDocument = serde_json::from_value(home).expect("a layout");
+    let id = layout.id.clone().expect("an identity");
+
+    let body = serde_json::json!({
+        "title": "Shell",
+        "visibility": "personal",
+        "items": [ { "type": "clock", "id": "c" } ]
+    });
+    let (status, answer) = call(&app, send("PUT", &format!("/api/layouts/{id}"), &body)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let reason = answer["error"].as_str().expect("a reason");
+    assert!(reason.contains("`clock`"), "{reason}");
+
+    let (_, reloaded) = call(&app, get(&format!("/api/layouts/{id}"))).await;
+    let reloaded: LayoutDocument = serde_json::from_value(reloaded).expect("a layout");
+    assert!(reloaded.items.is_empty(), "nothing was written");
 }
 
 #[tokio::test]
@@ -559,7 +634,7 @@ async fn a_position_off_the_grid_is_pulled_back_rather_than_refused() {
     let mut layout: LayoutDocument = serde_json::from_value(home).expect("a layout");
     let id = layout.id.clone().expect("an identity");
 
-    layout.panels = vec![PanelInstanceDocument {
+    layout.items = items(vec![PanelInstanceDocument {
         position: Placement {
             x: 11,
             y: 0,
@@ -567,7 +642,7 @@ async fn a_position_off_the_grid_is_pulled_back_rather_than_refused() {
             h: 0,
         },
         ..PanelInstanceDocument::new(PLATFORM, "throughput", Placement::default())
-    }];
+    }]);
 
     let (status, body) = call(
         &app,
@@ -585,7 +660,7 @@ async fn a_position_off_the_grid_is_pulled_back_rather_than_refused() {
     );
 
     let written: LayoutDocument = serde_json::from_value(body).expect("a layout");
-    let position = written.panels[0].position;
+    let position = panels(&written)[0].position;
     assert_eq!(position.x, 6, "pulled left until the panel fits");
     assert_eq!(position.h, 1, "and given a height it can be seen at");
 }
@@ -603,7 +678,7 @@ async fn a_layout_belonging_to_someone_else_is_readable_and_not_writable() {
             visibility: hlin::store::Visibility::Published,
             forked_from: None,
             time_range: None,
-            panels: vec![],
+            items: vec![],
         })
         .await
         .expect("the store accepts it");
@@ -952,6 +1027,7 @@ fn trusted_header_config() -> Config {
         header: "x-forwarded-user".to_string(),
         groups_header: Some("x-forwarded-groups".to_string()),
         name_header: None,
+        admin_groups: vec![],
         acknowledge_proxy_required: true,
     };
     config
@@ -1016,6 +1092,7 @@ fn trusted_header_must_acknowledge_what_it_trusts() {
         header: "x-forwarded-user".to_string(),
         groups_header: None,
         name_header: None,
+        admin_groups: vec![],
         acknowledge_proxy_required: false,
     };
 
@@ -1066,7 +1143,7 @@ async fn a_layout_belongs_to_whoever_the_header_named() {
                 .header("content-type", "application/json")
                 .header("x-forwarded-user", "grace")
                 .body(Body::from(
-                    r#"{"title":"Grace's now","visibility":"personal","panels":[]}"#,
+                    r#"{"title":"Grace's now","visibility":"personal","items":[]}"#,
                 ))
                 .unwrap(),
         )
@@ -1113,6 +1190,8 @@ fn oidc_config() -> Config {
         public_url: "https://hlin.example.com".to_string(),
         scopes: vec!["openid".to_string()],
         groups_claim: "groups".to_string(),
+        admin_claim: None,
+        admin_values: vec![],
         session_hours: 12,
         cookie: Default::default(),
     });
@@ -1129,6 +1208,7 @@ async fn signed_in(store: &Arc<dyn Store>, subject: &str) -> String {
             name: None,
             email: Some(format!("{subject}@example.com")),
             groups: vec![],
+            admin_claim: vec![],
             created_at: chrono::Utc::now(),
             expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
         })
@@ -1176,7 +1256,7 @@ async fn a_session_cookie_is_who_the_holder_is() {
                 .header("content-type", "application/json")
                 .header("cookie", &grace)
                 .body(Body::from(
-                    r#"{"title":"Grace's now","visibility":"personal","panels":[]}"#,
+                    r#"{"title":"Grace's now","visibility":"personal","items":[]}"#,
                 ))
                 .unwrap(),
         )
@@ -1197,6 +1277,7 @@ async fn a_session_that_is_over_is_nobody() {
             name: None,
             email: None,
             groups: vec![],
+            admin_claim: vec![],
             created_at: chrono::Utc::now() - chrono::Duration::hours(13),
             expires_at: chrono::Utc::now() - chrono::Duration::hours(1),
         })
@@ -1391,4 +1472,90 @@ fn oidc_refuses_a_configuration_that_would_fail_quietly() {
         refused(|oidc| oidc.client_secret_env = "HLIN_TEST_NOT_SET".to_string())
             .contains("HLIN_TEST_NOT_SET")
     );
+}
+
+// -- The shell at `/` (HLIN-T-0115) -----------------------------------------
+
+#[tokio::test]
+async fn the_built_in_shell_lists_a_persons_surfaces_and_the_platforms_pages() {
+    use hlin_stream::layout::{LayoutItem, Page, SelectorStyle};
+
+    let (app, _, _) = shell().await;
+
+    let (status, body) = call(&app, get("/api/shell")).await;
+    assert_eq!(status, StatusCode::OK);
+    let shell: LayoutDocument = serde_json::from_value(body).expect("a surface");
+    assert_eq!(shell.id, None, "not stored");
+    assert!(!shell.editable, "not edited");
+    assert_eq!(shell.visibility, hlin::shell::SHELL_VISIBILITY);
+
+    // The same home `/api/layouts/home` gives, which a first visit created.
+    let (_, home) = call(&app, get("/api/layouts/home")).await;
+    let home: LayoutDocument = serde_json::from_value(home).expect("a layout");
+    let home = home.id.expect("stored");
+
+    let [
+        LayoutItem::Bar(_),
+        LayoutItem::PageSelector(selector),
+        LayoutItem::Content(main),
+    ] = shell.items.as_slice()
+    else {
+        panic!(
+            "a bar, a selector and a content component: {:?}",
+            shell.items
+        );
+    };
+    assert_eq!(selector.style, SelectorStyle::Rail);
+    assert_eq!(selector.target, hlin::shell::MAIN);
+    assert_eq!(main.id.as_deref(), Some(hlin::shell::MAIN));
+    assert_eq!(main.initial, Some(Page::Surface(home.clone())));
+
+    let groups: Vec<(&str, Vec<&Page>)> = selector
+        .groups
+        .iter()
+        .map(|group| {
+            (
+                group.label.as_str(),
+                group.pages.iter().map(|page| &page.page).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(groups[0].0, "Surfaces");
+    assert_eq!(groups[0].1, vec![&Page::Surface(home)]);
+    // Only the pages a module draws: smelter's `lists`, not its plain link or
+    // the entry it was refused. Orebank has none, so no group.
+    assert_eq!(groups.len(), 2, "{groups:?}");
+    let pages = &selector.groups[1].pages;
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0].label.as_deref(), Some("Lists"));
+    assert!(
+        matches!(&pages[0].page, Page::Page(page) if page.platform == OTHER && page.path == "lists")
+    );
+}
+
+#[tokio::test]
+async fn an_operators_shell_is_served_as_written() {
+    let path = std::env::temp_dir().join(format!("hlin-shell-test-{}.json", std::process::id()));
+    std::fs::write(
+        &path,
+        r#"{ "title": "Ops", "items": [
+            { "type": "content", "id": "main", "position": { "x": 0, "y": 0, "w": 12, "h": 8 },
+              "initial": { "view": "about" } }
+        ] }"#,
+    )
+    .expect("write");
+
+    let (app, _, _) = shell_with(Config {
+        default_surface: Some(path.clone()),
+        ..config()
+    })
+    .await;
+
+    let (status, body) = call(&app, get("/api/shell")).await;
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(status, StatusCode::OK);
+    let shell: LayoutDocument = serde_json::from_value(body).expect("a surface");
+    assert_eq!(shell.title, "Ops");
+    assert_eq!(shell.items.len(), 1);
+    assert!(!shell.editable);
 }

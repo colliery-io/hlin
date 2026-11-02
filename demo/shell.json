@@ -1,0 +1,28 @@
+{
+  "title": "Operator shell",
+  "items": [
+    { "type": "bar", "id": "bar", "position": { "x": 0, "y": 0, "w": 12, "h": 1 } },
+    {
+      "type": "page-selector",
+      "id": "tabs",
+      "style": "tabs",
+      "target": "main",
+      "position": { "x": 0, "y": 1, "w": 12, "h": 1 },
+      "groups": [
+        {
+          "label": "Pages",
+          "pages": [
+            { "view": "about", "label": "About" },
+            { "page": { "platform": "orebank", "path": "module-page" } }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "content",
+      "id": "main",
+      "position": { "x": 0, "y": 2, "w": 12, "h": 10 },
+      "initial": { "view": "about" }
+    }
+  ]
+}

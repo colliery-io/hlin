@@ -7,9 +7,9 @@
 //! [`sqlx::migrate!`], which reads a directory at compile time and needs no
 //! connection.
 //!
-//! Every operation on a layout is one statement or one transaction. A layout
-//! and its panels are edited as one thing, so writing them separately would
-//! leave a window where a surface has yesterday's panels and today's settings.
+//! Every operation on a layout is one statement. A layout and its items are
+//! one row, with the items as one JSON list, so a surface never has
+//! yesterday's items and today's settings.
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -18,8 +18,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
 use uuid::Uuid;
 
 use super::types::{
-    Layout, NewLayout, PanelInstance, PendingLogin, PlatformSnapshot, Session, Violation,
-    Visibility,
+    Layout, LayoutItem, NewLayout, PendingLogin, PlatformSnapshot, Session, Violation, Visibility,
 };
 use super::{Result, Store, StoreError};
 
@@ -91,13 +90,17 @@ fn snapshot_from_row(row: &PgRow) -> Result<PlatformSnapshot> {
     })
 }
 
-fn layout_from_row(row: &PgRow, panels: Vec<PanelInstance>) -> Result<Layout> {
+fn layout_from_row(row: &PgRow) -> Result<Layout> {
     let visibility: String = row.try_get("visibility").map_err(unavailable)?;
     let visibility = Visibility::parse(&visibility).ok_or_else(|| {
         StoreError::Corrupt(format!(
             "`{visibility}` is not a visibility this shell knows"
         ))
     })?;
+
+    let items: serde_json::Value = row.try_get("items").map_err(unavailable)?;
+    let items: Vec<LayoutItem> = serde_json::from_value(items)
+        .map_err(|error| StoreError::Corrupt(format!("layout items: {error}")))?;
 
     Ok(Layout {
         id: row.try_get("id").map_err(unavailable)?,
@@ -106,55 +109,18 @@ fn layout_from_row(row: &PgRow, panels: Vec<PanelInstance>) -> Result<Layout> {
         visibility,
         forked_from: row.try_get("forked_from").map_err(unavailable)?,
         time_range: row.try_get("time_range").map_err(unavailable)?,
-        panels,
+        items,
         created_at: row.try_get("created_at").map_err(unavailable)?,
         updated_at: row.try_get("updated_at").map_err(unavailable)?,
     })
 }
 
-fn panel_from_row(row: &PgRow) -> Result<PanelInstance> {
-    Ok(PanelInstance {
-        id: row.try_get("id").map_err(unavailable)?,
-        platform_id: row.try_get("platform_id").map_err(unavailable)?,
-        panel_key: row.try_get("panel_key").map_err(unavailable)?,
-        kind_override: row.try_get("kind_override").map_err(unavailable)?,
-        title_override: row.try_get("title_override").map_err(unavailable)?,
-        selections: row.try_get("selections").map_err(unavailable)?,
-        customizations: row.try_get("customizations").map_err(unavailable)?,
-        position: row.try_get("position").map_err(unavailable)?,
-        created_at: row.try_get("created_at").map_err(unavailable)?,
-    })
+fn items_value(items: &[LayoutItem]) -> Result<serde_json::Value> {
+    serde_json::to_value(items).map_err(|error| StoreError::Unavailable(error.to_string()))
 }
 
 const LAYOUT_COLUMNS: &str =
-    "id, owner, title, visibility, forked_from, time_range, created_at, updated_at";
-
-const PANEL_COLUMNS: &str = "id, platform_id, panel_key, kind_override, title_override, \
-     selections, customizations, position, created_at";
-
-impl PostgresStore {
-    async fn panels_for(&self, layout_id: Uuid) -> Result<Vec<PanelInstance>> {
-        let query = format!(
-            "SELECT {PANEL_COLUMNS} FROM panel_instances WHERE layout_id = $1 ORDER BY created_at, id"
-        );
-        let rows = sqlx::query(&query)
-            .bind(layout_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(unavailable)?;
-        rows.iter().map(panel_from_row).collect()
-    }
-
-    async fn hydrate(&self, rows: Vec<PgRow>) -> Result<Vec<Layout>> {
-        let mut layouts = Vec::with_capacity(rows.len());
-        for row in rows {
-            let id: Uuid = row.try_get("id").map_err(unavailable)?;
-            let panels = self.panels_for(id).await?;
-            layouts.push(layout_from_row(&row, panels)?);
-        }
-        Ok(layouts)
-    }
-}
+    "id, owner, title, visibility, forked_from, time_range, items, created_at, updated_at";
 
 #[async_trait]
 impl Store for PostgresStore {
@@ -279,13 +245,7 @@ impl Store for PostgresStore {
             .await
             .map_err(unavailable)?;
 
-        match row {
-            Some(row) => {
-                let panels = self.panels_for(id).await?;
-                Ok(Some(layout_from_row(&row, panels)?))
-            }
-            None => Ok(None),
-        }
+        row.as_ref().map(layout_from_row).transpose()
     }
 
     async fn layouts_owned_by(&self, owner: &str) -> Result<Vec<Layout>> {
@@ -297,7 +257,7 @@ impl Store for PostgresStore {
             .fetch_all(&self.pool)
             .await
             .map_err(unavailable)?;
-        self.hydrate(rows).await
+        rows.iter().map(layout_from_row).collect()
     }
 
     async fn published_layouts(&self) -> Result<Vec<Layout>> {
@@ -309,19 +269,70 @@ impl Store for PostgresStore {
             .fetch_all(&self.pool)
             .await
             .map_err(unavailable)?;
-        self.hydrate(rows).await
+        rows.iter().map(layout_from_row).collect()
+    }
+
+    async fn public_layouts(&self) -> Result<Vec<Layout>> {
+        let query = format!(
+            "SELECT {LAYOUT_COLUMNS} FROM layouts WHERE visibility = 'public' \
+             ORDER BY updated_at DESC"
+        );
+        let rows = sqlx::query(&query)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(unavailable)?;
+        rows.iter().map(layout_from_row).collect()
+    }
+
+    async fn org_default(&self) -> Result<Option<Uuid>> {
+        let row = sqlx::query("SELECT layout_id FROM org_default")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(unavailable)?;
+        row.map(|row| row.try_get("layout_id").map_err(unavailable))
+            .transpose()
+    }
+
+    async fn set_org_default(&self, id: Option<Uuid>) -> Result<()> {
+        let Some(id) = id else {
+            sqlx::query("DELETE FROM org_default")
+                .execute(&self.pool)
+                .await
+                .map_err(unavailable)?;
+            return Ok(());
+        };
+
+        // One statement, so a layout deleted at the same moment cannot leave a
+        // default naming nothing: the insert finds no row and writes none.
+        let done = sqlx::query(
+            "INSERT INTO org_default (singleton, layout_id, set_at)
+             SELECT TRUE, id, $2 FROM layouts WHERE id = $1
+             ON CONFLICT (singleton) DO UPDATE
+                 SET layout_id = EXCLUDED.layout_id, set_at = EXCLUDED.set_at",
+        )
+        .bind(id)
+        .bind(Utc::now())
+        .execute(&self.pool)
+        .await
+        .map_err(unavailable)?;
+
+        if done.rows_affected() == 0 {
+            return Err(StoreError::NotFound {
+                entity: "layout",
+                id: id.to_string(),
+            });
+        }
+        Ok(())
     }
 
     async fn create_layout(&self, new: NewLayout) -> Result<Layout> {
         let id = Uuid::new_v4();
         let now = Utc::now();
 
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-
         sqlx::query(
             "INSERT INTO layouts (id, owner, title, visibility, forked_from, time_range, \
-                                  created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $7)",
+                                  items, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)",
         )
         .bind(id)
         .bind(&new.owner)
@@ -329,16 +340,11 @@ impl Store for PostgresStore {
         .bind(new.visibility.as_str())
         .bind(new.forked_from)
         .bind(&new.time_range)
+        .bind(items_value(&new.items)?)
         .bind(now)
-        .execute(&mut *transaction)
+        .execute(&self.pool)
         .await
         .map_err(unavailable)?;
-
-        for panel in &new.panels {
-            insert_panel(&mut transaction, id, panel).await?;
-        }
-
-        transaction.commit().await.map_err(unavailable)?;
 
         Ok(Layout {
             id,
@@ -347,26 +353,27 @@ impl Store for PostgresStore {
             visibility: new.visibility,
             forked_from: new.forked_from,
             time_range: new.time_range,
-            panels: new.panels,
+            items: new.items,
             created_at: now,
             updated_at: now,
         })
     }
 
     async fn update_layout(&self, layout: &Layout) -> Result<()> {
-        let now = Utc::now();
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-
+        // Items are replaced wholesale. A layout is edited as one thing, and
+        // reconciling single items would cost more than it saves on surfaces
+        // this size.
         let done = sqlx::query(
-            "UPDATE layouts SET title = $2, visibility = $3, time_range = $4, updated_at = $5 \
-             WHERE id = $1",
+            "UPDATE layouts SET title = $2, visibility = $3, time_range = $4, items = $5, \
+             updated_at = $6 WHERE id = $1",
         )
         .bind(layout.id)
         .bind(&layout.title)
         .bind(layout.visibility.as_str())
         .bind(&layout.time_range)
-        .bind(now)
-        .execute(&mut *transaction)
+        .bind(items_value(&layout.items)?)
+        .bind(Utc::now())
+        .execute(&self.pool)
         .await
         .map_err(unavailable)?;
 
@@ -376,25 +383,11 @@ impl Store for PostgresStore {
                 id: layout.id.to_string(),
             });
         }
-
-        // Panels are replaced wholesale. A layout is edited as one thing, and
-        // reconciling individual panels would cost more than it saves on
-        // surfaces this size.
-        sqlx::query("DELETE FROM panel_instances WHERE layout_id = $1")
-            .bind(layout.id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(unavailable)?;
-
-        for panel in &layout.panels {
-            insert_panel(&mut transaction, layout.id, panel).await?;
-        }
-
-        transaction.commit().await.map_err(unavailable)
+        Ok(())
     }
 
     async fn delete_layout(&self, id: Uuid) -> Result<bool> {
-        // Panels go with it by cascade; forks survive with their provenance
+        // Its items are on its row; forks survive with their provenance
         // cleared, by the ON DELETE SET NULL on the reference.
         let done = sqlx::query("DELETE FROM layouts WHERE id = $1")
             .bind(id)
@@ -412,18 +405,11 @@ impl Store for PostgresStore {
 
         self.create_layout(NewLayout {
             owner: new_owner.to_string(),
-            title: original.title,
+            title: original.title.clone(),
             visibility: Visibility::Personal,
             forked_from: Some(original.id),
-            time_range: original.time_range,
-            panels: original
-                .panels
-                .into_iter()
-                .map(|panel| PanelInstance {
-                    id: Uuid::new_v4(),
-                    ..panel
-                })
-                .collect(),
+            time_range: original.time_range.clone(),
+            items: original.forked_items(),
         })
         .await
     }
@@ -479,14 +465,16 @@ impl Store for PostgresStore {
 
     async fn create_session(&self, session: Session) -> Result<()> {
         sqlx::query(
-            "INSERT INTO sessions (id, subject, name, email, groups, created_at, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            "INSERT INTO sessions (id, subject, name, email, groups, admin_claim, created_at, \
+                                   expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(&session.id)
         .bind(&session.subject)
         .bind(&session.name)
         .bind(&session.email)
         .bind(serde_json::to_value(&session.groups).unwrap_or_default())
+        .bind(serde_json::to_value(&session.admin_claim).unwrap_or_default())
         .bind(session.created_at)
         .bind(session.expires_at)
         .execute(&self.pool)
@@ -499,7 +487,7 @@ impl Store for PostgresStore {
         // Expiry is in the query as well as on the type: a sweeper that has not
         // run yet must never be the reason an expired session still works.
         let row = sqlx::query(
-            "SELECT id, subject, name, email, groups, created_at, expires_at
+            "SELECT id, subject, name, email, groups, admin_claim, created_at, expires_at
              FROM sessions WHERE id = $1 AND expires_at > now()",
         )
         .bind(id)
@@ -514,6 +502,9 @@ impl Store for PostgresStore {
         let groups: serde_json::Value = row.get("groups");
         let groups = serde_json::from_value(groups)
             .map_err(|error| StoreError::Corrupt(format!("session groups: {error}")))?;
+        let admin_claim: serde_json::Value = row.get("admin_claim");
+        let admin_claim = serde_json::from_value(admin_claim)
+            .map_err(|error| StoreError::Corrupt(format!("session admin claim: {error}")))?;
 
         Ok(Some(Session {
             id: row.get("id"),
@@ -521,6 +512,7 @@ impl Store for PostgresStore {
             name: row.get("name"),
             email: row.get("email"),
             groups,
+            admin_claim,
             created_at: row.get("created_at"),
             expires_at: row.get("expires_at"),
         }))
@@ -548,30 +540,4 @@ impl Store for PostgresStore {
 
         Ok(sessions.rows_affected() + logins.rows_affected())
     }
-}
-
-async fn insert_panel(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    layout_id: Uuid,
-    panel: &PanelInstance,
-) -> Result<()> {
-    sqlx::query(
-        "INSERT INTO panel_instances (id, layout_id, platform_id, panel_key, kind_override, \
-                                      title_override, selections, customizations, position, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-    )
-    .bind(panel.id)
-    .bind(layout_id)
-    .bind(&panel.platform_id)
-    .bind(&panel.panel_key)
-    .bind(&panel.kind_override)
-    .bind(&panel.title_override)
-    .bind(&panel.selections)
-    .bind(&panel.customizations)
-    .bind(&panel.position)
-    .bind(panel.created_at)
-    .execute(&mut **transaction)
-    .await
-    .map_err(unavailable)?;
-    Ok(())
 }

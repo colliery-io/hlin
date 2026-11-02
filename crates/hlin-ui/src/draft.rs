@@ -11,7 +11,10 @@
 
 use std::collections::BTreeMap;
 
-use hlin_stream::layout::{CatalogPlatform, LayoutDocument, PanelInstanceDocument, Placement};
+use hlin_stream::layout::{
+    CatalogPlatform, LayoutDocument, LayoutItem, Page, PageEntry, PageGroup, PageSelectorItem,
+    PanelInstanceDocument, Placement,
+};
 
 use crate::grid;
 
@@ -48,9 +51,9 @@ impl LayoutDraft {
         &self.document
     }
 
-    /// The panels on it.
-    pub fn panels(&self) -> &[PanelInstanceDocument] {
-        &self.document.panels
+    /// The panels on it, in order. Other items are left out.
+    pub fn panels(&self) -> Vec<PanelInstanceDocument> {
+        self.document.panels().cloned().collect()
     }
 
     /// What it is called.
@@ -90,16 +93,16 @@ impl LayoutDraft {
         grid::depth(&self.placements())
     }
 
-    /// Where a panel sits, by its instance id.
+    /// Where an item sits, by its id.
     pub fn placement_of(&self, instance: &str) -> Option<Placement> {
         self.index_of(instance)
-            .map(|index| self.document.panels[index].position)
+            .map(|index| self.document.items[index].position())
     }
 
     /// The panel with this instance id.
     pub fn panel(&self, instance: &str) -> Option<&PanelInstanceDocument> {
         self.index_of(instance)
-            .map(|index| &self.document.panels[index])
+            .and_then(|index| self.document.items[index].as_panel())
     }
 
     // -- Composition ------------------------------------------------------
@@ -114,13 +117,13 @@ impl LayoutDraft {
         let position = grid::first_free(&taken, w, h);
 
         self.document
-            .panels
-            .push(PanelInstanceDocument::new(platform_id, panel_key, position));
+            .items
+            .push(PanelInstanceDocument::new(platform_id, panel_key, position).into());
         self.arrange(None);
         self.dirty = true;
     }
 
-    /// Take a panel off the surface.
+    /// Take an item off the surface.
     ///
     /// What is left settles upwards, so removing a panel from the top does not
     /// leave a band of nothing where it was.
@@ -128,12 +131,12 @@ impl LayoutDraft {
         let Some(index) = self.index_of(instance) else {
             return;
         };
-        self.document.panels.remove(index);
+        self.document.items.remove(index);
         self.arrange(None);
         self.dirty = true;
     }
 
-    /// Move a panel to a column and row.
+    /// Move an item to a column and row.
     pub fn move_to(&mut self, instance: &str, x: u32, y: u32) {
         let Some(index) = self.index_of(instance) else {
             return;
@@ -144,7 +147,7 @@ impl LayoutDraft {
         self.dirty = true;
     }
 
-    /// Resize a panel.
+    /// Resize an item.
     pub fn resize(&mut self, instance: &str, w: u32, h: u32) {
         let Some(index) = self.index_of(instance) else {
             return;
@@ -161,11 +164,11 @@ impl LayoutDraft {
     /// back to whatever its platform calls it. That is what a person emptying
     /// the box means, and it keeps a blank heading off the surface.
     pub fn rename(&mut self, instance: &str, title: &str) {
-        let Some(index) = self.index_of(instance) else {
+        let Some(panel) = self.panel_mut(instance) else {
             return;
         };
         let trimmed = title.trim();
-        self.document.panels[index].title_override = if trimmed.is_empty() {
+        panel.title_override = if trimmed.is_empty() {
             None
         } else {
             Some(trimmed.to_string())
@@ -178,10 +181,10 @@ impl LayoutDraft {
     /// `None` means "however its platform draws it", so a platform changing its
     /// default reaches everyone who did not choose otherwise.
     pub fn set_kind(&mut self, instance: &str, kind: Option<&str>) {
-        let Some(index) = self.index_of(instance) else {
+        let Some(panel) = self.panel_mut(instance) else {
             return;
         };
-        self.document.panels[index].kind_override = kind.map(str::to_string);
+        panel.kind_override = kind.map(str::to_string);
         self.dirty = true;
     }
 
@@ -191,15 +194,13 @@ impl LayoutDraft {
     /// is what makes a `select` on one panel independent of the same `select`
     /// on another.
     pub fn set_selection(&mut self, instance: &str, param: &str, values: Vec<String>) {
-        let Some(index) = self.index_of(instance) else {
+        let Some(panel) = self.panel_mut(instance) else {
             return;
         };
         if values.is_empty() {
-            self.document.panels[index].selections.remove(param);
+            panel.selections.remove(param);
         } else {
-            self.document.panels[index]
-                .selections
-                .insert(param.to_string(), values);
+            panel.selections.insert(param.to_string(), values);
         }
         self.dirty = true;
     }
@@ -221,8 +222,7 @@ impl LayoutDraft {
     /// the layout has been written.
     pub fn selections(&self) -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
         self.document
-            .panels
-            .iter()
+            .panels()
             .filter_map(|panel| {
                 let id = panel.id.clone()?;
                 if panel.selections.is_empty() {
@@ -245,7 +245,7 @@ impl LayoutDraft {
     /// no longer declaring it — counts for nothing: it cannot be shown to want
     /// a range, and the controls appear the moment the catalogue says it does.
     pub fn wants_time(&self, catalog: &[CatalogPlatform]) -> bool {
-        self.document.panels.iter().any(|instance| {
+        self.document.panels().any(|instance| {
             catalog
                 .iter()
                 .filter(|platform| platform.id == instance.platform_id)
@@ -260,26 +260,230 @@ impl LayoutDraft {
         })
     }
 
+    // -- A page selector's pages (HLIN-T-0116) -----------------------------
+    //
+    // Each takes the selector by its id and a group or page by its place. A
+    // place that is not there changes nothing, so a click that lands after the
+    // layout moved on under it is harmless.
+
+    /// Add an empty group at the end.
+    pub fn add_group(&mut self, selector: &str, label: &str) {
+        let label = label.trim();
+        if label.is_empty() {
+            return;
+        }
+        let Some(selector) = self.selector_mut(selector) else {
+            return;
+        };
+        selector.groups.push(PageGroup {
+            label: label.to_string(),
+            pages: Vec::new(),
+        });
+        self.dirty = true;
+    }
+
+    /// Rename a group. A group needs a name, so an empty one is ignored.
+    pub fn rename_group(&mut self, selector: &str, group: usize, label: &str) {
+        let label = label.trim();
+        if label.is_empty() {
+            return;
+        }
+        let Some(found) = self.group_mut(selector, group) else {
+            return;
+        };
+        if found.label != label {
+            found.label = label.to_string();
+            self.dirty = true;
+        }
+    }
+
+    /// Move a group to another place among the selector's groups.
+    pub fn move_group(&mut self, selector: &str, from: usize, to: usize) {
+        let Some(selector) = self.selector_mut(selector) else {
+            return;
+        };
+        if from >= selector.groups.len() || from == to {
+            return;
+        }
+        let group = selector.groups.remove(from);
+        let to = to.min(selector.groups.len());
+        selector.groups.insert(to, group);
+        self.dirty = true;
+    }
+
+    /// Take a group, and its pages, off the selector.
+    pub fn remove_group(&mut self, selector: &str, group: usize) {
+        let Some(selector) = self.selector_mut(selector) else {
+            return;
+        };
+        if group < selector.groups.len() {
+            selector.groups.remove(group);
+            self.dirty = true;
+        }
+    }
+
+    /// Add a page at the end of a group.
+    pub fn add_page(&mut self, selector: &str, group: usize, page: Page) {
+        let Some(found) = self.group_mut(selector, group) else {
+            return;
+        };
+        found.pages.push(PageEntry { page, label: None });
+        self.dirty = true;
+    }
+
+    /// Give a page a name of its own. Empty clears it, so the page is called
+    /// what its target calls itself again.
+    pub fn rename_page(&mut self, selector: &str, group: usize, index: usize, label: &str) {
+        let Some(entry) = self
+            .group_mut(selector, group)
+            .and_then(|group| group.pages.get_mut(index))
+        else {
+            return;
+        };
+        let label = label.trim();
+        let label = (!label.is_empty()).then(|| label.to_string());
+        if entry.label != label {
+            entry.label = label;
+            self.dirty = true;
+        }
+    }
+
+    /// Move a page, within its group or into another: `from` and `to` are
+    /// (group, place). A place past the end of the group is its end.
+    pub fn move_page(&mut self, selector: &str, from: (usize, usize), to: (usize, usize)) {
+        let Some(selector) = self.selector_mut(selector) else {
+            return;
+        };
+        if from == to
+            || to.0 >= selector.groups.len()
+            || selector
+                .groups
+                .get(from.0)
+                .is_none_or(|group| from.1 >= group.pages.len())
+        {
+            return;
+        }
+        let entry = selector.groups[from.0].pages.remove(from.1);
+        let pages = &mut selector.groups[to.0].pages;
+        let at = to.1.min(pages.len());
+        pages.insert(at, entry);
+        self.dirty = true;
+    }
+
+    /// Take a page off a group.
+    pub fn remove_page(&mut self, selector: &str, group: usize, index: usize) {
+        let Some(found) = self.group_mut(selector, group) else {
+            return;
+        };
+        if index < found.pages.len() {
+            found.pages.remove(index);
+            self.dirty = true;
+        }
+    }
+
+    // -- The surface as JSON text (HLIN-T-0116, D11) ----------------------
+
+    /// The surface as a person edits it as text: its title and items.
+    pub fn export(&self) -> String {
+        let text = serde_json::json!({
+            "title": self.document.title,
+            "items": self.document.items,
+        });
+        serde_json::to_string_pretty(&text).unwrap_or_default()
+    }
+
+    /// Take a surface's title and items from text a person wrote or loaded.
+    ///
+    /// Refused with a reason, and nothing changed, for anything that is not a
+    /// surface: text that is not JSON, an item of a type this shell does not
+    /// know, two items with one id. Who owns it, who sees it and its id stay
+    /// as they are: those are not the text's to change.
+    pub fn import(&mut self, text: &str) -> Result<(), String> {
+        let value: serde_json::Value =
+            serde_json::from_str(text).map_err(|error| format!("This is not JSON: {error}."))?;
+        if value.get("panels").is_some() && value.get("items").is_none() {
+            return Err(
+                "`panels` is now `items`: give a list of items, each with a `type`.".into(),
+            );
+        }
+        let Some(items) = value.get("items").and_then(|items| items.as_array()) else {
+            return Err("A surface needs `items`: a list of items, each with a `type`.".into());
+        };
+        for (index, item) in items.iter().enumerate() {
+            let kind = item
+                .get("type")
+                .and_then(|kind| kind.as_str())
+                .unwrap_or_default();
+            if !LayoutItem::TYPES.contains(&kind) {
+                return Err(format!(
+                    "Item {index} has the type `{kind}`. Known types: {}.",
+                    LayoutItem::TYPES.join(", ")
+                ));
+            }
+        }
+        let items: Vec<LayoutItem> =
+            serde_json::from_value(serde_json::Value::Array(items.clone()))
+                .map_err(|error| format!("The items could not be read: {error}."))?;
+        let mut ids = std::collections::BTreeSet::new();
+        for id in items.iter().filter_map(LayoutItem::id) {
+            if !ids.insert(id) {
+                return Err(format!("Two items have the id `{id}`."));
+            }
+        }
+        if let Some(title) = value
+            .get("title")
+            .and_then(|title| title.as_str())
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+        {
+            self.document.title = title.to_string();
+        }
+        self.document.items = items;
+        self.arrange(None);
+        self.dirty = true;
+        Ok(())
+    }
+
     // -- Inside -----------------------------------------------------------
+
+    fn selector_mut(&mut self, id: &str) -> Option<&mut PageSelectorItem> {
+        self.document.items.iter_mut().find_map(|item| match item {
+            LayoutItem::PageSelector(selector) if selector.id.as_deref() == Some(id) => {
+                Some(selector)
+            }
+            _ => None,
+        })
+    }
+
+    fn group_mut(&mut self, selector: &str, group: usize) -> Option<&mut PageGroup> {
+        self.selector_mut(selector)?.groups.get_mut(group)
+    }
 
     fn index_of(&self, instance: &str) -> Option<usize> {
         self.document
-            .panels
+            .items
             .iter()
-            .position(|panel| panel.id.as_deref() == Some(instance))
+            .position(|item| item.id() == Some(instance))
     }
 
+    fn panel_mut(&mut self, instance: &str) -> Option<&mut PanelInstanceDocument> {
+        let index = self.index_of(instance)?;
+        self.document.items[index].as_panel_mut()
+    }
+
+    // Every item takes part in the grid, whatever its type, so no two items
+    // ever share a cell.
     fn placements(&self) -> Vec<Placement> {
         self.document
-            .panels
+            .items
             .iter()
-            .map(|panel| panel.position)
+            .map(LayoutItem::position)
             .collect()
     }
 
     fn write_back(&mut self, placements: Vec<Placement>) {
-        for (panel, placement) in self.document.panels.iter_mut().zip(placements) {
-            panel.position = placement;
+        for (item, placement) in self.document.items.iter_mut().zip(placements) {
+            *item.position_mut() = placement;
         }
     }
 

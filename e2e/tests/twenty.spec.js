@@ -31,7 +31,7 @@
 // nothing here assumes where the counter or the poll starts.
 
 const { test, expect } = require('@playwright/test');
-const { shot, shotOf } = require('./helpers');
+const { shot, shotOf, panelsOf } = require('./helpers');
 const { WIDGETS, ownOrigin, ownContext, ownRequest } = require('./twenty-deployment');
 
 /** How long another browser may take to show a change. */
@@ -131,7 +131,7 @@ test.describe('twenty widgets on one surface', () => {
 
     const layout = await (await request.get(`/api/layouts/${twenty.id}`)).json();
     expect(layout.visibility).toBe('published');
-    panels = layout.panels;
+    panels = panelsOf(layout);
     // Every widget the shell offers is on it: `WIDGETS` is the one list.
     for (const platform of offered) {
       expect(

@@ -11,13 +11,19 @@
 //! colours the switch leaves on the page.
 
 use aurora_leptos::{AuroraPack, ThemeToggle};
+use hlin_ui::Views;
 use hlin_ui::app::App;
 use leptos::prelude::*;
 
 fn main() {
     console_error_panic_hook::set_once();
-    leptos::mount::mount_to_body(|| {
-        view! { <App pack=AuroraPack bar=|| view! { <ThemeToggle /> } /> }
+    // A view in the front end's own code, which a content component opens with
+    // `{ "view": "about" }`.
+    let views = Views::new().with("about", || {
+        view! { <article class="demo-about"><p>"About this shell"</p></article> }
+    });
+    leptos::mount::mount_to_body(move || {
+        view! { <App pack=AuroraPack bar=|| view! { <ThemeToggle /> } views=views.clone() /> }
     });
 }
 

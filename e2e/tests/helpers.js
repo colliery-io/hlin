@@ -44,6 +44,16 @@ async function freshLayout(request, title) {
   return layout.id;
 }
 
+/** Panels as layout items: each gets `type: 'panel'`. */
+function asPanels(panels) {
+  return panels.map((panel) => ({ type: 'panel', ...panel }));
+}
+
+/** The panels on a layout, leaving out its other items. */
+function panelsOf(layout) {
+  return (layout.items ?? []).filter((item) => item.type === 'panel');
+}
+
 /** Remove a layout the test made, whatever happened to it. */
 async function discardLayout(request, id) {
   if (id) {
@@ -55,8 +65,9 @@ async function discardLayout(request, id) {
 async function openSurface(page, id) {
   await page.goto(`/s/${id}`);
   // The bar is the first thing the app renders, so its presence is the signal
-  // that the WebAssembly bundle loaded and mounted rather than erroring.
-  await page.locator('header.bar').waitFor({ state: 'visible' });
+  // that the WebAssembly bundle loaded and mounted rather than erroring. A
+  // surface may hold bars of its own, so the first is the shell's.
+  await page.locator('header.bar').first().waitFor({ state: 'visible' });
 }
 
 /**
@@ -186,6 +197,8 @@ module.exports = {
   shotOf,
   freshLayout,
   discardLayout,
+  asPanels,
+  panelsOf,
   openSurface,
   panel,
   placementOf,

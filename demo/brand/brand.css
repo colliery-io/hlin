@@ -17,3 +17,11 @@
   --ice-5: light-dark(#9a1153, #f0609f);
   --ice-7: light-dark(#7d0e44, #d94a88);
 }
+
+/* The shell's own chrome, by its class names (HLIN-T-0118): the page a
+ * selector shows is outlined in Acme's magenta. Names from
+ * docs/src/content/docs/reference/shell-css.md, which do not change within a
+ * major version. */
+.page-selector .selector-page[aria-current="page"] {
+  outline: 2px solid rgb(176, 19, 95);
+}

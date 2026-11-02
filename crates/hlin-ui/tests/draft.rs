@@ -4,7 +4,7 @@
 //! this is where the composition behaviour is pinned: what adding does, what
 //! removing leaves behind, and which changes are worth a write to the shell.
 
-use hlin_stream::layout::{LayoutDocument, PanelInstanceDocument, Placement};
+use hlin_stream::layout::{BarItem, LayoutDocument, LayoutItem, PanelInstanceDocument, Placement};
 use hlin_ui::LayoutDraft;
 
 fn stored(panels: Vec<PanelInstanceDocument>) -> LayoutDocument {
@@ -14,7 +14,7 @@ fn stored(panels: Vec<PanelInstanceDocument>) -> LayoutDocument {
         visibility: "personal".to_string(),
         owner: "ada".to_string(),
         editable: true,
-        panels,
+        items: panels.into_iter().map(LayoutItem::from).collect(),
     }
 }
 
@@ -53,6 +53,35 @@ fn an_arrangement_that_overlaps_itself_is_repaired_on_arrival() {
         !draft.dirty(),
         "and repairing it is not itself a change worth writing"
     );
+}
+
+#[test]
+fn a_shell_component_and_a_panel_never_share_a_cell() {
+    let mut document = stored(vec![identified("a", 0, 0, 6, 4)]);
+    document.items.insert(
+        0,
+        LayoutItem::Bar(BarItem {
+            id: Some("top".to_string()),
+            position: Placement {
+                x: 0,
+                y: 0,
+                w: 12,
+                h: 1,
+            },
+        }),
+    );
+    let mut draft = LayoutDraft::of(document);
+
+    let bar = draft.placement_of("top").expect("the bar is there");
+    let panel = draft.placement_of("a").expect("the panel is there");
+    assert!(!bar.overlaps(&panel), "{bar:?} and {panel:?} share cells");
+    assert_eq!(draft.panels().len(), 1, "the bar is not a panel");
+    assert!(draft.panel("top").is_none());
+
+    // Added panels and moved panels also keep clear of it.
+    draft.add("orebank", "throughput");
+    draft.move_to("a", 0, 0);
+    assert_eq!(draft.document().overlapping(), None);
 }
 
 #[test]
@@ -382,11 +411,14 @@ fn adding_a_time_driven_panel_wants_the_controls_and_removing_the_last_does_not(
     // the one the shell would, so it can be removed by name.
     let mut document = draft.document().clone();
     let added = document
-        .panels
+        .items
         .iter()
-        .position(|panel| panel.panel_key == "throughput")
+        .position(|item| {
+            item.as_panel()
+                .is_some_and(|panel| panel.panel_key == "throughput")
+        })
         .expect("the panel was added");
-    document.panels[added].id = Some("t".to_string());
+    document.items[added].set_id(Some("t".to_string()));
     let mut draft = LayoutDraft::of(document);
     assert!(draft.wants_time(&catalog()));
 
@@ -408,4 +440,241 @@ fn a_panel_the_catalogue_does_not_know_wants_nothing() {
         !LayoutDraft::of(stored(vec![instance("a", "orebank", "throughput")])).wants_time(&[]),
         "before the catalogue has answered, nothing can be shown to want time"
     );
+}
+
+// -- A page selector's pages (HLIN-T-0116) ---------------------------------
+
+mod selector_pages {
+    use hlin_stream::layout::{
+        LayoutDocument, LayoutItem, Page, PageEntry, PageGroup, PageSelectorItem, Placement,
+        SelectorStyle,
+    };
+    use hlin_ui::LayoutDraft;
+
+    fn surface(id: &str) -> Page {
+        Page::Surface(id.to_string())
+    }
+
+    fn with_selector(groups: Vec<PageGroup>) -> LayoutDraft {
+        LayoutDraft::of(LayoutDocument {
+            id: Some("11111111-2222-3333-4444-555555555555".to_string()),
+            title: "Mine".to_string(),
+            visibility: "personal".to_string(),
+            owner: "ada".to_string(),
+            editable: true,
+            items: vec![LayoutItem::PageSelector(PageSelectorItem {
+                id: Some("nav".to_string()),
+                position: Placement {
+                    x: 0,
+                    y: 0,
+                    w: 3,
+                    h: 6,
+                },
+                style: SelectorStyle::Rail,
+                target: "main".to_string(),
+                groups,
+            })],
+        })
+    }
+
+    fn group(label: &str, pages: &[&str]) -> PageGroup {
+        PageGroup {
+            label: label.to_string(),
+            pages: pages
+                .iter()
+                .map(|id| PageEntry {
+                    page: surface(id),
+                    label: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// The groups as (label, [surface ids]).
+    fn shape(draft: &LayoutDraft) -> Vec<(String, Vec<String>)> {
+        let LayoutItem::PageSelector(selector) = &draft.document().items[0] else {
+            panic!("a selector");
+        };
+        selector
+            .groups
+            .iter()
+            .map(|group| {
+                (
+                    group.label.clone(),
+                    group
+                        .pages
+                        .iter()
+                        .map(|entry| match &entry.page {
+                            Page::Surface(id) => id.clone(),
+                            other => format!("{other:?}"),
+                        })
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    fn labels(draft: &LayoutDraft, group: usize) -> Vec<Option<String>> {
+        let LayoutItem::PageSelector(selector) = &draft.document().items[0] else {
+            panic!("a selector");
+        };
+        selector.groups[group]
+            .pages
+            .iter()
+            .map(|entry| entry.label.clone())
+            .collect()
+    }
+
+    fn s(text: &str) -> String {
+        text.to_string()
+    }
+
+    #[test]
+    fn groups_are_added_renamed_moved_and_removed() {
+        let mut draft = with_selector(vec![group("A", &["a"])]);
+        draft.add_group("nav", "  B ");
+        assert!(draft.dirty());
+        assert_eq!(
+            shape(&draft),
+            vec![(s("A"), vec![s("a")]), (s("B"), vec![])]
+        );
+
+        draft.rename_group("nav", 1, "Bee");
+        draft.move_group("nav", 1, 0);
+        assert_eq!(
+            shape(&draft),
+            vec![(s("Bee"), vec![]), (s("A"), vec![s("a")])]
+        );
+
+        draft.remove_group("nav", 1);
+        assert_eq!(shape(&draft), vec![(s("Bee"), vec![])]);
+    }
+
+    #[test]
+    fn a_group_keeps_a_name() {
+        let mut draft = with_selector(vec![group("A", &[])]);
+        draft.add_group("nav", "   ");
+        draft.rename_group("nav", 0, "");
+        assert_eq!(shape(&draft), vec![(s("A"), vec![])]);
+        assert!(!draft.dirty(), "nothing changed, so nothing to write");
+    }
+
+    #[test]
+    fn pages_are_added_moved_and_removed_within_and_across_groups() {
+        let mut draft = with_selector(vec![group("A", &["a", "b"]), group("B", &["c"])]);
+        draft.add_page("nav", 0, surface("d"));
+        assert_eq!(shape(&draft)[0].1, vec![s("a"), s("b"), s("d")]);
+
+        draft.move_page("nav", (0, 2), (0, 0));
+        assert_eq!(shape(&draft)[0].1, vec![s("d"), s("a"), s("b")]);
+
+        // Into another group, past its end: at its end.
+        draft.move_page("nav", (0, 0), (1, 9));
+        assert_eq!(
+            shape(&draft),
+            vec![
+                (s("A"), vec![s("a"), s("b")]),
+                (s("B"), vec![s("c"), s("d")])
+            ]
+        );
+
+        draft.remove_page("nav", 1, 0);
+        assert_eq!(shape(&draft)[1].1, vec![s("d")]);
+    }
+
+    #[test]
+    fn a_page_is_renamed_and_an_empty_name_gives_back_its_own() {
+        let mut draft = with_selector(vec![group("A", &["a"])]);
+        draft.rename_page("nav", 0, 0, " Alpha ");
+        assert_eq!(labels(&draft, 0), vec![Some(s("Alpha"))]);
+        draft.rename_page("nav", 0, 0, "");
+        assert_eq!(labels(&draft, 0), vec![None]);
+    }
+
+    #[test]
+    fn a_place_that_is_not_there_changes_nothing() {
+        let mut draft = with_selector(vec![group("A", &["a"])]);
+        let before = shape(&draft);
+        draft.add_page("nav", 5, surface("x"));
+        draft.add_page("other", 0, surface("x"));
+        draft.move_page("nav", (0, 3), (0, 0));
+        draft.move_page("nav", (0, 0), (4, 0));
+        draft.move_group("nav", 2, 0);
+        draft.remove_group("nav", 3);
+        draft.remove_page("nav", 0, 7);
+        draft.rename_page("nav", 0, 7, "x");
+        assert_eq!(shape(&draft), before);
+        assert!(!draft.dirty());
+    }
+
+    // -- As text ------------------------------------------------------------
+
+    #[test]
+    fn what_is_exported_imports_back_to_the_same_surface() {
+        let mut draft = with_selector(vec![group("A", &["a", "b"])]);
+        let text = draft.export();
+        assert!(text.contains("\"page-selector\""), "{text}");
+        assert!(
+            !text.contains("\"owner\""),
+            "who owns it is not the text's: {text}"
+        );
+
+        let before = draft.document().clone();
+        draft.import(&text).expect("its own export");
+        assert_eq!(draft.document(), &before);
+    }
+
+    #[test]
+    fn an_import_takes_title_and_items_and_keeps_who_owns_it() {
+        let mut draft = with_selector(vec![]);
+        draft
+            .import(
+                r#"{ "title": "Renamed", "items": [
+                    { "type": "content", "id": "main", "position": { "x": 0, "y": 0, "w": 6, "h": 4 } },
+                    { "type": "bar", "id": "bar", "position": { "x": 0, "y": 0, "w": 12, "h": 1 } }
+                ] }"#,
+            )
+            .expect("a surface");
+        assert!(draft.dirty());
+        assert_eq!(draft.title(), "Renamed");
+        assert_eq!(draft.document().items.len(), 2);
+        assert_eq!(draft.document().owner, "ada");
+        assert_eq!(draft.document().visibility, "personal");
+        assert_eq!(
+            draft.surface_id(),
+            Some("11111111-2222-3333-4444-555555555555")
+        );
+        // Settled onto the grid, as anything that arrives is.
+        assert_ne!(
+            draft.placement_of("main"),
+            draft.placement_of("bar"),
+            "two items never share a cell"
+        );
+    }
+
+    #[test]
+    fn an_import_that_is_not_a_surface_is_refused_and_changes_nothing() {
+        for (text, says) in [
+            ("not json", "not JSON"),
+            (r#"{ "title": "x" }"#, "needs `items`"),
+            (r#"{ "panels": [] }"#, "`panels` is now `items`"),
+            (r#"{ "items": [ { "type": "widget" } ] }"#, "`widget`"),
+            (r#"{ "items": [ { "id": "x" } ] }"#, "type ``"),
+            (
+                r#"{ "items": [ { "type": "bar", "id": "x" }, { "type": "bar", "id": "x" } ] }"#,
+                "Two items have the id `x`",
+            ),
+            (
+                r#"{ "items": [ { "type": "page-selector", "id": "s" } ] }"#,
+                "could not be read",
+            ),
+        ] {
+            let mut draft = with_selector(vec![group("A", &["a"])]);
+            let before = draft.document().clone();
+            let reason = draft.import(text).expect_err(text);
+            assert!(reason.contains(says), "{text}: {reason}");
+            assert_eq!(draft.document(), &before, "{text}");
+            assert!(!draft.dirty(), "{text}");
+        }
+    }
 }

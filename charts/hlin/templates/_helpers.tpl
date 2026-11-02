@@ -73,6 +73,9 @@ signing with different keys fail one request in two rather than all of them.
 {{- if gt $trust 1 }}
 {{- fail "config.caBundle: set at most one of pem, existingConfigMap, existingSecret. Only one can be mounted, so the others would be silently ignored — and a trust anchor that is silently ignored fails against every platform at once, looking like an outage." }}
 {{- end }}
+{{- if and .Values.config.defaultSurface.json .Values.config.defaultSurface.existingConfigMap }}
+{{- fail "config.defaultSurface: set json or existingConfigMap, not both. Only one can be mounted, so the other would be silently ignored." }}
+{{- end }}
 {{- with .Values.config.brand }}
 {{- if and (or .logo .favicon .stylesheet) (not .existingConfigMap) }}
 {{- fail "config.brand: logo, favicon and stylesheet name keys in config.brand.existingConfigMap, which is not set." }}
@@ -90,12 +93,18 @@ signing with different keys fail one request in two rather than all of them.
 {{- if not .Values.config.auth.trustedHeader.acknowledgeProxyRequired }}
 {{- fail "config.auth.trustedHeader.acknowledgeProxyRequired must be true: this strategy trusts whatever the header claims, so anything that can reach a pod directly is whoever it says it is. A pod IP is reachable from the rest of the namespace by default — an ingress in front is not on its own enough." }}
 {{- end }}
+{{- if and .Values.config.auth.trustedHeader.adminGroups (not .Values.config.auth.trustedHeader.groupsHeader) }}
+{{- fail "config.auth.trustedHeader.adminGroups is set, but groupsHeader is not, so there is no header to read the groups from." }}
+{{- end }}
 {{- else if eq .Values.config.auth.strategy "oidc" }}
 {{- if not .Values.config.auth.oidc.publicUrl }}
 {{- fail "config.auth.oidc.publicUrl is required: the redirect URI is built from it and has to match what the provider was told, and the shell cannot see its own public address from inside the cluster." }}
 {{- end }}
 {{- if not .Values.config.auth.oidc.clientSecret.name }}
 {{- fail "config.auth.oidc.clientSecret.name is required: the client secret comes from a Secret, never from values." }}
+{{- end }}
+{{- if and .Values.config.auth.oidc.adminClaim (not .Values.config.auth.oidc.adminValues) }}
+{{- fail "config.auth.oidc.adminClaim is set, but adminValues is empty, so nobody could be an admin by it." }}
 {{- end }}
 {{- else }}
 {{- fail (printf "config.auth.strategy must be anonymous, trusted-header or oidc, and is %q. `dev` is not offered: the shell refuses it outside a debug build, so a chart that rendered it would only produce a pod that crashes with an explanation." .Values.config.auth.strategy) }}
@@ -121,6 +130,18 @@ The filename under /etc/hlin-trust. An inline PEM is written under a name the
 chart chooses; a borrowed one keeps its own key, so the mount and the setting
 agree without the operator having to make them agree.
 */}}
+{{- define "hlin.shellMounted" -}}
+{{- if or .Values.config.defaultSurface.json .Values.config.defaultSurface.existingConfigMap }}yes{{ end }}
+{{- end }}
+
+{{/*
+The filename under /etc/hlin-shell: the chart's own name for inline JSON, the
+ConfigMap's key otherwise.
+*/}}
+{{- define "hlin.shellFile" -}}
+{{- if .Values.config.defaultSurface.json }}shell.json{{ else }}{{ .Values.config.defaultSurface.key }}{{ end }}
+{{- end }}
+
 {{- define "hlin.trustFile" -}}
 {{- if .Values.config.caBundle.pem }}ca.pem{{ else }}{{ .Values.config.caBundle.key }}{{ end }}
 {{- end }}

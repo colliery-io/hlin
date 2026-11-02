@@ -40,6 +40,7 @@ pub mod modules;
 pub mod options;
 pub mod registry;
 pub mod server;
+pub mod shell;
 pub mod store;
 pub mod stream;
 pub mod surfaces;
